@@ -1,0 +1,14 @@
+server:
+  port: 8080
+
+pipelines:
+  hello:
+    trigger:
+      type: webhook
+      path: /hello
+    container:
+      image: alpine
+      command: ["sh", "-c", "echo 'Hello from Pylon! Event: $EVENT_DATA' && sleep 2 && echo 'Done.'"]
+      timeout: 30s
+    env:
+      EVENT_DATA: "{{ .body }}"
