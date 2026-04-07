@@ -25,6 +25,11 @@ type JobStore struct {
 	results map[string]JobResult
 }
 
+type JobStorer interface {
+	Save(r JobResult)
+	Get(jobID string) (JobResult, bool)
+}
+
 func NewJobStore() *JobStore { return &JobStore{results: make(map[string]JobResult)} }
 
 func (s *JobStore) Save(r JobResult) {
@@ -49,6 +54,16 @@ type Job struct {
 type PendingJobs struct {
 	mu   sync.RWMutex
 	jobs map[string]*Job
+}
+
+type PendingJobStore interface {
+	Put(j *Job)
+	Delete(id string)
+	Get(id string) (*Job, bool)
+	GetByTopic(topicID string) (*Job, bool)
+	List() []*Job
+	UpdateStatus(id string, status string)
+	UpdateSessionID(id string, sessionID string)
 }
 
 func NewPendingJobs() *PendingJobs      { return &PendingJobs{jobs: make(map[string]*Job)} }
@@ -78,6 +93,20 @@ func (p *PendingJobs) List() []*Job {
 		out = append(out, j)
 	}
 	return out
+}
+func (p *PendingJobs) UpdateStatus(id string, status string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if j, ok := p.jobs[id]; ok {
+		j.Status = status
+	}
+}
+func (p *PendingJobs) UpdateSessionID(id string, sessionID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if j, ok := p.jobs[id]; ok {
+		j.SessionID = sessionID
+	}
 }
 
 type AgentLimiter struct {
@@ -110,7 +139,7 @@ func (l *AgentLimiter) Release(pipeline string) {
 	}
 }
 
-func RegisterPipelineRoutes(mux *http.ServeMux, cfg *Config, store *JobStore, notifier Notifier, pending *PendingJobs, limiter *AgentLimiter) {
+func RegisterPipelineRoutes(mux *http.ServeMux, cfg *Config, store JobStorer, notifier Notifier, pending PendingJobStore, limiter *AgentLimiter) {
 	for name, pipeline := range cfg.Pipelines {
 		name := name
 		pipeline := pipeline
@@ -200,21 +229,21 @@ func RegisterPipelineRoutes(mux *http.ServeMux, cfg *Config, store *JobStore, no
 	}
 }
 
-func RegisterApprovalHandler(notifier Notifier, pending *PendingJobs, store *JobStore, port int, limiter *AgentLimiter) {
+func RegisterApprovalHandler(notifier Notifier, pending PendingJobStore, store JobStorer, port int, limiter *AgentLimiter) {
 	runAgent := func(job *Job, prompt string) bool {
 		if !limiter.Acquire(job.PipeName, job.Pipeline.Agent.MaxAgents) {
 			log.Printf("[pylon] [%s] pipeline %q at max agents (%d)", job.ID[:8], job.PipeName, job.Pipeline.Agent.MaxAgents)
 			notifier.SendMessage(job.TopicID, escapeMarkdownV2(fmt.Sprintf("Pipeline at capacity (%d agents). Try again later.", job.Pipeline.Agent.MaxAgents)))
 			return false
 		}
-		job.Status = "running"
+		pending.UpdateStatus(job.ID, "running")
 		go func() {
 			defer limiter.Release(job.PipeName)
 			err := RunAgentJob(context.Background(), job.Pipeline, job.ID, job.Body, job.CallbackURL, notifier, job.TopicID, prompt, job.SessionID)
 			if err != nil {
 				log.Printf("[pylon] [%s] pipeline %q failed: %v", job.ID[:8], job.PipeName, err)
 			}
-			job.Status = "active"
+			pending.UpdateStatus(job.ID, "active")
 		}()
 		return true
 	}
@@ -233,7 +262,6 @@ func RegisterApprovalHandler(notifier Notifier, pending *PendingJobs, store *Job
 			}
 			notifier.EditMessage(job.TopicID, job.MessageID, escapeMarkdownV2("Spinning up agent..."))
 		case "ignore":
-			job.Status = "ignored"
 			log.Printf("[pylon] [%s] dismissed", jobID[:8])
 			notifier.EditMessage(job.TopicID, job.MessageID, escapeMarkdownV2("Dismissed"))
 			pending.Delete(jobID)
@@ -282,7 +310,7 @@ func RegisterApprovalHandler(notifier Notifier, pending *PendingJobs, store *Job
 	})
 }
 
-func RegisterCallbackRoute(mux *http.ServeMux, store *JobStore, notifier Notifier, pending *PendingJobs) {
+func RegisterCallbackRoute(mux *http.ServeMux, store JobStorer, notifier Notifier, pending PendingJobStore) {
 	mux.HandleFunc("/callback/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -314,7 +342,7 @@ func RegisterCallbackRoute(mux *http.ServeMux, store *JobStore, notifier Notifie
 		if job, ok := pending.Get(jobID); ok {
 			if result.Status == "completed" {
 				if sid := extractSessionID(result.Output); sid != "" {
-					job.SessionID = sid
+					pending.UpdateSessionID(job.ID, sid)
 				}
 			}
 			if notifier != nil {
@@ -337,7 +365,7 @@ func RegisterCallbackRoute(mux *http.ServeMux, store *JobStore, notifier Notifie
 
 // RegisterHooksRoute receives PostToolUse events from Claude Code's HTTP hooks
 // and forwards formatted messages to the Telegram topic for the job.
-func RegisterHooksRoute(mux *http.ServeMux, notifier Notifier, pending *PendingJobs) {
+func RegisterHooksRoute(mux *http.ServeMux, notifier Notifier, pending PendingJobStore) {
 	mux.HandleFunc("/hooks/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

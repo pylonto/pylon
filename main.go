@@ -29,8 +29,17 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	store := NewJobStore()
-	pending := NewPendingJobs()
+	db, err := OpenDB(cfg.Server.Database)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	store := NewSQLiteJobStore(db)
+	pending := NewSQLitePendingJobs(db)
+	if n := pending.RecoverFromDB(); n > 0 {
+		log.Printf("[pylon] recovered %d pending jobs from database", n)
+	}
 	limiter := NewAgentLimiter()
 
 	var notifier Notifier

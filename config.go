@@ -15,7 +15,8 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int `yaml:"port"`
+	Port     int    `yaml:"port"`
+	Database string `yaml:"database"`
 }
 
 type TelegramConfig struct {
@@ -73,6 +74,9 @@ func LoadConfig(path string) (*Config, error) {
 
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
+	}
+	if cfg.Server.Database == "" {
+		cfg.Server.Database = "pylon.db"
 	}
 	for name, p := range cfg.Pipelines {
 		if p.Agent.Auth == "" {

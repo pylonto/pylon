@@ -5,9 +5,12 @@ set -eu
 : "${JOB_ID:?JOB_ID env var is required}"
 : "${CALLBACK_URL:?CALLBACK_URL env var is required}"
 
-echo "[mock-agent] Job $JOB_ID starting"
-echo "[mock-agent] Prompt: $PROMPT"
-echo "[mock-agent] Files in /workspace:"
+SHORT_ID="${JOB_ID%%-*}"
+log() { echo "[mock-agent] [$SHORT_ID] $*"; }
+
+log "starting"
+log "prompt: $PROMPT"
+log "files in /workspace:"
 ls /workspace
 
 # Simulate a short think
@@ -17,10 +20,9 @@ OUTPUT='{"type":"result","subtype":"success","result":"Mock agent received the p
 
 payload=$(printf '{"job_id":"%s","status":"completed","output":%s}' "$JOB_ID" "$OUTPUT")
 
-echo "[mock-agent] Sending results to $CALLBACK_URL"
+log "posting results"
 curl -s -X POST "$CALLBACK_URL" \
     -H "Content-Type: application/json" \
     -d "$payload"
 
-echo ""
-echo "[mock-agent] Job $JOB_ID done"
+log "done"
