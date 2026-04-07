@@ -2,92 +2,172 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
-// RunContainer spins up a Docker container for the given pipeline config,
-// streams its output, waits for it to finish, and cleans up.
-func RunContainer(ctx context.Context, pipeline PipelineConfig, env map[string]string) error {
-	// Create a Docker client using environment variables (DOCKER_HOST, etc.)
-	// or the default local socket at /var/run/docker.sock.
+// Use a directory under $HOME so it's accessible inside the Colima/Docker VM.
+// Colima mounts the home directory by default but not /tmp.
+var jobsDir = filepath.Join(os.TempDir(), "pylon-jobs")
+
+func init() {
+	if home, err := os.UserHomeDir(); err == nil {
+		jobsDir = filepath.Join(home, ".pylon", "jobs")
+	}
+}
+
+// RunAgentJob clones a repo, spins up an agent container with the workspace
+// mounted, streams output, enforces a timeout, and cleans up everything.
+func RunAgentJob(ctx context.Context, pipeline PipelineConfig, jobID string, body map[string]interface{}, callbackURL string) error {
+	// Resolve template values from the webhook JSON body.
+	repo := resolveTemplate(pipeline.Workspace.Repo, body)
+	ref := resolveTemplate(pipeline.Workspace.Ref, body)
+	prompt := resolveTemplate(pipeline.Agent.Prompt, body)
+
+	workDir := filepath.Join(jobsDir, jobID)
+	os.MkdirAll(jobsDir, 0755)
+
+	// Clone the repo to the host. The runner owns git — the agent image doesn't
+	// need git installed, keeping agent images simple and swappable.
+	log.Printf("[pylon] [%s] cloning %s@%s to %s", jobID[:8], repo, ref, workDir)
+	cloneCmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", ref, repo, workDir)
+	cloneCmd.Stdout = os.Stdout
+	cloneCmd.Stderr = os.Stderr
+	if err := cloneCmd.Run(); err != nil {
+		return fmt.Errorf("git clone failed: %w", err)
+	}
+	log.Printf("[pylon] [%s] clone complete", jobID[:8])
+
+	// Ensure the workspace is cleaned up when the job finishes.
+	defer func() {
+		log.Printf("[pylon] [%s] cleaning up workspace %s", jobID[:8], workDir)
+		os.RemoveAll(workDir)
+	}()
+
+	// Create a Docker client from environment (DOCKER_HOST) or default socket.
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("creating docker client: %w", err)
 	}
 	defer cli.Close()
 
-	// Pull the image so we have it locally. If it already exists this is fast.
-	log.Printf("[pylon] pulling image %s...", pipeline.Container.Image)
-	pullOut, err := cli.ImagePull(ctx, pipeline.Container.Image, image.PullOptions{})
+	// Pull the agent image so it's available locally.
+	log.Printf("[pylon] [%s] pulling image %s...", jobID[:8], pipeline.Agent.Image)
+	pullOut, err := cli.ImagePull(ctx, pipeline.Agent.Image, image.PullOptions{})
 	if err != nil {
-		return fmt.Errorf("pulling image %s: %w", pipeline.Container.Image, err)
-	}
-	// ImagePull returns a reader that must be consumed for the pull to complete.
-	io.Copy(io.Discard, pullOut)
-	pullOut.Close()
-	log.Printf("[pylon] image %s ready", pipeline.Container.Image)
-
-	// Build the environment variable list in KEY=VALUE format for the container.
-	var envList []string
-	for k, v := range env {
-		envList = append(envList, k+"="+v)
+		// If pull fails, the image might be local-only (e.g. built with make image).
+		log.Printf("[pylon] [%s] pull failed (may be local): %v", jobID[:8], err)
+	} else {
+		// Must consume the reader for the pull to complete.
+		io.Copy(io.Discard, pullOut)
+		pullOut.Close()
 	}
 
-	// Create the container with the image, command, and env vars from config.
+	// Build container environment variables.
+	envList := []string{
+		"PROMPT=" + prompt,
+		"JOB_ID=" + jobID,
+		"CALLBACK_URL=" + callbackURL,
+	}
+
+	// Auth: pass API key from host env, or mount OAuth session directory.
+	var mounts []mount.Mount
+	if pipeline.Agent.Auth == "oauth" {
+		// Mount the host's ~/.claude directory and ~/.claude.json into the container.
+		// Read-write because Claude Code needs to refresh OAuth tokens.
+		homeDir, _ := os.UserHomeDir()
+		claudeDir := filepath.Join(homeDir, ".claude")
+		claudeJSON := filepath.Join(homeDir, ".claude.json")
+		mounts = append(mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: claudeDir,
+			Target: "/home/pylon/.claude",
+		})
+		mounts = append(mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: claudeJSON,
+			Target: "/home/pylon/.claude.json",
+		})
+	} else {
+		// Default: pass ANTHROPIC_API_KEY from the host environment.
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey != "" {
+			envList = append(envList, "ANTHROPIC_API_KEY="+apiKey)
+		}
+	}
+
+	// Bind-mount the cloned repo into /workspace inside the container.
+	mounts = append(mounts, mount.Mount{
+		Type:   mount.TypeBind,
+		Source: workDir,
+		Target: "/workspace",
+	})
+
+	// Apply timeout from config — kills the container if it runs too long.
+	if pipeline.Agent.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, pipeline.Agent.Timeout)
+		defer cancel()
+	}
+
+	// Create the container with config and host binds.
 	containerCfg := &container.Config{
-		Image: pipeline.Container.Image,
-		Cmd:   pipeline.Container.Command,
+		Image: pipeline.Agent.Image,
 		Env:   envList,
 	}
-	resp, err := cli.ContainerCreate(ctx, containerCfg, nil, nil, nil, "")
+	hostCfg := &container.HostConfig{
+		Mounts: mounts,
+		// host.docker.internal lets the container reach the host's network.
+		// This works natively on macOS Docker; on Linux we need the extra-host mapping.
+		ExtraHosts: []string{"host.docker.internal:host-gateway"},
+		// AutoRemove cleans up the container after it exits.
+		AutoRemove: true,
+	}
+
+	resp, err := cli.ContainerCreate(ctx, containerCfg, hostCfg, nil, nil, "")
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
 	}
 	containerID := resp.ID
-	log.Printf("[pylon] created container %s", containerID[:12])
+	log.Printf("[pylon] [%s] created container %s", jobID[:8], containerID[:12])
 
-	// Ensure cleanup: remove the container when we're done, regardless of outcome.
+	// With AutoRemove, we only need to force-remove if the container hasn't exited.
 	defer func() {
-		log.Printf("[pylon] removing container %s...", containerID[:12])
-		// Force remove so we don't leave stopped containers behind.
 		cli.ContainerRemove(context.Background(), containerID, container.RemoveOptions{Force: true})
-		log.Printf("[pylon] container %s removed", containerID[:12])
 	}()
 
-	// Start the container. This is non-blocking — the container runs in the background.
+	// Start the container — non-blocking, it runs in the background.
 	if err := cli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
-	log.Printf("[pylon] container %s started", containerID[:12])
+	log.Printf("[pylon] [%s] container started", jobID[:8])
 
-	// Attach to the container's stdout and stderr so we can stream logs in real time.
-	// ContainerLogs returns a multiplexed stream (stdout + stderr interleaved).
+	// Stream container stdout/stderr to the terminal in real time.
+	// Follow=true keeps the stream open until the container exits.
 	logReader, err := cli.ContainerLogs(ctx, containerID, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Follow:     true, // Follow keeps the stream open until the container exits.
+		Follow:     true,
 	})
 	if err != nil {
 		return fmt.Errorf("attaching to container logs: %w", err)
 	}
 	defer logReader.Close()
+	stdcopy.StdCopy(os.Stdout, os.Stderr, logReader)
 
-	// Stream container output to our stdout. The Docker log stream has an 8-byte
-	// header per frame (stream type + size), but stdcopy handles demuxing for us.
-	// For simplicity, we just copy raw — the headers are small and mostly invisible.
-	// In production you'd use stdcopy.StdCopy(os.Stdout, os.Stderr, logReader).
-	io.Copy(os.Stdout, logReader)
-
-	// Wait for the container to finish. ContainerWait returns two channels:
-	// one for the result (exit code) and one for errors.
+	// Wait for the container to finish. Returns exit code via statusCh.
 	statusCh, errCh := cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
@@ -98,20 +178,32 @@ func RunContainer(ctx context.Context, pipeline PipelineConfig, env map[string]s
 		if status.StatusCode != 0 {
 			return fmt.Errorf("container exited with code %d", status.StatusCode)
 		}
+	case <-ctx.Done():
+		// Timeout hit — kill the container.
+		log.Printf("[pylon] [%s] timeout reached, killing container", jobID[:8])
+		cli.ContainerKill(context.Background(), containerID, "SIGKILL")
+		return fmt.Errorf("job timed out")
 	}
 
-	log.Printf("[pylon] job completed successfully")
+	log.Printf("[pylon] [%s] job completed", jobID[:8])
 	return nil
 }
 
-// resolveEnv takes the env map from the pipeline config and substitutes
-// template placeholders like "{{ .body }}" with the actual webhook body.
-func resolveEnv(templates map[string]string, body string) map[string]string {
-	resolved := make(map[string]string, len(templates))
-	for k, v := range templates {
-		// Simple template substitution: replace {{ .body }} with the raw request body.
-		v = strings.ReplaceAll(v, "{{ .body }}", body)
-		resolved[k] = v
+// resolveTemplate does simple {{ .body.field }} substitution using the parsed
+// JSON body from the webhook. Supports top-level string fields only.
+// Example: "{{ .body.repo }}" with body {"repo": "https://..."} → "https://..."
+func resolveTemplate(tmpl string, body map[string]interface{}) string {
+	result := tmpl
+	for key, val := range body {
+		placeholder := fmt.Sprintf("{{ .body.%s }}", key)
+		switch v := val.(type) {
+		case string:
+			result = strings.ReplaceAll(result, placeholder, v)
+		default:
+			// For non-string values, marshal back to JSON.
+			b, _ := json.Marshal(v)
+			result = strings.ReplaceAll(result, placeholder, string(b))
+		}
 	}
-	return resolved
+	return result
 }

@@ -2,13 +2,31 @@ server:
   port: 8080
 
 pipelines:
-  hello:
+  sentry-review:
     trigger:
       type: webhook
-      path: /hello
-    container:
-      image: alpine
-      command: ["sh", "-c", "echo 'Hello from Pylon! Event: $EVENT_DATA' && sleep 2 && echo 'Done.'"]
-      timeout: 30s
-    env:
-      EVENT_DATA: "{{ .body }}"
+      path: /sentry
+
+    workspace:
+      repo: "{{ .body.repo }}"
+      ref: "{{ .body.ref }}"
+
+    agent:
+      image: pylon/agent-claude
+      prompt: "Investigate this error: {{ .body.error }}"
+      timeout: 10m
+      auth: oauth
+
+  mock-review:
+    trigger:
+      type: webhook
+      path: /mock
+
+    workspace:
+      repo: "{{ .body.repo }}"
+      ref: "{{ .body.ref }}"
+
+    agent:
+      image: pylon/agent-mock
+      prompt: "{{ .body.error }}"
+      timeout: 1m
