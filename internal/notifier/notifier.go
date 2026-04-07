@@ -1,4 +1,4 @@
-package main
+package notifier
 
 // Notifier abstracts a messaging backend that supports topic-based
 // conversations and inline-action buttons (approve/reject).

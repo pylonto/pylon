@@ -1,0 +1,24 @@
+name: "{{NAME}}"
+created: "{{CREATED}}"
+
+trigger:
+  type: webhook
+  path: /{{NAME}}
+  # secret: "${GITHUB_WEBHOOK_SECRET}"
+  # signature_header: X-Hub-Signature-256
+
+notify:
+  message: |
+    PR #{{ .body.number }}: {{ .body.pull_request.title }}
+  approval: false
+
+workspace:
+  type: git-clone
+  repo: "{{ .body.repository.clone_url }}"
+  ref: "{{ .body.pull_request.head.ref }}"
+
+agent:
+  prompt: |
+    Review this pull request. Check for bugs, security issues, and
+    suggest improvements. Be concise and actionable.
+  timeout: 15m

@@ -1,0 +1,25 @@
+name: "{{NAME}}"
+created: "{{CREATED}}"
+
+trigger:
+  type: webhook
+  path: /{{NAME}}
+  # secret: "${SENTRY_CLIENT_SECRET}"
+  # signature_header: sentry-hook-signature
+
+notify:
+  message: |
+    {{ .body.error }}
+    Repo: {{ .body.repo }}
+  approval: true
+
+workspace:
+  type: git-clone
+  repo: "{{ .body.repo }}"
+  ref: "{{ .body.ref }}"
+
+agent:
+  prompt: |
+    Investigate this Sentry error: {{ .body.error }}.
+    Look at the stack trace and suggest a fix.
+  timeout: 10m

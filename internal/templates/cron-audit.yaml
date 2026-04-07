@@ -1,0 +1,21 @@
+name: "{{NAME}}"
+created: "{{CREATED}}"
+
+trigger:
+  type: cron
+  cron: "0 9 * * 1"  # Every Monday at 9am
+
+notify:
+  message: "Weekly codebase audit"
+  approval: false
+
+workspace:
+  type: git-clone
+  repo: ""    # Set your repo URL
+  ref: main
+
+agent:
+  prompt: |
+    Audit this codebase for security vulnerabilities, outdated
+    dependencies, and code quality issues. Provide a summary report.
+  timeout: 30m
