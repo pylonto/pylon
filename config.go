@@ -8,9 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the top-level structure matching pylon.yaml.
 type Config struct {
 	Server    ServerConfig              `yaml:"server"`
+	Telegram  *TelegramConfig           `yaml:"telegram,omitempty"`
 	Pipelines map[string]PipelineConfig `yaml:"pipelines"`
 }
 
@@ -18,8 +18,14 @@ type ServerConfig struct {
 	Port int `yaml:"port"`
 }
 
+type TelegramConfig struct {
+	BotToken string `yaml:"bot_token"`
+	ChatID   int64  `yaml:"chat_id"`
+}
+
 type PipelineConfig struct {
 	Trigger   TriggerConfig   `yaml:"trigger"`
+	Notify    *NotifyConfig   `yaml:"notify,omitempty"`
 	Workspace WorkspaceConfig `yaml:"workspace"`
 	Agent     AgentConfig     `yaml:"agent"`
 }
@@ -30,23 +36,35 @@ type TriggerConfig struct {
 }
 
 type WorkspaceConfig struct {
-	Repo string `yaml:"repo"` // template: "{{ .body.repo }}"
-	Ref  string `yaml:"ref"`  // template: "{{ .body.ref }}"
+	Repo string `yaml:"repo"`
+	Ref  string `yaml:"ref"`
 }
 
 type AgentConfig struct {
-	Image   string        `yaml:"image"`
-	Prompt  string        `yaml:"prompt"` // template: "Investigate {{ .body.error }}"
-	Timeout time.Duration `yaml:"timeout"`
-	Auth    string        `yaml:"auth"` // "api_key" (default) or "oauth"
+	Image     string        `yaml:"image"`
+	Prompt    string        `yaml:"prompt"`
+	Timeout   time.Duration `yaml:"timeout"`
+	Auth      string        `yaml:"auth"`
+	MaxAgents int           `yaml:"max_agents"`
 }
 
-// LoadConfig reads and parses the YAML config file at the given path.
+type NotifyConfig struct {
+	Message string        `yaml:"message"`
+	Actions ActionsConfig `yaml:"actions"`
+}
+
+type ActionsConfig struct {
+	Investigate bool `yaml:"investigate"`
+	Auto        bool `yaml:"auto"`
+}
+
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
+
+	data = []byte(os.ExpandEnv(string(data)))
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -56,14 +74,11 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
 	}
-
-	// Default auth mode to api_key if not specified.
 	for name, p := range cfg.Pipelines {
 		if p.Agent.Auth == "" {
 			p.Agent.Auth = "api_key"
 			cfg.Pipelines[name] = p
 		}
 	}
-
 	return &cfg, nil
 }

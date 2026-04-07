@@ -1,11 +1,24 @@
 server:
   port: 8080
 
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  chat_id: ${TELEGRAM_CHAT_ID}
+
 pipelines:
   sentry-review:
     trigger:
       type: webhook
       path: /sentry
+
+    notify:
+      message: |
+        *{{ .body.error }}*
+        Repo: `{{ .body.repo }}`
+        Ref: `{{ .body.ref }}`
+      actions:
+        investigate: true
+        auto: false
 
     workspace:
       repo: "{{ .body.repo }}"
@@ -16,6 +29,7 @@ pipelines:
       prompt: "Investigate this error: {{ .body.error }}"
       timeout: 10m
       auth: oauth
+      max_agents: 3
 
   mock-review:
     trigger:

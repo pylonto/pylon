@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +11,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--setup" {
+		RunSetup()
+		return
+	}
+
 	configPath := "pylon.yaml"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
@@ -20,11 +26,24 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	store := NewJobStore()
-	mux := http.NewServeMux()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	RegisterPipelineRoutes(mux, cfg, store)
-	RegisterCallbackRoute(mux, store)
+	store := NewJobStore()
+	pending := NewPendingJobs()
+	limiter := NewAgentLimiter()
+
+	var notifier Notifier
+	if cfg.Telegram != nil && cfg.Telegram.BotToken != "" {
+		notifier = NewTelegramNotifier(ctx, cfg.Telegram.BotToken, cfg.Telegram.ChatID)
+		RegisterApprovalHandler(notifier, pending, store, cfg.Server.Port, limiter)
+		log.Println("[pylon] telegram notifications enabled")
+	}
+
+	mux := http.NewServeMux()
+	RegisterPipelineRoutes(mux, cfg, store, notifier, pending, limiter)
+	RegisterCallbackRoute(mux, store, notifier, pending)
+	RegisterHooksRoute(mux, notifier, pending)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	server := &http.Server{Addr: addr, Handler: mux}
@@ -35,6 +54,7 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		sig := <-sigCh
 		log.Printf("[pylon] received %v, shutting down...", sig)
+		cancel()
 		server.Close()
 	}()
 
