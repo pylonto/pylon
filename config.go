@@ -19,9 +19,9 @@ type ServerConfig struct {
 }
 
 type PipelineConfig struct {
-	Trigger   TriggerConfig     `yaml:"trigger"`
-	Container ContainerConfig   `yaml:"container"`
-	Env       map[string]string `yaml:"env"`
+	Trigger   TriggerConfig   `yaml:"trigger"`
+	Workspace WorkspaceConfig `yaml:"workspace"`
+	Agent     AgentConfig     `yaml:"agent"`
 }
 
 type TriggerConfig struct {
@@ -29,10 +29,16 @@ type TriggerConfig struct {
 	Path string `yaml:"path"`
 }
 
-type ContainerConfig struct {
+type WorkspaceConfig struct {
+	Repo string `yaml:"repo"` // template: "{{ .body.repo }}"
+	Ref  string `yaml:"ref"`  // template: "{{ .body.ref }}"
+}
+
+type AgentConfig struct {
 	Image   string        `yaml:"image"`
-	Command []string      `yaml:"command"`
+	Prompt  string        `yaml:"prompt"` // template: "Investigate {{ .body.error }}"
 	Timeout time.Duration `yaml:"timeout"`
+	Auth    string        `yaml:"auth"` // "api_key" (default) or "oauth"
 }
 
 // LoadConfig reads and parses the YAML config file at the given path.
@@ -49,6 +55,14 @@ func LoadConfig(path string) (*Config, error) {
 
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
+	}
+
+	// Default auth mode to api_key if not specified.
+	for name, p := range cfg.Pipelines {
+		if p.Agent.Auth == "" {
+			p.Agent.Auth = "api_key"
+			cfg.Pipelines[name] = p
+		}
 	}
 
 	return &cfg, nil
