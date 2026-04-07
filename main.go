@@ -40,11 +40,17 @@ func main() {
 	if n := pending.RecoverFromDB(); n > 0 {
 		log.Printf("[pylon] recovered %d pending jobs from database", n)
 	}
+	if n := PruneOrphanedWorkspaces(pending); n > 0 {
+		log.Printf("[pylon] pruned %d orphaned workspaces", n)
+	}
+	if n := PruneOrphanedContainers(pending); n > 0 {
+		log.Printf("[pylon] killed %d orphaned containers", n)
+	}
 	limiter := NewAgentLimiter()
 
 	var notifier Notifier
 	if cfg.Telegram != nil && cfg.Telegram.BotToken != "" {
-		notifier = NewTelegramNotifier(ctx, cfg.Telegram.BotToken, cfg.Telegram.ChatID)
+		notifier = NewTelegramNotifier(ctx, cfg.Telegram.BotToken, cfg.Telegram.ChatID, cfg.Telegram.AllowedUsers)
 		RegisterApprovalHandler(notifier, pending, store, cfg.Server.Port, limiter)
 		log.Println("[pylon] telegram notifications enabled")
 	}

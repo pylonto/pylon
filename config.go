@@ -20,8 +20,9 @@ type ServerConfig struct {
 }
 
 type TelegramConfig struct {
-	BotToken string `yaml:"bot_token"`
-	ChatID   int64  `yaml:"chat_id"`
+	BotToken     string  `yaml:"bot_token"`
+	ChatID       int64   `yaml:"chat_id"`
+	AllowedUsers []int64 `yaml:"allowed_users"`
 }
 
 type PipelineConfig struct {
@@ -32,8 +33,10 @@ type PipelineConfig struct {
 }
 
 type TriggerConfig struct {
-	Type string `yaml:"type"`
-	Path string `yaml:"path"`
+	Type            string `yaml:"type"`
+	Path            string `yaml:"path"`
+	Secret          string `yaml:"secret"`
+	SignatureHeader string `yaml:"signature_header"`
 }
 
 type WorkspaceConfig struct {

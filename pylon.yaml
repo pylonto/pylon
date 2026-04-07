@@ -10,6 +10,8 @@ pipelines:
     trigger:
       type: webhook
       path: /sentry
+      secret: "${SENTRY_CLIENT_SECRET}"
+      signature_header: sentry-hook-signature
 
     notify:
       message: |

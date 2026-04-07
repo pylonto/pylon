@@ -121,7 +121,11 @@ func RunAgentJob(ctx context.Context, pipeline PipelineConfig, jobID string, bod
 	}
 
 	resp, err := cli.ContainerCreate(ctx,
-		&container.Config{Image: pipeline.Agent.Image, Env: envList},
+		&container.Config{
+			Image:  pipeline.Agent.Image,
+			Env:    envList,
+			Labels: map[string]string{"pylon.job": jobID},
+		},
 		&container.HostConfig{
 			Mounts:     mounts,
 			ExtraHosts: []string{"host.docker.internal:host-gateway"},
@@ -228,4 +232,79 @@ func writeHooksConfig(workDir string, hooksURL string) {
 }`, hooksURL)
 
 	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0644)
+}
+
+func shortID(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+// CleanupWorkspace removes the workspace directory for a completed job.
+func CleanupWorkspace(jobID string) {
+	dir := filepath.Join(jobsDir, jobID)
+	if err := os.RemoveAll(dir); err != nil {
+		log.Printf("[pylon] [%s] failed to remove workspace: %v", jobID[:8], err)
+	} else {
+		log.Printf("[pylon] [%s] workspace cleaned up", jobID[:8])
+	}
+}
+
+// PruneOrphanedWorkspaces removes workspace directories that don't have
+// a corresponding pending job. These accumulate from crashes, completed jobs
+// that were never /done'd, or jobs dismissed via "ignore".
+func PruneOrphanedWorkspaces(pending PendingJobStore) int {
+	entries, err := os.ReadDir(jobsDir)
+	if err != nil {
+		return 0
+	}
+	pruned := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, ok := pending.Get(e.Name()); !ok {
+			if err := os.RemoveAll(filepath.Join(jobsDir, e.Name())); err != nil {
+				log.Printf("[pylon] failed to prune workspace %s: %v", shortID(e.Name(), 8), err)
+			} else {
+				log.Printf("[pylon] pruned orphaned workspace %s", shortID(e.Name(), 8))
+				pruned++
+			}
+		}
+	}
+	return pruned
+}
+
+// PruneOrphanedContainers kills Docker containers labeled with "pylon.job"
+// that don't match any pending job. These can linger if pylon crashes mid-run.
+func PruneOrphanedContainers(pending PendingJobStore) int {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Printf("[pylon] failed to create docker client for pruning: %v", err)
+		return 0
+	}
+	defer cli.Close()
+
+	ctx := context.Background()
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		log.Printf("[pylon] failed to list containers for pruning: %v", err)
+		return 0
+	}
+
+	pruned := 0
+	for _, c := range containers {
+		jobID, ok := c.Labels["pylon.job"]
+		if !ok {
+			continue
+		}
+		if _, exists := pending.Get(jobID); !exists {
+			log.Printf("[pylon] killing orphaned container %s (job %s)", shortID(c.ID, 12), shortID(jobID, 8))
+			cli.ContainerKill(ctx, c.ID, "SIGKILL")
+			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true})
+			pruned++
+		}
+	}
+	return pruned
 }

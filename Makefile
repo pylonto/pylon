@@ -23,6 +23,15 @@ test-dry:
 		-H "Content-Type: application/json" \
 		-d '{"repo": "https://github.com/kelseyhightower/nocode", "ref": "master", "error": "Test notification flow"}' | jq .
 
+test-sig:
+	@BODY='{"repo": "https://github.com/kelseyhightower/nocode", "ref": "master", "error": "Test with signature"}'; \
+	SIG=$$(printf '%s' "$$BODY" | openssl dgst -sha256 -hmac "$$SENTRY_CLIENT_SECRET" | awk '{print $$NF}'); \
+	echo "signature: $$SIG"; \
+	curl -s -X POST localhost:8080/sentry \
+		-H "Content-Type: application/json" \
+		-H "sentry-hook-signature: $$SIG" \
+		-d "$$BODY" | jq .
+
 setup: build
 	./pylon --setup
 

@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -163,6 +166,14 @@ func RegisterPipelineRoutes(mux *http.ServeMux, cfg *Config, store JobStorer, no
 			}
 			defer r.Body.Close()
 
+			if pipeline.Trigger.Secret != "" {
+				if !verifySignature(pipeline.Trigger, r.Header, rawBody) {
+					log.Printf("[pylon] signature verification failed on pipeline %q", name)
+					http.Error(w, "invalid signature", http.StatusUnauthorized)
+					return
+				}
+			}
+
 			var body map[string]interface{}
 			if err := json.Unmarshal(rawBody, &body); err != nil {
 				http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -292,7 +303,8 @@ func RegisterApprovalHandler(notifier Notifier, pending PendingJobStore, store J
 
 		if text == "/done" || strings.HasPrefix(text, "/done@") {
 			log.Printf("[pylon] [%s] closed by user", job.ID[:8])
-			notifier.SendMessage(topicID, escapeMarkdownV2("Job closed. Workspace preserved at ~/.pylon/jobs/"+job.ID))
+			CleanupWorkspace(job.ID)
+			notifier.SendMessage(topicID, escapeMarkdownV2("Job closed and workspace cleaned up."))
 			notifier.CloseTopic(topicID)
 			pending.Delete(job.ID)
 			return
@@ -402,6 +414,27 @@ func RegisterHooksRoute(mux *http.ServeMux, notifier Notifier, pending PendingJo
 
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+// verifySignature checks an HMAC-SHA256 signature on the raw request body.
+// Most webhook providers (Sentry, GitLab, etc.) send a hex-encoded HMAC-SHA256
+// digest in a service-specific header. The header name is configured per-pipeline.
+//
+// To support other signing schemes in the future (e.g., GitHub's "sha256=" prefix,
+// Stripe's timestamp-based signatures), add a Scheme field to TriggerConfig and
+// dispatch here based on its value. The current default covers the common case.
+func verifySignature(trigger TriggerConfig, header http.Header, body []byte) bool {
+	if trigger.SignatureHeader == "" {
+		return true // no header configured, skip verification
+	}
+	signature := header.Get(trigger.SignatureHeader)
+	if signature == "" {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(trigger.Secret))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(signature), []byte(expected))
 }
 
 func formatToolEvent(toolName string, input json.RawMessage) string {

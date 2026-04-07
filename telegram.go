@@ -15,23 +15,36 @@ import (
 )
 
 type TelegramNotifier struct {
-	token     string
-	chatID    int64
-	client    *http.Client
-	mu        sync.Mutex
-	actionFn  func(jobID string, action string)
-	messageFn func(topicID string, text string)
+	token        string
+	chatID       int64
+	allowedUsers map[int64]bool
+	client       *http.Client
+	mu           sync.Mutex
+	actionFn     func(jobID string, action string)
+	messageFn    func(topicID string, text string)
 }
 
-func NewTelegramNotifier(ctx context.Context, token string, chatID int64) *TelegramNotifier {
+func NewTelegramNotifier(ctx context.Context, token string, chatID int64, allowedUsers []int64) *TelegramNotifier {
+	allowed := make(map[int64]bool, len(allowedUsers))
+	for _, id := range allowedUsers {
+		allowed[id] = true
+	}
 	t := &TelegramNotifier{
-		token:  token,
-		chatID: chatID,
-		client: &http.Client{Timeout: 10 * time.Second},
+		token:        token,
+		chatID:       chatID,
+		allowedUsers: allowed,
+		client:       &http.Client{Timeout: 10 * time.Second},
 	}
 	go t.pollUpdates(ctx)
 	t.setCommands()
 	return t
+}
+
+func (t *TelegramNotifier) isAllowed(userID int64) bool {
+	if len(t.allowedUsers) == 0 {
+		return true
+	}
+	return t.allowedUsers[userID]
 }
 
 func (t *TelegramNotifier) callAPI(method string, params map[string]interface{}) (json.RawMessage, error) {
@@ -204,6 +217,9 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 				CallbackQuery *struct {
 					ID   string `json:"id"`
 					Data string `json:"data"`
+					From struct {
+						ID int64 `json:"id"`
+					} `json:"from"`
 				} `json:"callback_query"`
 				Message *struct {
 					Text            string `json:"text"`
@@ -212,7 +228,8 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 						Type string `json:"type"`
 					} `json:"chat"`
 					From struct {
-						IsBot bool `json:"is_bot"`
+						ID    int64 `json:"id"`
+						IsBot bool  `json:"is_bot"`
 					} `json:"from"`
 				} `json:"message"`
 			} `json:"result"`
@@ -235,6 +252,10 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 				t.callAPI("answerCallbackQuery", map[string]interface{}{
 					"callback_query_id": u.CallbackQuery.ID,
 				})
+				if !t.isAllowed(u.CallbackQuery.From.ID) {
+					log.Printf("[telegram] unauthorized action from user %d", u.CallbackQuery.From.ID)
+					continue
+				}
 				parts := strings.SplitN(u.CallbackQuery.Data, ":", 2)
 				if len(parts) == 2 && actionFn != nil {
 					actionFn(parts[1], parts[0])
@@ -243,6 +264,9 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 
 			if u.Message != nil && !u.Message.From.IsBot && u.Message.Text != "" &&
 				(u.Message.Chat.Type == "group" || u.Message.Chat.Type == "supergroup") {
+				if !t.isAllowed(u.Message.From.ID) {
+					continue
+				}
 				if messageFn != nil {
 					topicID := strconv.FormatInt(u.Message.MessageThreadID, 10)
 					messageFn(topicID, u.Message.Text)
