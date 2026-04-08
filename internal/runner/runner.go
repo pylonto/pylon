@@ -17,14 +17,18 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 
+	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/notifier"
 )
 
 // RunParams holds everything needed to run an agent job.
 type RunParams struct {
+	AgentType   string
 	Image       string
 	Auth        string
 	APIKey      string // env var name or literal, expanded at use time
+	Provider    string
+	ExtraEnv    map[string]string
 	Prompt      string
 	Timeout     time.Duration
 	JobID       string
@@ -95,26 +99,51 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 	}
 
 	var mounts []mount.Mount
-	if p.Auth == "oauth" {
-		homeDir, _ := os.UserHomeDir()
-		mounts = append(mounts,
-			mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude"), Target: "/home/pylon/.claude"},
-			mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude.json"), Target: "/home/pylon/.claude.json"},
-		)
-	} else {
+	switch p.AgentType {
+	case "opencode":
 		apiKey := os.ExpandEnv(p.APIKey)
+		envVar := config.ProviderEnvVar(p.Provider)
 		if apiKey == "" {
-			apiKey = os.Getenv("ANTHROPIC_API_KEY")
+			apiKey = os.Getenv(envVar)
 		}
 		if apiKey != "" {
-			envList = append(envList, "ANTHROPIC_API_KEY="+apiKey)
+			envList = append(envList, envVar+"="+apiKey)
+		}
+		if p.Provider != "" {
+			envList = append(envList, "OPENCODE_PROVIDER="+p.Provider)
+		}
+	default: // claude
+		if p.Auth == "oauth" {
+			homeDir, _ := os.UserHomeDir()
+			mounts = append(mounts,
+				mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude"), Target: "/home/pylon/.claude"},
+				mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude.json"), Target: "/home/pylon/.claude.json"},
+			)
+		} else {
+			apiKey := os.ExpandEnv(p.APIKey)
+			if apiKey == "" {
+				apiKey = os.Getenv("ANTHROPIC_API_KEY")
+			}
+			if apiKey != "" {
+				envList = append(envList, "ANTHROPIC_API_KEY="+apiKey)
+			}
 		}
 	}
+
+	for k, v := range p.ExtraEnv {
+		envList = append(envList, k+"="+os.ExpandEnv(v))
+	}
+
 	mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: workDir, Target: "/workspace"})
 
 	if p.Notifier != nil && p.TopicID != "" {
 		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
-		WriteHooksConfig(workDir, hooksURL)
+		switch p.AgentType {
+		case "opencode":
+			WriteOpenCodeHooksPlugin(workDir, hooksURL)
+		default:
+			WriteHooksConfig(workDir, hooksURL)
+		}
 	}
 
 	if p.Timeout > 0 {

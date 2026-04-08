@@ -88,6 +88,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		Title("Default AI agent for new pylons:").
 		Options(
 			huh.NewOption("Claude Code", "claude"),
+			huh.NewOption("OpenCode", "opencode"),
 			huh.NewOption("Codex (coming soon)", "codex"),
 			huh.NewOption("Aider (coming soon)", "aider"),
 			huh.NewOption("Custom", "custom"),
@@ -105,6 +106,12 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		cfg.Defaults.Agent = config.AgentDefaults{Type: "claude", Claude: claude}
+	case "opencode":
+		oc, err := setupOpenCode()
+		if err != nil {
+			return err
+		}
+		cfg.Defaults.Agent = config.AgentDefaults{Type: "opencode", OpenCode: oc}
 	case "custom":
 		cfg.Defaults.Agent = config.AgentDefaults{Type: "custom"}
 	default:
@@ -238,4 +245,62 @@ func setupClaude() (*config.ClaudeDefaults, error) {
 	}
 
 	return claude, nil
+}
+
+func setupOpenCode() (*config.OpenCodeDefaults, error) {
+	var authChoice string
+	err := huh.NewSelect[string]().
+		Title("Authentication for OpenCode:").
+		Options(
+			huh.NewOption("Built-in (OpenCode Zen, no key needed)", "none"),
+			huh.NewOption("API Key (bring your own provider key)", "api-key"),
+		).
+		Value(&authChoice).
+		Run()
+	if err != nil {
+		return nil, err
+	}
+
+	oc := &config.OpenCodeDefaults{
+		Image: "pylon/agent-opencode",
+		Auth:  authChoice,
+	}
+
+	if authChoice == "api-key" {
+		var provider string
+		err = huh.NewSelect[string]().
+			Title("LLM provider:").
+			Options(
+				huh.NewOption("Anthropic (Claude)", "anthropic"),
+				huh.NewOption("OpenAI (GPT)", "openai"),
+				huh.NewOption("Google (Gemini)", "google"),
+			).
+			Value(&provider).
+			Run()
+		if err != nil {
+			return nil, err
+		}
+		oc.Provider = provider
+
+		envVar := config.ProviderEnvVar(provider)
+		if os.Getenv(envVar) == "" {
+			var apiKey string
+			err = huh.NewInput().
+				Title(fmt.Sprintf("%s:", envVar)).
+				Placeholder("sk-...").
+				EchoMode(huh.EchoModePassword).
+				Value(&apiKey).
+				Run()
+			if err != nil {
+				return nil, err
+			}
+			config.SaveEnvVar(envVar, apiKey)
+			os.Setenv(envVar, apiKey)
+			fmt.Printf("  Saved to %s\n", config.EnvPath())
+		} else {
+			fmt.Printf("  Using %s from environment\n", envVar)
+		}
+	}
+
+	return oc, nil
 }

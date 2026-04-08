@@ -173,9 +173,15 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	// Agent
 	agentLabel := "none"
 	if global.Defaults.Agent.Type != "" {
-		agentLabel = fmt.Sprintf("%s, %s", global.Defaults.Agent.Type, "OAuth")
+		agentLabel = global.Defaults.Agent.Type
 		if global.Defaults.Agent.Claude != nil {
 			agentLabel = fmt.Sprintf("Claude Code, %s", global.Defaults.Agent.Claude.Auth)
+		} else if global.Defaults.Agent.OpenCode != nil {
+			if global.Defaults.Agent.OpenCode.Auth == "api-key" {
+				agentLabel = fmt.Sprintf("OpenCode, %s", global.Defaults.Agent.OpenCode.Provider)
+			} else {
+				agentLabel = "OpenCode, Zen"
+			}
 		}
 	}
 
@@ -185,6 +191,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		Options(
 			huh.NewOption(fmt.Sprintf("Use default (%s)", agentLabel), "default"),
 			huh.NewOption("Claude Code (configure new)", "claude"),
+			huh.NewOption("OpenCode (configure new)", "opencode"),
 			huh.NewOption("Codex (coming soon)", "codex"),
 			huh.NewOption("Aider (coming soon)", "aider"),
 			huh.NewOption("Custom command", "custom"),

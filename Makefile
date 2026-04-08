@@ -10,6 +10,7 @@ build: fmt
 
 image:
 	docker build -t pylon/agent-claude agent/claude/
+	docker build -t pylon/agent-opencode agent/opencode/
 	docker build -t pylon/agent-mock agent/mock/
 
 run: build

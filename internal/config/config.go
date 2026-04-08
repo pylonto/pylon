@@ -41,14 +41,21 @@ type TelegramConfig struct {
 }
 
 type AgentDefaults struct {
-	Type   string          `yaml:"type"`
-	Claude *ClaudeDefaults `yaml:"claude,omitempty"`
+	Type     string            `yaml:"type"`
+	Claude   *ClaudeDefaults   `yaml:"claude,omitempty"`
+	OpenCode *OpenCodeDefaults `yaml:"opencode,omitempty"`
 }
 
 type ClaudeDefaults struct {
 	Image     string `yaml:"image"`
 	Auth      string `yaml:"auth"`
 	OAuthPath string `yaml:"oauth_path,omitempty"`
+}
+
+type OpenCodeDefaults struct {
+	Image    string `yaml:"image"`
+	Auth     string `yaml:"auth"`     // "none" (Zen) or "api-key"
+	Provider string `yaml:"provider"` // "anthropic", "openai", "google"
 }
 
 type DockerConfig struct {

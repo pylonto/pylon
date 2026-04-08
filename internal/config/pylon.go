@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -43,11 +44,13 @@ type WorkspaceConfig struct {
 }
 
 type PylonAgent struct {
-	Type    string `yaml:"type,omitempty"`
-	Auth    string `yaml:"auth,omitempty"`
-	APIKey  string `yaml:"api_key,omitempty"` // e.g. "${ANTHROPIC_API_KEY_B}"
-	Prompt  string `yaml:"prompt"`
-	Timeout string `yaml:"timeout,omitempty"`
+	Type     string            `yaml:"type,omitempty"`
+	Auth     string            `yaml:"auth,omitempty"`
+	APIKey   string            `yaml:"api_key,omitempty"` // e.g. "${ANTHROPIC_API_KEY_B}"
+	Provider string            `yaml:"provider,omitempty"`
+	Env      map[string]string `yaml:"env,omitempty"`
+	Prompt   string            `yaml:"prompt"`
+	Timeout  string            `yaml:"timeout,omitempty"`
 }
 
 // PylonDir returns the directory for a named pylon.
@@ -124,12 +127,33 @@ func (p *PylonConfig) ResolveTimeout(global *GlobalConfig) time.Duration {
 	return global.DefaultTimeoutDuration()
 }
 
+// ResolveAgentType returns the effective agent type.
+func (p *PylonConfig) ResolveAgentType(global *GlobalConfig) string {
+	if p.Agent != nil && p.Agent.Type != "" {
+		return p.Agent.Type
+	}
+	if global.Defaults.Agent.Type != "" {
+		return global.Defaults.Agent.Type
+	}
+	return "claude"
+}
+
 // ResolveAgentImage returns the effective agent image.
 func (p *PylonConfig) ResolveAgentImage(global *GlobalConfig) string {
-	if global.Defaults.Agent.Claude != nil && global.Defaults.Agent.Claude.Image != "" {
-		return global.Defaults.Agent.Claude.Image
+	switch p.ResolveAgentType(global) {
+	case "claude":
+		if global.Defaults.Agent.Claude != nil && global.Defaults.Agent.Claude.Image != "" {
+			return global.Defaults.Agent.Claude.Image
+		}
+		return "pylon/agent-claude"
+	case "opencode":
+		if global.Defaults.Agent.OpenCode != nil && global.Defaults.Agent.OpenCode.Image != "" {
+			return global.Defaults.Agent.OpenCode.Image
+		}
+		return "pylon/agent-opencode"
+	default:
+		return "pylon/agent-" + p.ResolveAgentType(global)
 	}
-	return "pylon/agent-claude"
 }
 
 // ResolveAuth returns the effective auth method.
@@ -137,8 +161,38 @@ func (p *PylonConfig) ResolveAuth(global *GlobalConfig) string {
 	if p.Agent != nil && p.Agent.Auth != "" {
 		return p.Agent.Auth
 	}
-	if global.Defaults.Agent.Claude != nil && global.Defaults.Agent.Claude.Auth != "" {
-		return global.Defaults.Agent.Claude.Auth
+	switch p.ResolveAgentType(global) {
+	case "claude":
+		if global.Defaults.Agent.Claude != nil && global.Defaults.Agent.Claude.Auth != "" {
+			return global.Defaults.Agent.Claude.Auth
+		}
+		return "oauth"
+	default:
+		return "api-key"
 	}
-	return "oauth"
+}
+
+// ResolveProvider returns the effective LLM provider (for multi-provider agents like OpenCode).
+func (p *PylonConfig) ResolveProvider(global *GlobalConfig) string {
+	if p.Agent != nil && p.Agent.Provider != "" {
+		return p.Agent.Provider
+	}
+	if global.Defaults.Agent.OpenCode != nil && global.Defaults.Agent.OpenCode.Provider != "" {
+		return global.Defaults.Agent.OpenCode.Provider
+	}
+	return "anthropic"
+}
+
+// ProviderEnvVar maps a provider name to its API key environment variable.
+func ProviderEnvVar(provider string) string {
+	switch provider {
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	case "google":
+		return "GOOGLE_API_KEY"
+	default:
+		return strings.ToUpper(provider) + "_API_KEY"
+	}
 }

@@ -190,14 +190,19 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 
 	go func() {
 		defer d.Limiter.Release()
-		apiKey := ""
+		var apiKey string
+		var extraEnv map[string]string
 		if pyl.Agent != nil {
 			apiKey = pyl.Agent.APIKey
+			extraEnv = pyl.Agent.Env
 		}
 		err := runner.RunAgentJob(context.Background(), runner.RunParams{
+			AgentType:   pyl.ResolveAgentType(d.Global),
 			Image:       pyl.ResolveAgentImage(d.Global),
 			Auth:        pyl.ResolveAuth(d.Global),
 			APIKey:      apiKey,
+			Provider:    pyl.ResolveProvider(d.Global),
+			ExtraEnv:    extraEnv,
 			Prompt:      prompt,
 			Timeout:     pyl.ResolveTimeout(d.Global),
 			JobID:       jobID,

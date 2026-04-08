@@ -51,11 +51,16 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	// Agent image
-	if out, err := exec.Command("docker", "images", "pylon/agent-claude", "--format", "{{.Tag}}").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
-		fmt.Printf("Agent image ......... ok    pylon/agent-claude:%s pulled\n", strings.TrimSpace(string(out)))
+	agentType := "claude"
+	if global != nil && global.Defaults.Agent.Type != "" {
+		agentType = global.Defaults.Agent.Type
+	}
+	agentImage := "pylon/agent-" + agentType
+	if out, err := exec.Command("docker", "images", agentImage, "--format", "{{.Tag}}").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+		fmt.Printf("Agent image ......... ok    %s:%s built\n", agentImage, strings.TrimSpace(string(out)))
 	} else {
-		fmt.Println("Agent image ......... --    pylon/agent-claude not pulled")
-		fmt.Println("  Run: docker build -t pylon/agent-claude agent/claude/")
+		fmt.Printf("Agent image ......... --    %s not built\n", agentImage)
+		fmt.Printf("  Run: docker build -t %s agent/%s/\n", agentImage, agentType)
 		recommendations++
 	}
 
@@ -100,14 +105,37 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Println("Git (SSH) ........... ok    GitHub SSH key configured")
 	}
 
-	// OAuth
-	home, _ := os.UserHomeDir()
-	claudeDir := filepath.Join(home, ".claude")
-	if _, err := os.Stat(claudeDir); err == nil {
-		fmt.Printf("OAuth session ....... ok    %s found\n", claudeDir)
-	} else {
-		fmt.Println("OAuth session ....... --    ~/.claude/ not found")
-		recommendations++
+	// Agent auth
+	switch agentType {
+	case "claude":
+		home, _ := os.UserHomeDir()
+		claudeDir := filepath.Join(home, ".claude")
+		if _, err := os.Stat(claudeDir); err == nil {
+			fmt.Printf("OAuth session ....... ok    %s found\n", claudeDir)
+		} else {
+			fmt.Println("OAuth session ....... --    ~/.claude/ not found")
+			recommendations++
+		}
+	case "opencode":
+		auth := "none"
+		if global != nil && global.Defaults.Agent.OpenCode != nil && global.Defaults.Agent.OpenCode.Auth != "" {
+			auth = global.Defaults.Agent.OpenCode.Auth
+		}
+		if auth == "api-key" {
+			provider := "anthropic"
+			if global.Defaults.Agent.OpenCode != nil && global.Defaults.Agent.OpenCode.Provider != "" {
+				provider = global.Defaults.Agent.OpenCode.Provider
+			}
+			envVar := config.ProviderEnvVar(provider)
+			if os.Getenv(envVar) != "" {
+				fmt.Printf("API key ............. ok    %s is set\n", envVar)
+			} else {
+				fmt.Printf("API key ............. FAIL  %s not set\n", envVar)
+				issues++
+			}
+		} else {
+			fmt.Println("OpenCode auth ....... ok    using built-in (Zen)")
+		}
 	}
 
 	// Port
