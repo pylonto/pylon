@@ -33,6 +33,7 @@ type TriggerConfig struct {
 type PylonNotify struct {
 	Type     string          `yaml:"type,omitempty"`
 	Telegram *TelegramConfig `yaml:"telegram,omitempty"`
+	Slack    *SlackConfig    `yaml:"slack,omitempty"`
 	Message  string          `yaml:"message,omitempty"`
 	Approval bool            `yaml:"approval,omitempty"`
 }

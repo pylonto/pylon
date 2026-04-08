@@ -150,7 +150,7 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 
 		if needsApproval {
 			topicID, _ := n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
-			msg := runner.ResolveTemplateEscaped(pyl.Notify.Message, body)
+			msg := runner.ResolveTemplate(pyl.Notify.Message, body)
 			msgID, err := n.SendApproval(topicID, msg, jobID)
 			if err != nil {
 				log.Printf("[pylon] [%s] approval failed, running immediately: %v", jobID[:8], err)
@@ -165,7 +165,7 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 			var topicID string
 			if n != nil && pyl.Notify != nil && pyl.Notify.Message != "" {
 				topicID, _ = n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
-				n.SendMessage(topicID, runner.ResolveTemplateEscaped(pyl.Notify.Message, body))
+				n.SendMessage(topicID, runner.ResolveTemplate(pyl.Notify.Message, body))
 			}
 			d.runJob(name, pyl, jobID, body, callbackURL, topicID, "", "")
 		}
@@ -181,8 +181,8 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 	if !d.Limiter.Acquire() {
 		log.Printf("[pylon] [%s] at capacity (%d), queued", jobID[:8], d.Global.Docker.MaxConcurrent)
 		if n != nil && topicID != "" {
-			n.SendMessage(topicID, notifier.EscapeMarkdownV2(
-				fmt.Sprintf("Queued -- %d/%d agent slots in use.", d.Limiter.Active(), d.Global.Docker.MaxConcurrent)))
+			n.SendMessage(topicID,
+				fmt.Sprintf("Queued -- %d/%d agent slots in use.", d.Limiter.Active(), d.Global.Docker.MaxConcurrent))
 		}
 		// TODO: implement proper queue. For now, reject.
 		return
@@ -247,11 +247,11 @@ func (d *Daemon) registerApprovalHandler() {
 		case "investigate":
 			log.Printf("[pylon] [%s] approved", jobID[:8])
 			d.Store.UpdateStatus(jobID, "running")
-			n.EditMessage(job.TopicID, job.MessageID, notifier.EscapeMarkdownV2("Spinning up agent..."))
+			n.EditMessage(job.TopicID, job.MessageID, "Spinning up agent...")
 			d.runJob(job.PylonName, pyl, jobID, job.Body, job.CallbackURL, job.TopicID, "", job.SessionID)
 		case "ignore":
 			log.Printf("[pylon] [%s] dismissed", jobID[:8])
-			n.EditMessage(job.TopicID, job.MessageID, notifier.EscapeMarkdownV2("Dismissed"))
+			n.EditMessage(job.TopicID, job.MessageID, "Dismissed")
 			d.Store.UpdateStatus(jobID, "dismissed")
 			d.Store.Delete(jobID)
 		}
@@ -270,7 +270,7 @@ func (d *Daemon) registerApprovalHandler() {
 				msg = b.String()
 			}
 			for _, nn := range d.allNotifiers() {
-				nn.SendMessage(topicID, notifier.EscapeMarkdownV2(msg))
+				nn.SendMessage(topicID, msg)
 			}
 			return
 		}
@@ -285,7 +285,7 @@ func (d *Daemon) registerApprovalHandler() {
 			}
 			if len(running) == 0 {
 				for _, nn := range d.allNotifiers() {
-					nn.ReplyMessage(topicID, notifier.EscapeMarkdownV2("No agents currently running."), incomingMsgID)
+					nn.ReplyMessage(topicID, "No agents currently running.", incomingMsgID)
 				}
 				return
 			}
@@ -312,7 +312,7 @@ func (d *Daemon) registerApprovalHandler() {
 				b.WriteString("\n")
 			}
 			for _, nn := range d.allNotifiers() {
-				nn.ReplyMessage(topicID, notifier.EscapeMarkdownV2(strings.TrimSpace(b.String())), incomingMsgID)
+				nn.ReplyMessage(topicID, strings.TrimSpace(b.String()), incomingMsgID)
 			}
 			return
 		}
@@ -329,14 +329,14 @@ func (d *Daemon) registerApprovalHandler() {
 
 		if text == "/done" || strings.HasPrefix(text, "/done@") {
 			runner.CleanupWorkspace(job.ID)
-			n.SendMessage(topicID, notifier.EscapeMarkdownV2("Job closed."))
+			n.SendMessage(topicID, "Job closed.")
 			n.CloseTopic(topicID)
 			d.Store.Delete(job.ID)
 			return
 		}
 
 		if job.Status == "running" {
-			n.SendMessage(topicID, notifier.EscapeMarkdownV2("Agent is still working, please wait."))
+			n.SendMessage(topicID, "Agent is still working, please wait.")
 			return
 		}
 		if job.Status == "active" {
@@ -408,7 +408,7 @@ func (d *Daemon) registerCallbackRoute() {
 					msg = "Agent error: " + result.Error
 				}
 				if msg != "" {
-					n.SendMessage(job.TopicID, notifier.EscapeMarkdownV2(msg))
+					n.SendMessage(job.TopicID, msg)
 				}
 			}
 		}

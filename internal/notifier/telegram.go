@@ -82,7 +82,7 @@ func (t *TelegramNotifier) CreateTopic(name string) (string, error) {
 
 func (t *TelegramNotifier) sendMsg(topicID, text string, replyMarkup interface{}) (string, error) {
 	params := map[string]interface{}{
-		"chat_id": t.chatID, "text": text, "parse_mode": "MarkdownV2",
+		"chat_id": t.chatID, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
 	}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
@@ -107,7 +107,7 @@ func (t *TelegramNotifier) SendMessage(topicID, text string) (string, error) {
 
 func (t *TelegramNotifier) ReplyMessage(topicID, text, replyTo string) (string, error) {
 	params := map[string]interface{}{
-		"chat_id": t.chatID, "text": text, "parse_mode": "MarkdownV2",
+		"chat_id": t.chatID, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
 	}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
@@ -139,7 +139,7 @@ func (t *TelegramNotifier) SendApproval(topicID, text, jobID string) (string, er
 func (t *TelegramNotifier) EditMessage(topicID, messageID, text string) error {
 	mid, _ := strconv.ParseInt(messageID, 10, 64)
 	_, err := t.callAPI("editMessageText", map[string]interface{}{
-		"chat_id": t.chatID, "message_id": mid, "text": text, "parse_mode": "MarkdownV2",
+		"chat_id": t.chatID, "message_id": mid, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
 	})
 	return err
 }

@@ -106,26 +106,57 @@ func runStart(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var globalNotifier notifier.Notifier
-	if global.Defaults.Notifier.Type == "telegram" && global.Defaults.Notifier.Telegram != nil {
-		tg := global.Defaults.Notifier.Telegram
-		token := os.ExpandEnv(tg.BotToken)
-		if token != "" {
-			globalNotifier = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
-			log.Println("[pylon] telegram notifications enabled")
-		} else {
-			log.Println("[pylon] TELEGRAM_BOT_TOKEN not set, notifications disabled")
+	switch global.Defaults.Notifier.Type {
+	case "telegram":
+		if global.Defaults.Notifier.Telegram != nil {
+			tg := global.Defaults.Notifier.Telegram
+			token := os.ExpandEnv(tg.BotToken)
+			if token != "" {
+				globalNotifier = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
+				log.Println("[pylon] telegram notifications enabled")
+			} else {
+				log.Println("[pylon] TELEGRAM_BOT_TOKEN not set, notifications disabled")
+			}
+		}
+	case "slack":
+		if global.Defaults.Notifier.Slack != nil {
+			sl := global.Defaults.Notifier.Slack
+			botToken := os.ExpandEnv(sl.BotToken)
+			appToken := os.ExpandEnv(sl.AppToken)
+			if botToken != "" && appToken != "" {
+				globalNotifier = notifier.NewSlackNotifier(ctx, botToken, appToken, sl.ChannelID, sl.AllowedUsers)
+				log.Println("[pylon] slack notifications enabled")
+			} else {
+				log.Println("[pylon] SLACK_BOT_TOKEN or SLACK_APP_TOKEN not set, notifications disabled")
+			}
 		}
 	}
 
 	// Build per-pylon notifiers for pylons that override the default
 	perPylon := make(map[string]notifier.Notifier)
 	for name, pyl := range pylons {
-		if pyl.Notify != nil && pyl.Notify.Type == "telegram" && pyl.Notify.Telegram != nil {
-			tg := pyl.Notify.Telegram
-			token := os.ExpandEnv(tg.BotToken)
-			if token != "" {
-				perPylon[name] = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
-				log.Printf("[pylon] %q: using custom telegram bot", name)
+		if pyl.Notify == nil {
+			continue
+		}
+		switch pyl.Notify.Type {
+		case "telegram":
+			if pyl.Notify.Telegram != nil {
+				tg := pyl.Notify.Telegram
+				token := os.ExpandEnv(tg.BotToken)
+				if token != "" {
+					perPylon[name] = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
+					log.Printf("[pylon] %q: using custom telegram bot", name)
+				}
+			}
+		case "slack":
+			if pyl.Notify.Slack != nil {
+				sl := pyl.Notify.Slack
+				botToken := os.ExpandEnv(sl.BotToken)
+				appToken := os.ExpandEnv(sl.AppToken)
+				if botToken != "" && appToken != "" {
+					perPylon[name] = notifier.NewSlackNotifier(ctx, botToken, appToken, sl.ChannelID, sl.AllowedUsers)
+					log.Printf("[pylon] %q: using custom slack bot", name)
+				}
 			}
 		}
 	}

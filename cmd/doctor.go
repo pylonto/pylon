@@ -85,8 +85,28 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			fmt.Println("Telegram bot ........ FAIL  could not connect (invalid token?)")
 			issues++
 		}
+	} else if global != nil && global.Defaults.Notifier.Type == "slack" && global.Defaults.Notifier.Slack != nil {
+		botToken := os.ExpandEnv(global.Defaults.Notifier.Slack.BotToken)
+		if botToken == "" || botToken == global.Defaults.Notifier.Slack.BotToken {
+			fmt.Println("Slack bot ........... FAIL  SLACK_BOT_TOKEN not set")
+			fmt.Println("  export SLACK_BOT_TOKEN=<your token>")
+			issues++
+		} else if username, err := notifier.ValidateSlackToken(botToken); err == nil {
+			fmt.Printf("Slack bot ........... ok    connected (@%s)\n", username)
+			channelID := global.Defaults.Notifier.Slack.ChannelID
+			if name, err := notifier.CheckSlackAccess(botToken, channelID); err == nil {
+				fmt.Printf("Slack channel ....... ok    #%s accessible\n", name)
+			} else {
+				fmt.Printf("Slack channel ....... FAIL  %s: %v\n", channelID, err)
+				fmt.Println("  Make sure the bot is invited to the channel")
+				issues++
+			}
+		} else {
+			fmt.Println("Slack bot ........... FAIL  could not connect (invalid token?)")
+			issues++
+		}
 	} else {
-		fmt.Println("Telegram ............ --    not configured")
+		fmt.Println("Notifier ............ --    not configured")
 	}
 
 	// Git auth

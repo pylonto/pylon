@@ -46,7 +46,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		Title("Default notifier -- where should alerts go?").
 		Options(
 			huh.NewOption("Telegram", "telegram"),
-			huh.NewOption("Slack (coming soon)", "slack"),
+			huh.NewOption("Slack", "slack"),
 			huh.NewOption("Discord (coming soon)", "discord"),
 			huh.NewOption("WhatsApp (coming soon)", "whatsapp"),
 			huh.NewOption("iMessage (coming soon)", "imessage"),
@@ -72,6 +72,12 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "telegram", Telegram: tg}
+	case "slack":
+		sl, err := setupSlack()
+		if err != nil {
+			return err
+		}
+		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "slack", Slack: sl}
 	case "stdout":
 		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "stdout"}
 	case "webhook":
@@ -218,6 +224,142 @@ func detectChatID(token, username string) (int64, error) {
 	fmt.Printf("  Detected: %s (ID: %d)\n\n", title, chatID)
 	return chatID, nil
 }
+
+func setupSlack() (*config.SlackConfig, error) {
+	fmt.Println("  Step 1: Create a Slack App")
+	fmt.Println("    Go to https://api.slack.com/apps > Create New App > From a manifest")
+	fmt.Println("    Paste this YAML manifest:")
+	fmt.Println()
+	fmt.Println(slackAppManifest)
+	fmt.Println("  Step 2: Install the app to your workspace")
+	fmt.Println("  Step 3: Enable Socket Mode (Settings > Socket Mode > toggle on)")
+	fmt.Println("    Generate an App-Level Token with connections:write scope")
+	fmt.Println()
+
+	var botToken string
+	if envToken := os.Getenv("SLACK_BOT_TOKEN"); envToken != "" {
+		fmt.Println("  Using SLACK_BOT_TOKEN from environment")
+		botToken = envToken
+	} else {
+		fmt.Println("  Find your Bot Token at: OAuth & Permissions > Bot User OAuth Token")
+		err := huh.NewInput().
+			Title("Slack bot token (xoxb-...):").
+			Placeholder("xoxb-your-bot-token").
+			Value(&botToken).
+			Run()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	username, err := notifier.ValidateSlackToken(botToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid bot token: %w", err)
+	}
+	fmt.Printf("  Verified: @%s\n\n", username)
+
+	var appToken string
+	if envToken := os.Getenv("SLACK_APP_TOKEN"); envToken != "" {
+		fmt.Println("  Using SLACK_APP_TOKEN from environment")
+		appToken = envToken
+	} else {
+		fmt.Println("  Find your App Token at: Settings > Basic Information > App-Level Tokens")
+		err := huh.NewInput().
+			Title("Slack app token (xapp-...):").
+			Placeholder("xapp-your-app-token").
+			Value(&appToken).
+			Run()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var method string
+	err = huh.NewSelect[string]().
+		Title("How do you want to set the channel?").
+		Options(
+			huh.NewOption("Auto-detect (list channels the bot is in)", "auto"),
+			huh.NewOption("Enter channel ID manually", "manual"),
+		).
+		Value(&method).
+		Run()
+	if err != nil {
+		return nil, err
+	}
+
+	var channelID string
+	if method == "auto" {
+		channels, err := notifier.ListBotChannels(botToken)
+		if err != nil {
+			return nil, fmt.Errorf("listing channels: %w", err)
+		}
+		if len(channels) == 0 {
+			fmt.Println("  No channels found. Invite the bot to a channel first, then enter the ID manually.")
+			method = "manual"
+		} else {
+			options := make([]huh.Option[string], 0, len(channels))
+			for _, ch := range channels {
+				label := fmt.Sprintf("#%s", ch.Name)
+				options = append(options, huh.NewOption(label, ch.ID))
+			}
+			err = huh.NewSelect[string]().
+				Title("Select a channel:").
+				Options(options...).
+				Value(&channelID).
+				Run()
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if method == "manual" {
+		err = huh.NewInput().
+			Title("Slack channel ID:").
+			Placeholder("C1234567890").
+			Value(&channelID).
+			Run()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	config.SaveEnvVar("SLACK_BOT_TOKEN", botToken)
+	os.Setenv("SLACK_BOT_TOKEN", botToken)
+	config.SaveEnvVar("SLACK_APP_TOKEN", appToken)
+	os.Setenv("SLACK_APP_TOKEN", appToken)
+	fmt.Printf("  Tokens saved to %s\n", config.EnvPath())
+
+	return &config.SlackConfig{
+		BotToken:  "${SLACK_BOT_TOKEN}",
+		AppToken:  "${SLACK_APP_TOKEN}",
+		ChannelID: channelID,
+	}, nil
+}
+
+const slackAppManifest = `display_information:
+  name: Pylon
+  description: AI agent pipeline runner
+features:
+  bot_user:
+    display_name: Pylon
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - reactions:write
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true`
 
 func setupClaude() (*config.ClaudeDefaults, error) {
 	var authChoice string

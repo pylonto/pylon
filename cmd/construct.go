@@ -158,7 +158,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		Options(
 			huh.NewOption(fmt.Sprintf("Use default (%s)", notifierLabel), "default"),
 			huh.NewOption("Telegram (configure new)", "telegram"),
-			huh.NewOption("Slack (coming soon)", "slack"),
+			huh.NewOption("Slack", "slack"),
 			huh.NewOption("Discord (coming soon)", "discord"),
 			huh.NewOption("WhatsApp (coming soon)", "whatsapp"),
 			huh.NewOption("iMessage (coming soon)", "imessage"),
@@ -171,7 +171,9 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 
 	if notifyChoice != "default" {
 		switch notifyChoice {
-		case "slack", "discord", "whatsapp", "imessage":
+		case "slack":
+			pyl.Notify = &config.PylonNotify{Type: notifyChoice}
+		case "discord", "whatsapp", "imessage":
 			comingSoon(notifyChoice)
 		default:
 			pyl.Notify = &config.PylonNotify{Type: notifyChoice}

@@ -202,7 +202,7 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		if ctx.Err() == context.DeadlineExceeded {
 			msg = fmt.Sprintf("Agent timed out after %s", p.Timeout)
 		}
-		p.Notifier.SendMessage(p.TopicID, notifier.EscapeMarkdownV2(msg))
+		p.Notifier.SendMessage(p.TopicID, msg)
 	}
 	return jobErr
 }
@@ -212,10 +212,6 @@ func ResolveTemplate(tmpl string, body map[string]interface{}) string {
 	return resolveTemplateFn(tmpl, body, nil)
 }
 
-// ResolveTemplateEscaped resolves templates with MarkdownV2 escaping.
-func ResolveTemplateEscaped(tmpl string, body map[string]interface{}) string {
-	return resolveTemplateFn(tmpl, body, notifier.EscapeMarkdownV2)
-}
 
 func resolveTemplateFn(tmpl string, body map[string]interface{}, escapeFn func(string) string) string {
 	// Flatten nested maps into dot-separated keys:

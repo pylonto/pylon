@@ -32,6 +32,14 @@ type DefaultsConfig struct {
 type NotifierDefaults struct {
 	Type     string          `yaml:"type"`
 	Telegram *TelegramConfig `yaml:"telegram,omitempty"`
+	Slack    *SlackConfig    `yaml:"slack,omitempty"`
+}
+
+type SlackConfig struct {
+	BotToken     string   `yaml:"bot_token"`
+	AppToken     string   `yaml:"app_token"`
+	ChannelID    string   `yaml:"channel_id"`
+	AllowedUsers []string `yaml:"allowed_users,omitempty"`
 }
 
 type TelegramConfig struct {
