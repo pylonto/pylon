@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -126,10 +127,18 @@ func runTest(cmd *cobra.Command, args []string) error {
 	if customPayload != "" {
 		payload = []byte(customPayload)
 	} else {
-		// Generate a mock payload based on common webhook shapes
+		// Build mock payload using the pylon's own workspace config where possible
+		repo := pyl.Workspace.Repo
+		if repo == "" || strings.Contains(repo, "{{") {
+			repo = "https://github.com/kelseyhightower/nocode"
+		}
+		ref := pyl.Workspace.Ref
+		if ref == "" || strings.Contains(ref, "{{") {
+			ref = "master"
+		}
 		mock := map[string]interface{}{
-			"repo":  "https://github.com/example/test-repo",
-			"ref":   "main",
+			"repo":  repo,
+			"ref":   ref,
 			"error": fmt.Sprintf("Test error from pylon test %s", name),
 			"issue": map[string]interface{}{
 				"title":   fmt.Sprintf("Test issue for %s", name),

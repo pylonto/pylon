@@ -202,7 +202,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	var prompt string
 	if err := huh.NewText().
 		Title("Default prompt:").
-		Description("Use {{ .body.X }} for webhook payload fields").
+		Description("Use {{ .body.X }} to inject webhook payload fields\nExamples: {{ .body.issue.title }}, {{ .body.error }}, {{ .body.pull_request.head.ref }}").
 		Value(&prompt).Run(); err != nil {
 		return err
 	}
@@ -215,6 +215,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	var approval bool
 	if err := huh.NewConfirm().
 		Title("Require human approval before agent runs?").
+		Description("Yes = you get a notification with Investigate/Ignore buttons (recommended for Sentry)\nNo = agent runs immediately on every webhook").
 		Value(&approval).Run(); err != nil {
 		return err
 	}
@@ -228,6 +229,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		var msgTemplate string
 		if err := huh.NewText().
 			Title("Notification message template:").
+			Description("This is the message shown in Telegram above the Investigate/Ignore buttons.\nUse {{ .body.X }} for webhook fields. Example:\n\n{{ .body.issue.title }}\nRepo: my-app\n{{ .body.issue.culprit }}").
 			Value(&msgTemplate).Run(); err != nil {
 			return err
 		}

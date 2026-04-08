@@ -72,6 +72,22 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Println("Telegram ............ --    not configured")
 	}
 
+	// Git auth
+	if out, err := exec.Command("ssh", "-T", "git@github.com").CombinedOutput(); err != nil {
+		outStr := string(out)
+		if strings.Contains(outStr, "successfully authenticated") {
+			fmt.Println("Git (SSH) ........... ok    GitHub SSH key configured")
+		} else if err2 := exec.Command("gh", "auth", "status").Run(); err2 == nil {
+			fmt.Println("Git (HTTPS) ......... ok    gh CLI authenticated")
+		} else {
+			fmt.Println("Git auth ............ WARN  no SSH key or gh CLI auth found")
+			fmt.Println("  Private repos won't clone. Run: gh auth setup-git")
+			recommendations++
+		}
+	} else {
+		fmt.Println("Git (SSH) ........... ok    GitHub SSH key configured")
+	}
+
 	// OAuth
 	home, _ := os.UserHomeDir()
 	claudeDir := filepath.Join(home, ".claude")
