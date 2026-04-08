@@ -192,7 +192,8 @@ func detectChatID(token, username string) (int64, error) {
 	fmt.Println("  1. Create a Telegram group (or use an existing one)")
 	fmt.Println("  2. Enable Topics: Group Settings > Topics > toggle on")
 	fmt.Printf("  3. Add the bot as admin: https://t.me/%s?startgroup=setup&admin=manage_topics\n", username)
-	fmt.Println("  4. Send any message in the group")
+	fmt.Println("  4. Send a /command in the group (e.g. /hello)")
+	fmt.Println("     (Regular messages won't work unless you disable privacy mode in @BotFather)")
 	fmt.Println("\n  Waiting for message...")
 
 	chatID, title, err := notifier.PollForGroup(token)
