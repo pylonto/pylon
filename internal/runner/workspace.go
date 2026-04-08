@@ -27,7 +27,9 @@ func init() {
 }
 
 // CloneRepo performs a shallow git clone of a repo at a specific ref.
+// HTTPS GitHub/GitLab URLs are auto-converted to SSH to avoid interactive auth prompts.
 func CloneRepo(ctx context.Context, repo, ref, dest string) error {
+	repo = ToSSHURL(repo)
 	os.MkdirAll(filepath.Dir(dest), 0755)
 	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", ref, repo, dest)
 	cmd.Stdout = os.Stdout
@@ -134,6 +136,24 @@ func PeekContainerLogs(jobIDs []string, tailLines int) map[string]string {
 		result[jobID] = strings.TrimSpace(buf.String())
 	}
 	return result
+}
+
+// toSSHURL converts HTTPS GitHub/GitLab URLs to SSH format.
+// e.g. https://github.com/user/repo -> git@github.com:user/repo.git
+// Leaves SSH URLs, template strings, and other URLs untouched.
+func ToSSHURL(repo string) string {
+	if strings.Contains(repo, "{{") {
+		return repo
+	}
+	for _, host := range []string{"github.com", "gitlab.com"} {
+		prefix := "https://" + host + "/"
+		if strings.HasPrefix(repo, prefix) {
+			path := strings.TrimPrefix(repo, prefix)
+			path = strings.TrimSuffix(path, ".git")
+			return fmt.Sprintf("git@%s:%s.git", host, path)
+		}
+	}
+	return repo
 }
 
 // PruneOrphanedWorkspaces removes workspace dirs without active jobs.

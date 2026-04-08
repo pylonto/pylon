@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/runner"
 )
 
 func init() {
@@ -131,7 +132,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			Value(&repo).Run(); err != nil {
 			return err
 		}
-		repo = toSSHURL(repo)
+		repo = runner.ToSSHURL(repo)
 		if err := huh.NewInput().Title("Default branch:").Value(&ref).Run(); err != nil {
 			return err
 		}
@@ -386,22 +387,4 @@ func ensureAgentImage(agentType string) {
 
 	fmt.Printf("\nAgent image %s not found.\n", image)
 	fmt.Printf("  Build it: docker build -t %s agent/%s/\n", image, agentType)
-}
-
-// toSSHURL converts HTTPS GitHub/GitLab URLs to SSH format.
-// e.g. https://github.com/user/repo -> git@github.com:user/repo.git
-// Leaves SSH URLs, template strings, and other URLs untouched.
-func toSSHURL(repo string) string {
-	if strings.Contains(repo, "{{") {
-		return repo
-	}
-	for _, host := range []string{"github.com", "gitlab.com"} {
-		prefix := "https://" + host + "/"
-		if strings.HasPrefix(repo, prefix) {
-			path := strings.TrimPrefix(repo, prefix)
-			path = strings.TrimSuffix(path, ".git")
-			return fmt.Sprintf("git@%s:%s.git", host, path)
-		}
-	}
-	return repo
 }
