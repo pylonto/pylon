@@ -129,7 +129,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nSetup complete.\n")
 	fmt.Printf("  Config saved to %s\n", config.GlobalPath())
-	fmt.Printf("  Run `pylon construct <name>` to create your first pylon.\n\n")
+	fmt.Printf("  Run `pylon construct <name>` to create your first pylon.\n")
+	fmt.Printf("\n  Enable tab completion:\n")
+	fmt.Printf("    eval \"$(pylon completion zsh)\"   # add to ~/.zshrc\n\n")
 	return nil
 }
 
