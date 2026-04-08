@@ -13,6 +13,16 @@ import (
 
 func init() {
 	rootCmd.AddCommand(upgradeCmd)
+	rootCmd.AddCommand(rebuildImagesCmd)
+}
+
+var rebuildImagesCmd = &cobra.Command{
+	Use:    "rebuild-images",
+	Short:  "Rebuild agent Docker images from embedded files",
+	Hidden: true,
+	Run: func(cmd *cobra.Command, args []string) {
+		agentimage.Rebuild()
+	},
 }
 
 var upgradeCmd = &cobra.Command{
@@ -58,6 +68,11 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Upgraded: %s\n", string(out))
-	agentimage.Rebuild()
+
+	// Run rebuild-images from the NEW binary (the current process is the old one).
+	rebuild := exec.Command(self, "rebuild-images")
+	rebuild.Stdout = os.Stdout
+	rebuild.Stderr = os.Stderr
+	rebuild.Run() // best-effort
 	return nil
 }
