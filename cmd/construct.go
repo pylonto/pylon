@@ -80,27 +80,24 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	pyl.Trigger.Type = triggerType
 	switch triggerType {
 	case "webhook":
-		defaultPath := "/" + name
-		path := defaultPath
+		path := "/" + name
 		if err := huh.NewInput().
 			Title("Webhook path:").
 			Description(fmt.Sprintf("Your server: http://%s:%d", global.Server.Host, global.Server.Port)).
-			Placeholder(defaultPath).
 			Value(&path).Run(); err != nil {
 			return err
 		}
 		if path == "" {
-			path = defaultPath
+			path = "/" + name
 		}
 		if path[0] != '/' {
 			path = "/" + path
 		}
 		pyl.Trigger.Path = path
 	case "cron":
-		var schedule string
+		schedule := "0 9 * * 1-5"
 		if err := huh.NewInput().
 			Title("Cron schedule:").
-			Placeholder("0 9 * * 1-5").
 			Value(&schedule).Run(); err != nil {
 			return err
 		}
@@ -127,14 +124,15 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	pyl.Workspace.Type = wsType
 	switch wsType {
 	case "git-clone", "git-worktree":
-		var repo, ref string
+		var repo string
+		ref := "main"
 		if err := huh.NewInput().Title("Repo URL:").
 			Description("Use SSH (git@github.com:user/repo.git) for private repos").
 			Value(&repo).Run(); err != nil {
 			return err
 		}
 		repo = toSSHURL(repo)
-		if err := huh.NewInput().Title("Default branch:").Placeholder("main").Value(&ref).Run(); err != nil {
+		if err := huh.NewInput().Title("Default branch:").Value(&ref).Run(); err != nil {
 			return err
 		}
 		if ref == "" {
@@ -232,10 +230,10 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	ensureAgentImage(effectiveType)
 
 	// Prompt
-	var prompt string
+	prompt := "Investigate this error and suggest a fix: {{ .body.error }}"
 	if err := huh.NewText().
 		Title("Default prompt:").
-		Description("Use {{ .body.X }} to inject webhook payload fields\nExamples: {{ .body.issue.title }}, {{ .body.error }}, {{ .body.pull_request.head.ref }}").
+		Description("Use {{ .body.X }} to inject webhook payload fields.\nExamples: {{ .body.issue.title }}, {{ .body.error }}, {{ .body.pull_request.head.ref }}").
 		Value(&prompt).Run(); err != nil {
 		return err
 	}
@@ -259,10 +257,10 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	pyl.Notify.Approval = approval
 
 	if approval {
-		var msgTemplate string
+		msgTemplate := "{{ .body.issue.title }}\n{{ .body.error }}"
 		if err := huh.NewText().
 			Title("Notification message template:").
-			Description("This is the message shown in Telegram above the Investigate/Ignore buttons.\nUse {{ .body.X }} for webhook fields. Example:\n\n{{ .body.issue.title }}\nRepo: my-app\n{{ .body.issue.culprit }}").
+			Description("Shown in Telegram above the Investigate/Ignore buttons.\nUse {{ .body.X }} for webhook fields.").
 			Value(&msgTemplate).Run(); err != nil {
 			return err
 		}
@@ -326,11 +324,12 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 			Timeout: "30m",
 		}
 
-		var repo, ref string
+		var repo string
+		ref := "main"
 		if err := huh.NewInput().Title("Repo URL:").Value(&repo).Run(); err != nil {
 			return err
 		}
-		if err := huh.NewInput().Title("Default branch:").Placeholder("main").Value(&ref).Run(); err != nil {
+		if err := huh.NewInput().Title("Default branch:").Value(&ref).Run(); err != nil {
 			return err
 		}
 		if ref == "" {
