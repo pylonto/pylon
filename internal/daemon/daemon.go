@@ -257,108 +257,101 @@ func (d *Daemon) registerApprovalHandler() {
 		}
 	}
 
-	messageFn := func(topicID, text, incomingMsgID string) {
-		// Normalize: accept both "/done" and "done" (Slack intercepts slash commands)
-		cmd := strings.TrimPrefix(strings.TrimSpace(text), "/")
+	makeMessageFn := func(source notifier.Notifier) func(string, string, string) {
+		return func(topicID, text, incomingMsgID string) {
+			// Normalize: accept both "/done" and "done" (Slack intercepts slash commands)
+			cmd := strings.TrimPrefix(strings.TrimSpace(text), "/")
 
-		if cmd == "help" || strings.HasPrefix(text, "/help@") {
-			for _, nn := range d.allNotifiers() {
-				nn.ReplyMessage(topicID, commandHint(nn), incomingMsgID)
-			}
-			return
-		}
-
-		// /agents works on any notifier -- find whichever one sent it
-		if cmd == "agents" || strings.HasPrefix(text, "/agents@") {
-			jobs := d.Store.List()
-			msg := "No active agents."
-			if len(jobs) > 0 {
-				var b strings.Builder
-				for _, j := range jobs {
-					fmt.Fprintf(&b, "%s [%s] %s\n", j.ID[:8], j.Status, j.PylonName)
-				}
-				msg = b.String()
-			}
-			for _, nn := range d.allNotifiers() {
-				nn.SendMessage(topicID, msg)
-			}
-			return
-		}
-
-		if cmd == "status" || strings.HasPrefix(text, "/status@") {
-			jobs := d.Store.List()
-			var running []*store.Job
-			for _, j := range jobs {
-				if j.Status == "running" {
-					running = append(running, j)
-				}
-			}
-			if len(running) == 0 {
-				for _, nn := range d.allNotifiers() {
-					nn.ReplyMessage(topicID, "No agents currently running.", incomingMsgID)
-				}
+			if cmd == "help" || strings.HasPrefix(text, "/help@") {
+				source.ReplyMessage(topicID, commandHint(source), incomingMsgID)
 				return
 			}
-			d.hooksMu.Lock()
-			hooksCopy := make(map[string][]string, len(d.hookLog))
-			for k, v := range d.hookLog {
-				cp := make([]string, len(v))
-				copy(cp, v)
-				hooksCopy[k] = cp
-			}
-			d.hooksMu.Unlock()
 
-			var b strings.Builder
-			for _, j := range running {
-				elapsed := time.Since(j.CreatedAt).Truncate(time.Second)
-				fmt.Fprintf(&b, "%s [%s] (%s)\n", j.ID[:8], j.PylonName, elapsed)
-				if events, ok := hooksCopy[j.ID]; ok && len(events) > 0 {
-					for _, e := range events {
-						fmt.Fprintf(&b, "  > %s\n", e)
+			if cmd == "agents" || strings.HasPrefix(text, "/agents@") {
+				jobs := d.Store.List()
+				msg := "No active agents."
+				if len(jobs) > 0 {
+					var b strings.Builder
+					for _, j := range jobs {
+						fmt.Fprintf(&b, "%s [%s] %s\n", j.ID[:8], j.Status, j.PylonName)
 					}
-				} else {
-					b.WriteString("  (starting up)\n")
+					msg = b.String()
 				}
-				b.WriteString("\n")
+				source.SendMessage(topicID, msg)
+				return
 			}
-			for _, nn := range d.allNotifiers() {
-				nn.ReplyMessage(topicID, strings.TrimSpace(b.String()), incomingMsgID)
+
+			if cmd == "status" || strings.HasPrefix(text, "/status@") {
+				jobs := d.Store.List()
+				var running []*store.Job
+				for _, j := range jobs {
+					if j.Status == "running" {
+						running = append(running, j)
+					}
+				}
+				if len(running) == 0 {
+					source.ReplyMessage(topicID, "No agents currently running.", incomingMsgID)
+					return
+				}
+				d.hooksMu.Lock()
+				hooksCopy := make(map[string][]string, len(d.hookLog))
+				for k, v := range d.hookLog {
+					cp := make([]string, len(v))
+					copy(cp, v)
+					hooksCopy[k] = cp
+				}
+				d.hooksMu.Unlock()
+
+				var b strings.Builder
+				for _, j := range running {
+					elapsed := time.Since(j.CreatedAt).Truncate(time.Second)
+					fmt.Fprintf(&b, "%s [%s] (%s)\n", j.ID[:8], j.PylonName, elapsed)
+					if events, ok := hooksCopy[j.ID]; ok && len(events) > 0 {
+						for _, e := range events {
+							fmt.Fprintf(&b, "  > %s\n", e)
+						}
+					} else {
+						b.WriteString("  (starting up)\n")
+					}
+					b.WriteString("\n")
+				}
+				source.ReplyMessage(topicID, strings.TrimSpace(b.String()), incomingMsgID)
+				return
 			}
-			return
-		}
 
-		job, ok := d.Store.GetByTopic(topicID)
-		if !ok {
-			return
-		}
-		pyl, exists := d.Pylons[job.PylonName]
-		if !exists {
-			return
-		}
-		n := d.notifierFor(job.PylonName)
+			job, ok := d.Store.GetByTopic(topicID)
+			if !ok {
+				return
+			}
+			pyl, exists := d.Pylons[job.PylonName]
+			if !exists {
+				return
+			}
+			n := d.notifierFor(job.PylonName)
 
-		if cmd == "done" || strings.HasPrefix(text, "/done@") {
-			runner.CleanupWorkspace(job.ID)
-			n.SendMessage(topicID, "Job closed.")
-			n.CloseTopic(topicID)
-			d.Store.Delete(job.ID)
-			return
-		}
+			if cmd == "done" || strings.HasPrefix(text, "/done@") {
+				runner.CleanupWorkspace(job.ID)
+				n.SendMessage(topicID, "Job closed.")
+				n.CloseTopic(topicID)
+				d.Store.Delete(job.ID)
+				return
+			}
 
-		if job.Status == "running" {
-			n.SendMessage(topicID, "Agent is still working, please wait.")
-			return
-		}
-		if job.Status == "active" {
-			d.Store.UpdateStatus(job.ID, "running")
-			d.runJob(job.PylonName, pyl, job.ID, job.Body, job.CallbackURL, job.TopicID, text, job.SessionID)
+			if job.Status == "running" {
+				n.SendMessage(topicID, "Agent is still working, please wait.")
+				return
+			}
+			if job.Status == "active" {
+				d.Store.UpdateStatus(job.ID, "running")
+				d.runJob(job.PylonName, pyl, job.ID, job.Body, job.CallbackURL, job.TopicID, text, job.SessionID)
+			}
 		}
 	}
 
 	// Register handlers on all notifiers
 	for _, n := range d.allNotifiers() {
 		n.OnAction(actionFn)
-		n.OnMessage(messageFn)
+		n.OnMessage(makeMessageFn(n))
 	}
 }
 
