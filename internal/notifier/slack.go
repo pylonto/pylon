@@ -101,6 +101,7 @@ func (s *SlackNotifier) SendApproval(topicID, text, jobID string) (string, error
 func (s *SlackNotifier) EditMessage(topicID, messageID, text string) error {
 	_, _, _, err := s.api.UpdateMessage(s.channelID, messageID,
 		slack.MsgOptionText(text, false),
+		slack.MsgOptionBlocks(), // clear Block Kit blocks (removes stale buttons)
 	)
 	return err
 }
@@ -157,13 +158,19 @@ func (s *SlackNotifier) listenSocketMode(ctx context.Context) {
 }
 
 func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
+	// Always ack immediately to prevent Slack from showing a warning.
+	if evt.Request != nil {
+		if err := s.sm.Ack(*evt.Request); err != nil {
+			log.Printf("[slack] ack failed: %v", err)
+		}
+	}
+
 	switch evt.Type {
 	case socketmode.EventTypeInteractive:
 		callback, ok := evt.Data.(slack.InteractionCallback)
 		if !ok {
 			return
 		}
-		s.sm.Ack(*evt.Request)
 
 		if !s.isAllowed(callback.User.ID) {
 			return
@@ -177,7 +184,7 @@ func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
 			for _, action := range callback.ActionCallback.BlockActions {
 				parts := strings.SplitN(action.ActionID, ":", 2)
 				if len(parts) == 2 && actionFn != nil {
-					actionFn(parts[1], parts[0])
+					go actionFn(parts[1], parts[0])
 				}
 			}
 		}
@@ -187,7 +194,6 @@ func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
 		if !ok {
 			return
 		}
-		s.sm.Ack(*evt.Request)
 
 		if apiEvent.Type == slackevents.CallbackEvent {
 			switch ev := apiEvent.InnerEvent.Data.(type) {
@@ -204,14 +210,9 @@ func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
 				s.mu.Unlock()
 
 				if messageFn != nil {
-					messageFn(ev.ThreadTimeStamp, ev.Text, ev.TimeStamp)
+					go messageFn(ev.ThreadTimeStamp, ev.Text, ev.TimeStamp)
 				}
 			}
-		}
-
-	default:
-		if evt.Request != nil {
-			s.sm.Ack(*evt.Request)
 		}
 	}
 }
