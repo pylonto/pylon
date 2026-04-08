@@ -61,11 +61,15 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	// Telegram
 	if global != nil && global.Defaults.Notifier.Type == "telegram" && global.Defaults.Notifier.Telegram != nil {
 		token := os.ExpandEnv(global.Defaults.Notifier.Telegram.BotToken)
-		if username, err := notifier.GetBotUsername(token); err == nil {
+		if token == "" || token == global.Defaults.Notifier.Telegram.BotToken {
+			fmt.Println("Telegram bot ........ FAIL  TELEGRAM_BOT_TOKEN not set")
+			fmt.Println("  export TELEGRAM_BOT_TOKEN=<your token>")
+			issues++
+		} else if username, err := notifier.GetBotUsername(token); err == nil {
 			fmt.Printf("Telegram bot ........ ok    connected (@%s)\n", username)
 			fmt.Printf("Telegram chat ....... ok    chat %d\n", global.Defaults.Notifier.Telegram.ChatID)
 		} else {
-			fmt.Println("Telegram bot ........ FAIL  could not connect")
+			fmt.Println("Telegram bot ........ FAIL  could not connect (invalid token?)")
 			issues++
 		}
 	} else {

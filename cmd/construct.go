@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -115,9 +116,12 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	switch wsType {
 	case "git-clone", "git-worktree":
 		var repo, ref string
-		if err := huh.NewInput().Title("Repo URL:").Value(&repo).Run(); err != nil {
+		if err := huh.NewInput().Title("Repo URL:").
+			Description("Use SSH (git@github.com:user/repo.git) for private repos").
+			Value(&repo).Run(); err != nil {
 			return err
 		}
+		repo = toSSHURL(repo)
 		if err := huh.NewInput().Title("Default branch:").Placeholder("main").Value(&ref).Run(); err != nil {
 			return err
 		}
@@ -321,4 +325,22 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 	fmt.Printf("  Config: %s\n", config.PylonPath(name))
 	fmt.Printf("  Edit it: pylon edit %s\n\n", name)
 	return nil
+}
+
+// toSSHURL converts HTTPS GitHub/GitLab URLs to SSH format.
+// e.g. https://github.com/user/repo -> git@github.com:user/repo.git
+// Leaves SSH URLs, template strings, and other URLs untouched.
+func toSSHURL(repo string) string {
+	if strings.Contains(repo, "{{") {
+		return repo
+	}
+	for _, host := range []string{"github.com", "gitlab.com"} {
+		prefix := "https://" + host + "/"
+		if strings.HasPrefix(repo, prefix) {
+			path := strings.TrimPrefix(repo, prefix)
+			path = strings.TrimSuffix(path, ".git")
+			return fmt.Sprintf("git@%s:%s.git", host, path)
+		}
+	}
+	return repo
 }
