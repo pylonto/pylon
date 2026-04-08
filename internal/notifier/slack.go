@@ -127,6 +127,10 @@ func (s *SlackNotifier) OnAction(cb func(string, string)) {
 	s.mu.Unlock()
 }
 
+func (s *SlackNotifier) Commands() []Command {
+	return BotCommands
+}
+
 func (s *SlackNotifier) OnMessage(cb func(string, string, string)) {
 	s.mu.Lock()
 	s.messageFn = cb

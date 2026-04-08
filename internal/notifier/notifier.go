@@ -1,5 +1,19 @@
 package notifier
 
+// Command describes a bot command shown to users.
+type Command struct {
+	Name        string // e.g. "done"
+	Description string // e.g. "Close the current job and stop the agent"
+}
+
+// BotCommands is the canonical list of commands supported by all notifiers.
+var BotCommands = []Command{
+	{Name: "done", Description: "Close the current job and stop the agent"},
+	{Name: "status", Description: "Peek at what running agents are doing"},
+	{Name: "agents", Description: "List all active agents"},
+	{Name: "help", Description: "Show available commands"},
+}
+
 // Notifier abstracts a messaging backend that supports topic-based
 // conversations and inline-action buttons (approve/reject).
 type Notifier interface {
@@ -12,4 +26,5 @@ type Notifier interface {
 	CloseTopic(topicID string) error
 	OnAction(callback func(jobID string, action string))
 	OnMessage(callback func(topicID string, text string, messageID string))
+	Commands() []Command
 }

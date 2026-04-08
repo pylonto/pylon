@@ -267,13 +267,15 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 }
 
 func (t *TelegramNotifier) setCommands() {
-	t.callAPI("setMyCommands", map[string]interface{}{
-		"commands": []map[string]string{
-			{"command": "done", "description": "Close the current job and stop the agent"},
-			{"command": "agents", "description": "List all active agents"},
-			{"command": "status", "description": "Peek at what running agents are doing"},
-		},
-	})
+	cmds := make([]map[string]string, len(BotCommands))
+	for i, c := range BotCommands {
+		cmds[i] = map[string]string{"command": c.Name, "description": c.Description}
+	}
+	t.callAPI("setMyCommands", map[string]interface{}{"commands": cmds})
+}
+
+func (t *TelegramNotifier) Commands() []Command {
+	return BotCommands
 }
 
 // TestConnection sends a test message and returns nil on success.

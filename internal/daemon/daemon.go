@@ -261,6 +261,13 @@ func (d *Daemon) registerApprovalHandler() {
 		// Normalize: accept both "/done" and "done" (Slack intercepts slash commands)
 		cmd := strings.TrimPrefix(strings.TrimSpace(text), "/")
 
+		if cmd == "help" || strings.HasPrefix(text, "/help@") {
+			for _, nn := range d.allNotifiers() {
+				nn.ReplyMessage(topicID, commandHint(nn), incomingMsgID)
+			}
+			return
+		}
+
 		// /agents works on any notifier -- find whichever one sent it
 		if cmd == "agents" || strings.HasPrefix(text, "/agents@") {
 			jobs := d.Store.List()
@@ -510,6 +517,15 @@ func extractSessionID(output json.RawMessage) string {
 	}
 	json.Unmarshal(output, &p)
 	return p.SessionID
+}
+
+func commandHint(n notifier.Notifier) string {
+	cmds := n.Commands()
+	parts := make([]string, len(cmds))
+	for i, c := range cmds {
+		parts[i] = "`" + c.Name + "`"
+	}
+	return "Commands: " + strings.Join(parts, "  ")
 }
 
 func extractResultText(output json.RawMessage) string {
