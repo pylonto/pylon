@@ -140,7 +140,8 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
 		switch p.AgentType {
 		case "opencode":
-			WriteOpenCodeHooksPlugin(workDir, hooksURL)
+			// OpenCode hooks are handled by the entrypoint's NDJSON stream
+			// processor, which POSTs tool events to the hooks URL directly.
 		default:
 			WriteHooksConfig(workDir, hooksURL)
 		}

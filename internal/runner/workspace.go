@@ -71,26 +71,6 @@ func WriteHooksConfig(workDir, hooksURL string) {
 	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0644)
 }
 
-// WriteOpenCodeHooksPlugin creates a plugin in .opencode/plugins/ so
-// OpenCode POSTs tool-use events back to the Pylon server.
-func WriteOpenCodeHooksPlugin(workDir, hooksURL string) {
-	dir := filepath.Join(workDir, ".opencode", "plugins")
-	os.MkdirAll(dir, 0755)
-	plugin := fmt.Sprintf(`export default (ctx) => ({
-  hooks: {
-    "tool.execute.after": async (data) => {
-      try {
-        await fetch(%q, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: data.tool, result: data.result }),
-        });
-      } catch (e) {}
-    },
-  },
-});`, hooksURL)
-	os.WriteFile(filepath.Join(dir, "pylon-hooks.mjs"), []byte(plugin), 0644)
-}
 
 // PeekContainerLogs returns the last few lines of logs from containers
 // matching the given job IDs. Returns a map of jobID -> log tail.

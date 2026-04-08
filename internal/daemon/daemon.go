@@ -462,19 +462,40 @@ func verifySignature(trigger config.TriggerConfig, header http.Header, body []by
 func formatToolEvent(toolName string, input json.RawMessage) string {
 	var parsed map[string]interface{}
 	json.Unmarshal(input, &parsed)
-	switch toolName {
-	case "Bash":
+	switch strings.ToLower(toolName) {
+	case "bash":
 		cmd, _ := parsed["command"].(string)
 		if len(cmd) > 200 {
 			cmd = cmd[:200] + "..."
 		}
 		return "$ " + cmd
-	case "Edit", "MultiEdit":
+	case "edit", "multiedit":
 		fp, _ := parsed["file_path"].(string)
+		if fp == "" {
+			fp, _ = parsed["filePath"].(string)
+		}
 		return "Editing " + fp
-	case "Write":
+	case "write":
 		fp, _ := parsed["file_path"].(string)
+		if fp == "" {
+			fp, _ = parsed["filePath"].(string)
+		}
 		return "Writing " + fp
+	case "read":
+		fp, _ := parsed["file_path"].(string)
+		if fp == "" {
+			fp, _ = parsed["filePath"].(string)
+		}
+		return "Reading " + fp
+	case "glob":
+		pattern, _ := parsed["pattern"].(string)
+		return "Glob " + pattern
+	case "grep":
+		pattern, _ := parsed["pattern"].(string)
+		return "Grep " + pattern
+	}
+	if toolName != "" {
+		return toolName
 	}
 	return ""
 }
