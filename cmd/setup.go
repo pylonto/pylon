@@ -121,6 +121,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}}
 	}
 
+	ensureAgentImage(cfg.Defaults.Agent.Type)
+
 	if err := config.SaveGlobal(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
