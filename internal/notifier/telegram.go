@@ -276,6 +276,78 @@ func GetBotUsername(token string) (string, error) {
 	return r.Result.Username, nil
 }
 
+// PollForGroup polls Telegram updates until the bot receives a message in a group,
+// returning the chat ID and title. Used during setup to auto-detect the group.
+func PollForGroup(token string) (int64, string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	pollClient := &http.Client{Timeout: 45 * time.Second}
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates", token)
+
+	// Clear old updates.
+	var offset int64
+	body, _ := json.Marshal(map[string]interface{}{"offset": -1, "limit": 1})
+	if resp, err := client.Post(apiURL, "application/json", bytes.NewReader(body)); err == nil {
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		var r struct {
+			Result []struct {
+				UpdateID int64 `json:"update_id"`
+			} `json:"result"`
+		}
+		json.Unmarshal(raw, &r)
+		if len(r.Result) > 0 {
+			offset = r.Result[0].UpdateID + 1
+		}
+	}
+
+	for {
+		body, _ := json.Marshal(map[string]interface{}{
+			"offset": offset, "timeout": 30,
+			"allowed_updates": []string{"message", "my_chat_member"},
+		})
+		resp, err := pollClient.Post(apiURL, "application/json", bytes.NewReader(body))
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var result struct {
+			Result []struct {
+				UpdateID int64 `json:"update_id"`
+				Message  *struct {
+					Chat struct {
+						ID    int64  `json:"id"`
+						Title string `json:"title"`
+						Type  string `json:"type"`
+					} `json:"chat"`
+				} `json:"message"`
+				MyChatMember *struct {
+					Chat struct {
+						ID    int64  `json:"id"`
+						Title string `json:"title"`
+						Type  string `json:"type"`
+					} `json:"chat"`
+				} `json:"my_chat_member"`
+			} `json:"result"`
+		}
+		json.Unmarshal(raw, &result)
+
+		for _, u := range result.Result {
+			offset = u.UpdateID + 1
+			if u.Message != nil && isGroup(u.Message.Chat.Type) {
+				return u.Message.Chat.ID, u.Message.Chat.Title, nil
+			}
+			if u.MyChatMember != nil && isGroup(u.MyChatMember.Chat.Type) {
+				return u.MyChatMember.Chat.ID, u.MyChatMember.Chat.Title, nil
+			}
+		}
+	}
+}
+
+func isGroup(t string) bool { return t == "group" || t == "supergroup" }
+
 // EscapeMarkdownV2 escapes special characters for Telegram MarkdownV2.
 func EscapeMarkdownV2(s string) string {
 	const special = `_*[]()~` + "`" + `>#+-=|{}.!`

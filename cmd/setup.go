@@ -146,30 +146,61 @@ func setupTelegram() (*config.TelegramConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid bot token: %w", err)
 	}
-	fmt.Printf("  Verified: @%s\n", username)
+	fmt.Printf("  Verified: @%s\n\n", username)
 
-	var chatIDStr string
-	err = huh.NewInput().
-		Title("Telegram chat ID:").
-		Description("The numeric ID of your group (e.g., -1001234567890)").
-		Value(&chatIDStr).
+	var method string
+	err = huh.NewSelect[string]().
+		Title("How do you want to set the chat ID?").
+		Options(
+			huh.NewOption("Auto-detect (add bot to group, send a message)", "auto"),
+			huh.NewOption("Enter manually", "manual"),
+		).
+		Value(&method).
 		Run()
 	if err != nil {
 		return nil, err
 	}
 
 	var chatID int64
-	fmt.Sscanf(chatIDStr, "%d", &chatID)
+	if method == "auto" {
+		chatID, err = detectChatID(token, username)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var chatIDStr string
+		err = huh.NewInput().
+			Title("Telegram chat ID:").
+			Placeholder("-1001234567890").
+			Value(&chatIDStr).
+			Run()
+		if err != nil {
+			return nil, err
+		}
+		fmt.Sscanf(chatIDStr, "%d", &chatID)
+	}
 
-	fmt.Print("  Testing connection... ")
-	// Store token as env var reference in config
 	os.Setenv("TELEGRAM_BOT_TOKEN", token)
-	fmt.Println("ok")
 
 	return &config.TelegramConfig{
 		BotToken: "${TELEGRAM_BOT_TOKEN}",
 		ChatID:   chatID,
 	}, nil
+}
+
+func detectChatID(token, username string) (int64, error) {
+	fmt.Println("  1. Create a Telegram group (or use an existing one)")
+	fmt.Println("  2. Enable Topics: Group Settings > Topics > toggle on")
+	fmt.Printf("  3. Add the bot as admin: https://t.me/%s?startgroup=setup&admin=manage_topics\n", username)
+	fmt.Println("  4. Send any message in the group")
+	fmt.Println("\n  Waiting for message...")
+
+	chatID, title, err := notifier.PollForGroup(token)
+	if err != nil {
+		return 0, err
+	}
+	fmt.Printf("  Detected: %s (ID: %d)\n\n", title, chatID)
+	return chatID, nil
 }
 
 func setupClaude() (*config.ClaudeDefaults, error) {
