@@ -14,10 +14,10 @@ type PylonConfig struct {
 	Name    string    `yaml:"name"`
 	Created time.Time `yaml:"created"`
 
-	Trigger   TriggerConfig    `yaml:"trigger"`
-	Notify    *PylonNotify     `yaml:"notify,omitempty"`
-	Workspace WorkspaceConfig  `yaml:"workspace"`
-	Agent     *PylonAgent      `yaml:"agent,omitempty"`
+	Trigger   TriggerConfig   `yaml:"trigger"`
+	Notify    *PylonNotify    `yaml:"notify,omitempty"`
+	Workspace WorkspaceConfig `yaml:"workspace"`
+	Agent     *PylonAgent     `yaml:"agent,omitempty"`
 }
 
 type TriggerConfig struct {

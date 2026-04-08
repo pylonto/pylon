@@ -130,8 +130,11 @@ func setupTelegram() (*config.TelegramConfig, error) {
 		fmt.Println("  Using TELEGRAM_BOT_TOKEN from environment")
 		token = envToken
 	} else {
+		fmt.Println("  Create a bot via @BotFather: https://t.me/BotFather")
+		fmt.Println("  Send /newbot, pick a name, and copy the token.\n")
 		err := huh.NewInput().
 			Title("Telegram bot token:").
+			Placeholder("110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw").
 			Value(&token).
 			Run()
 		if err != nil {

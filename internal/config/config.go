@@ -39,7 +39,7 @@ type TelegramConfig struct {
 }
 
 type AgentDefaults struct {
-	Type  string       `yaml:"type"`
+	Type   string          `yaml:"type"`
 	Claude *ClaudeDefaults `yaml:"claude,omitempty"`
 }
 

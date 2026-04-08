@@ -143,8 +143,16 @@ func (t *TelegramNotifier) SendTyping(topicID string) error {
 	return err
 }
 
-func (t *TelegramNotifier) OnAction(cb func(string, string))  { t.mu.Lock(); t.actionFn = cb; t.mu.Unlock() }
-func (t *TelegramNotifier) OnMessage(cb func(string, string)) { t.mu.Lock(); t.messageFn = cb; t.mu.Unlock() }
+func (t *TelegramNotifier) OnAction(cb func(string, string)) {
+	t.mu.Lock()
+	t.actionFn = cb
+	t.mu.Unlock()
+}
+func (t *TelegramNotifier) OnMessage(cb func(string, string)) {
+	t.mu.Lock()
+	t.messageFn = cb
+	t.mu.Unlock()
+}
 
 func (t *TelegramNotifier) isAllowed(userID int64) bool {
 	return len(t.allowedUsers) == 0 || t.allowedUsers[userID]
@@ -181,13 +189,17 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 				CallbackQuery *struct {
 					ID   string `json:"id"`
 					Data string `json:"data"`
-					From struct{ ID int64 `json:"id"` } `json:"from"`
+					From struct {
+						ID int64 `json:"id"`
+					} `json:"from"`
 				} `json:"callback_query"`
 				Message *struct {
 					Text            string `json:"text"`
 					MessageThreadID int64  `json:"message_thread_id"`
-					Chat            struct{ Type string `json:"type"` } `json:"chat"`
-					From            struct {
+					Chat            struct {
+						Type string `json:"type"`
+					} `json:"chat"`
+					From struct {
 						ID    int64 `json:"id"`
 						IsBot bool  `json:"is_bot"`
 					} `json:"from"`
@@ -254,7 +266,9 @@ func GetBotUsername(token string) (string, error) {
 	raw, _ := io.ReadAll(resp.Body)
 	var r struct {
 		OK     bool `json:"ok"`
-		Result struct{ Username string `json:"username"` } `json:"result"`
+		Result struct {
+			Username string `json:"username"`
+		} `json:"result"`
 	}
 	if json.Unmarshal(raw, &r) != nil || !r.OK {
 		return "", fmt.Errorf("invalid bot token")
