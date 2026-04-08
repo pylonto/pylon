@@ -22,7 +22,7 @@ type TelegramNotifier struct {
 	client       *http.Client
 	mu           sync.Mutex
 	actionFn     func(jobID string, action string)
-	messageFn    func(topicID string, text string)
+	messageFn    func(topicID string, text string, messageID string)
 }
 
 func NewTelegramNotifier(ctx context.Context, token string, chatID int64, allowedUsers []int64) *TelegramNotifier {
@@ -105,6 +105,27 @@ func (t *TelegramNotifier) SendMessage(topicID, text string) (string, error) {
 	return t.sendMsg(topicID, text, nil)
 }
 
+func (t *TelegramNotifier) ReplyMessage(topicID, text, replyTo string) (string, error) {
+	params := map[string]interface{}{
+		"chat_id": t.chatID, "text": text, "parse_mode": "MarkdownV2",
+	}
+	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
+		params["message_thread_id"] = tid
+	}
+	if mid, _ := strconv.ParseInt(replyTo, 10, 64); mid != 0 {
+		params["reply_to_message_id"] = mid
+	}
+	raw, err := t.callAPI("sendMessage", params)
+	if err != nil {
+		return "", err
+	}
+	var msg struct {
+		MessageID int64 `json:"message_id"`
+	}
+	json.Unmarshal(raw, &msg)
+	return strconv.FormatInt(msg.MessageID, 10), nil
+}
+
 func (t *TelegramNotifier) SendApproval(topicID, text, jobID string) (string, error) {
 	keyboard := map[string]interface{}{
 		"inline_keyboard": [][]map[string]string{{
@@ -148,7 +169,7 @@ func (t *TelegramNotifier) OnAction(cb func(string, string)) {
 	t.actionFn = cb
 	t.mu.Unlock()
 }
-func (t *TelegramNotifier) OnMessage(cb func(string, string)) {
+func (t *TelegramNotifier) OnMessage(cb func(string, string, string)) {
 	t.mu.Lock()
 	t.messageFn = cb
 	t.mu.Unlock()
@@ -194,6 +215,7 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 					} `json:"from"`
 				} `json:"callback_query"`
 				Message *struct {
+					MessageID       int64  `json:"message_id"`
 					Text            string `json:"text"`
 					MessageThreadID int64  `json:"message_thread_id"`
 					Chat            struct {
@@ -233,7 +255,11 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 					continue
 				}
 				if messageFn != nil {
-					messageFn(strconv.FormatInt(u.Message.MessageThreadID, 10), u.Message.Text)
+					messageFn(
+						strconv.FormatInt(u.Message.MessageThreadID, 10),
+						u.Message.Text,
+						strconv.FormatInt(u.Message.MessageID, 10),
+					)
 				}
 			}
 		}

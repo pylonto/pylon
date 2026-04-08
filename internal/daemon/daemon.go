@@ -67,6 +67,9 @@ type Daemon struct {
 	Notifiers map[string]notifier.Notifier // per-pylon overrides
 	Limiter   *AgentLimiter
 	Mux       *http.ServeMux
+
+	hooksMu    sync.Mutex
+	lastHooks  map[string]string // jobID -> last tool-use description
 }
 
 // New creates a Daemon from global config and loaded pylons.
@@ -79,6 +82,7 @@ func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st 
 		Notifiers: perPylon,
 		Limiter:   NewAgentLimiter(global.Docker.MaxConcurrent),
 		Mux:       http.NewServeMux(),
+		lastHooks: make(map[string]string),
 	}
 	d.registerRoutes()
 	return d
@@ -247,7 +251,7 @@ func (d *Daemon) registerApprovalHandler() {
 		}
 	}
 
-	messageFn := func(topicID, text string) {
+	messageFn := func(topicID, text, incomingMsgID string) {
 		// /agents works on any notifier -- find whichever one sent it
 		if text == "/agents" || strings.HasPrefix(text, "/agents@") {
 			jobs := d.Store.List()
@@ -275,28 +279,37 @@ func (d *Daemon) registerApprovalHandler() {
 			}
 			if len(running) == 0 {
 				for _, nn := range d.allNotifiers() {
-					nn.SendMessage(topicID, notifier.EscapeMarkdownV2("No agents currently running."))
+					nn.ReplyMessage(topicID, notifier.EscapeMarkdownV2("No agents currently running."), incomingMsgID)
 				}
 				return
 			}
+			d.hooksMu.Lock()
+			hooksCopy := make(map[string]string, len(d.lastHooks))
+			for k, v := range d.lastHooks {
+				hooksCopy[k] = v
+			}
+			d.hooksMu.Unlock()
+
 			var ids []string
 			for _, j := range running {
 				ids = append(ids, j.ID)
 			}
-			logs := runner.PeekContainerLogs(ids, 5)
+			logs := runner.PeekContainerLogs(ids, 3)
 			var b strings.Builder
 			for _, j := range running {
 				elapsed := time.Since(j.CreatedAt).Truncate(time.Second)
 				fmt.Fprintf(&b, "%s [%s] (%s)\n", j.ID[:8], j.PylonName, elapsed)
-				if tail, ok := logs[j.ID]; ok && tail != "" {
+				if hook, ok := hooksCopy[j.ID]; ok {
+					fmt.Fprintf(&b, "  > %s\n", hook)
+				} else if tail, ok := logs[j.ID]; ok && tail != "" {
 					fmt.Fprintf(&b, "%s\n", tail)
 				} else {
-					fmt.Fprintf(&b, "(no output yet)\n")
+					fmt.Fprintf(&b, "  (starting up)\n")
 				}
 				b.WriteString("\n")
 			}
 			for _, nn := range d.allNotifiers() {
-				nn.SendMessage(topicID, notifier.EscapeMarkdownV2(strings.TrimSpace(b.String())))
+				nn.ReplyMessage(topicID, notifier.EscapeMarkdownV2(strings.TrimSpace(b.String())), incomingMsgID)
 			}
 			return
 		}
@@ -418,6 +431,9 @@ func (d *Daemon) registerHooksRoute() {
 
 		msg := formatToolEvent(event.ToolName, event.ToolInput)
 		if msg != "" {
+			d.hooksMu.Lock()
+			d.lastHooks[jobID] = msg
+			d.hooksMu.Unlock()
 			if job, ok := d.Store.Get(jobID); ok {
 				if n := d.notifierFor(job.PylonName); n != nil {
 					n.SendMessage(job.TopicID, notifier.EscapeMarkdownV2(msg))
