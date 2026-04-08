@@ -24,7 +24,7 @@ log "prompt: $PROMPT"
 cd /workspace
 
 # --- Run Claude Code ---
-CLAUDE_ARGS=(--print --output-format json -p "$PROMPT")
+CLAUDE_ARGS=(--print --output-format json --dangerously-skip-permissions -p "$PROMPT")
 
 # Resume previous session if SESSION_ID is set (follow-up messages).
 if [ -n "${SESSION_ID:-}" ]; then
