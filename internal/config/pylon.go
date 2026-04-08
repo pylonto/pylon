@@ -174,6 +174,7 @@ func (p *PylonConfig) ResolveAuth(global *GlobalConfig) string {
 }
 
 // ResolveProvider returns the effective LLM provider (for multi-provider agents like OpenCode).
+// Returns empty string if no provider is explicitly configured (e.g., using OpenCode Zen).
 func (p *PylonConfig) ResolveProvider(global *GlobalConfig) string {
 	if p.Agent != nil && p.Agent.Provider != "" {
 		return p.Agent.Provider
@@ -181,7 +182,7 @@ func (p *PylonConfig) ResolveProvider(global *GlobalConfig) string {
 	if global.Defaults.Agent.OpenCode != nil && global.Defaults.Agent.OpenCode.Provider != "" {
 		return global.Defaults.Agent.OpenCode.Provider
 	}
-	return "anthropic"
+	return ""
 }
 
 // ProviderEnvVar maps a provider name to its API key environment variable.

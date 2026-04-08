@@ -1,15 +1,18 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // JobsDir is the workspace root for agent job files.
@@ -85,6 +88,52 @@ func WriteOpenCodeHooksPlugin(workDir, hooksURL string) {
   },
 });`, hooksURL)
 	os.WriteFile(filepath.Join(dir, "pylon-hooks.mjs"), []byte(plugin), 0644)
+}
+
+// PeekContainerLogs returns the last few lines of logs from containers
+// matching the given job IDs. Returns a map of jobID -> log tail.
+func PeekContainerLogs(jobIDs []string, tailLines int) map[string]string {
+	result := make(map[string]string)
+	if len(jobIDs) == 0 {
+		return result
+	}
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return result
+	}
+	defer cli.Close()
+
+	ctx := context.Background()
+	containers, err := cli.ContainerList(ctx, container.ListOptions{})
+	if err != nil {
+		return result
+	}
+
+	wanted := make(map[string]bool, len(jobIDs))
+	for _, id := range jobIDs {
+		wanted[id] = true
+	}
+
+	tail := fmt.Sprintf("%d", tailLines)
+	for _, c := range containers {
+		jobID, ok := c.Labels["pylon.job"]
+		if !ok || !wanted[jobID] {
+			continue
+		}
+		logReader, err := cli.ContainerLogs(ctx, c.ID, container.LogsOptions{
+			ShowStdout: true, ShowStderr: true, Tail: tail,
+		})
+		if err != nil {
+			continue
+		}
+		// Docker multiplexed stream: use stdcopy to extract plain text.
+		var buf bytes.Buffer
+		stdcopy.StdCopy(&buf, &buf, logReader)
+		logReader.Close()
+		result[jobID] = strings.TrimSpace(buf.String())
+	}
+	return result
 }
 
 // PruneOrphanedWorkspaces removes workspace dirs without active jobs.

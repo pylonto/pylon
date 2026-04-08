@@ -245,6 +245,7 @@ func (t *TelegramNotifier) setCommands() {
 		"commands": []map[string]string{
 			{"command": "done", "description": "Close the current job and stop the agent"},
 			{"command": "agents", "description": "List all active agents"},
+			{"command": "status", "description": "Peek at what running agents are doing"},
 		},
 	})
 }

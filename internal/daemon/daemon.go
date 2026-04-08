@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -258,9 +259,44 @@ func (d *Daemon) registerApprovalHandler() {
 				}
 				msg = b.String()
 			}
-			// Send via whichever notifier has this topic
 			for _, nn := range d.allNotifiers() {
 				nn.SendMessage(topicID, notifier.EscapeMarkdownV2(msg))
+			}
+			return
+		}
+
+		if text == "/status" || strings.HasPrefix(text, "/status@") {
+			jobs := d.Store.List()
+			var running []*store.Job
+			for _, j := range jobs {
+				if j.Status == "running" {
+					running = append(running, j)
+				}
+			}
+			if len(running) == 0 {
+				for _, nn := range d.allNotifiers() {
+					nn.SendMessage(topicID, notifier.EscapeMarkdownV2("No agents currently running."))
+				}
+				return
+			}
+			var ids []string
+			for _, j := range running {
+				ids = append(ids, j.ID)
+			}
+			logs := runner.PeekContainerLogs(ids, 5)
+			var b strings.Builder
+			for _, j := range running {
+				elapsed := time.Since(j.CreatedAt).Truncate(time.Second)
+				fmt.Fprintf(&b, "%s [%s] (%s)\n", j.ID[:8], j.PylonName, elapsed)
+				if tail, ok := logs[j.ID]; ok && tail != "" {
+					fmt.Fprintf(&b, "%s\n", tail)
+				} else {
+					fmt.Fprintf(&b, "(no output yet)\n")
+				}
+				b.WriteString("\n")
+			}
+			for _, nn := range d.allNotifiers() {
+				nn.SendMessage(topicID, notifier.EscapeMarkdownV2(strings.TrimSpace(b.String())))
 			}
 			return
 		}
