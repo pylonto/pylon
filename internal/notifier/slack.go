@@ -140,7 +140,7 @@ func (s *SlackNotifier) isAllowed(userID string) bool {
 func (s *SlackNotifier) listenSocketMode(ctx context.Context) {
 	go func() {
 		if err := s.sm.RunContext(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("[slack] socket mode error: %v", err)
+			log.Printf("[slack] socket mode exited: %v", err)
 		}
 	}()
 
@@ -151,6 +151,14 @@ func (s *SlackNotifier) listenSocketMode(ctx context.Context) {
 		case evt, ok := <-s.sm.Events:
 			if !ok {
 				return
+			}
+			switch evt.Type {
+			case socketmode.EventTypeConnected:
+				log.Println("[slack] socket mode connected (listening for button clicks and messages)")
+			case socketmode.EventTypeConnectionError:
+				log.Printf("[slack] socket mode connection error: %v", evt.Data)
+			case socketmode.EventTypeInvalidAuth:
+				log.Println("[slack] socket mode auth failed -- check SLACK_APP_TOKEN has connections:write scope")
 			}
 			s.handleEvent(evt)
 		}
