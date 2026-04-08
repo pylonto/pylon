@@ -39,8 +39,13 @@ pylon test my-sentry                     # Send a test webhook
 - [ ] iMessage
 - [ ] Generic webhook (HTTP POST)
 
+### Telegram commands
+
+- [ ] `/tail` -- live-updating message showing the last 8 agent actions (edits in place)
+
 ### Agents
 
+- [ ] OpenCode -- ~~integrate as second provider~~ done (v0.1.10+)
 - [ ] Codex
 - [ ] Aider
 - [ ] Custom command
