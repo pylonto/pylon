@@ -49,9 +49,18 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nConstructing pylon: %s\n\n", name)
 
+	var description string
+	if err := huh.NewInput().
+		Title("Description (optional):").
+		Placeholder("Sentry error triage for the nexus project").
+		Value(&description).Run(); err != nil {
+		return err
+	}
+
 	pyl := &config.PylonConfig{
-		Name:    name,
-		Created: time.Now().UTC(),
+		Name:        name,
+		Description: description,
+		Created:     time.Now().UTC(),
 	}
 
 	// Trigger

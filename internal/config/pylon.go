@@ -12,8 +12,9 @@ import (
 
 // PylonConfig is the per-pylon config at ~/.pylon/pylons/<name>/pylon.yaml.
 type PylonConfig struct {
-	Name    string    `yaml:"name"`
-	Created time.Time `yaml:"created"`
+	Name        string    `yaml:"name"`
+	Description string    `yaml:"description,omitempty"`
+	Created     time.Time `yaml:"created"`
 
 	Trigger   TriggerConfig   `yaml:"trigger"`
 	Notify    *PylonNotify    `yaml:"notify,omitempty"`

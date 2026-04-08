@@ -89,11 +89,11 @@ func runList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%-28s %-12s %s\n", "NAME", "TRIGGER", "STATUS")
+	fmt.Printf("%-28s %-12s %-30s %s\n", "NAME", "TRIGGER", "PATH", "DESCRIPTION")
 	for _, name := range names {
 		pyl, err := config.LoadPylon(name)
 		if err != nil {
-			fmt.Printf("%-28s %-12s %s\n", name, "?", "error loading config")
+			fmt.Printf("%-28s %-12s %-30s %s\n", name, "?", "", "error loading config")
 			continue
 		}
 		trigger := pyl.Trigger.Type
@@ -101,7 +101,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		if pyl.Trigger.Cron != "" {
 			path = pyl.Trigger.Cron
 		}
-		fmt.Printf("%-28s %-12s %s\n", name, trigger, path)
+		fmt.Printf("%-28s %-12s %-30s %s\n", name, trigger, path, pyl.Description)
 	}
 	return nil
 }
