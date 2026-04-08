@@ -57,10 +57,16 @@ func Build(agentType string) error {
 	return nil
 }
 
-// Rebuild rebuilds all known agent images.
+// Rebuild rebuilds agent images that already exist locally (i.e., ones
+// the user has previously chosen). Does not build images for agents
+// that were never selected.
 func Rebuild() {
 	for _, agentType := range []string{"claude", "opencode"} {
 		image := "pylon/agent-" + agentType
+		out, err := exec.Command("docker", "images", image, "-q").Output()
+		if err != nil || strings.TrimSpace(string(out)) == "" {
+			continue
+		}
 		fmt.Printf("Rebuilding %s...\n", image)
 		if err := Build(agentType); err != nil {
 			log.Printf("Warning: failed to rebuild %s: %v", image, err)
