@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/daemon"
 	"github.com/pylonto/pylon/internal/notifier"
@@ -130,6 +131,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	d := daemon.New(global, pylons, st, globalNotifier, perPylon)
+
+	// Ensure agent images exist for all active pylons
+	seen := make(map[string]bool)
+	for _, pyl := range pylons {
+		agentType := pyl.ResolveAgentType(global)
+		if !seen[agentType] {
+			seen[agentType] = true
+			agentimage.Ensure(agentType)
+		}
+	}
 
 	fmt.Printf("\nPowering up pylons...\n\n")
 	for name, pyl := range pylons {
