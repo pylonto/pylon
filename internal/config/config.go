@@ -76,8 +76,6 @@ func LoadGlobal() (*GlobalConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading global config: %w", err)
 	}
-	data = []byte(os.ExpandEnv(string(data)))
-
 	var cfg GlobalConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing global config: %w", err)

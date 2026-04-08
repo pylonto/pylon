@@ -112,7 +112,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	d := daemon.New(global, pylons, st, n)
 
-	fmt.Println("\nPowering up pylons...\n")
+	fmt.Printf("\nPowering up pylons...\n\n")
 	for name, pyl := range pylons {
 		trigger := pyl.Trigger.Type
 		path := pyl.Trigger.Path

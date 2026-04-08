@@ -276,6 +276,28 @@ func GetBotUsername(token string) (string, error) {
 	return r.Result.Username, nil
 }
 
+// CheckChatAccess verifies the bot can access a chat and create topics.
+func CheckChatAccess(token string, chatID int64) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getChat", token)
+	body, _ := json.Marshal(map[string]interface{}{"chat_id": chatID})
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var r struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	json.Unmarshal(raw, &r)
+	if !r.OK {
+		return fmt.Errorf("%s", r.Description)
+	}
+	return nil
+}
+
 // PollForGroup polls Telegram updates until the bot receives a message in a group,
 // returning the chat ID and title. Used during setup to auto-detect the group.
 func PollForGroup(token string) (int64, string, error) {

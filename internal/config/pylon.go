@@ -70,8 +70,6 @@ func LoadPylon(name string) (*PylonConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading pylon config %q: %w", name, err)
 	}
-	data = []byte(os.ExpandEnv(string(data)))
-
 	var cfg PylonConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing pylon config %q: %w", name, err)

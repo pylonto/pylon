@@ -25,7 +25,7 @@ var setupCmd = &cobra.Command{
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
-	fmt.Println("\nPylon Setup\n")
+	fmt.Printf("\nPylon Setup\n\n")
 
 	// Check Docker
 	dockerVersion := "not found"
@@ -131,7 +131,7 @@ func setupTelegram() (*config.TelegramConfig, error) {
 		token = envToken
 	} else {
 		fmt.Println("  Create a bot via @BotFather: https://t.me/BotFather")
-		fmt.Println("  Send /newbot, pick a name, and copy the token.\n")
+		fmt.Println("  Send /newbot, pick a name, and copy the token.")
 		err := huh.NewInput().
 			Title("Telegram bot token:").
 			Placeholder("110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw").

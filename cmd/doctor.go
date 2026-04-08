@@ -25,7 +25,7 @@ var doctorCmd = &cobra.Command{
 }
 
 func runDoctor(cmd *cobra.Command, args []string) error {
-	fmt.Println("\nPylon Doctor\n")
+	fmt.Printf("\nPylon Doctor\n\n")
 
 	issues := 0
 	recommendations := 0
@@ -67,7 +67,14 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			issues++
 		} else if username, err := notifier.GetBotUsername(token); err == nil {
 			fmt.Printf("Telegram bot ........ ok    connected (@%s)\n", username)
-			fmt.Printf("Telegram chat ....... ok    chat %d\n", global.Defaults.Notifier.Telegram.ChatID)
+			chatID := global.Defaults.Notifier.Telegram.ChatID
+			if err := notifier.CheckChatAccess(token, chatID); err == nil {
+				fmt.Printf("Telegram chat ....... ok    chat %d accessible\n", chatID)
+			} else {
+				fmt.Printf("Telegram chat ....... FAIL  chat %d: %v\n", chatID, err)
+				fmt.Println("  Make sure the bot is an admin in the group with topic management permissions")
+				issues++
+			}
 		} else {
 			fmt.Println("Telegram bot ........ FAIL  could not connect (invalid token?)")
 			issues++

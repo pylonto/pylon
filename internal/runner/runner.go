@@ -183,9 +183,17 @@ func ResolveTemplateEscaped(tmpl string, body map[string]interface{}) string {
 }
 
 func resolveTemplateFn(tmpl string, body map[string]interface{}, escapeFn func(string) string) string {
+	// Flatten nested maps into dot-separated keys:
+	// {"issue": {"title": "x"}} -> {"issue.title": "x", "issue": {...}}
+	flat := make(map[string]interface{})
+	flattenMap("", body, flat)
+
 	result := tmpl
-	for key, val := range body {
+	for key, val := range flat {
 		placeholder := fmt.Sprintf("{{ .body.%s }}", key)
+		if !strings.Contains(result, placeholder) {
+			continue
+		}
 		var s string
 		switch v := val.(type) {
 		case string:
@@ -200,4 +208,17 @@ func resolveTemplateFn(tmpl string, body map[string]interface{}, escapeFn func(s
 		result = strings.ReplaceAll(result, placeholder, s)
 	}
 	return result
+}
+
+func flattenMap(prefix string, m map[string]interface{}, out map[string]interface{}) {
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		out[key] = v
+		if nested, ok := v.(map[string]interface{}); ok {
+			flattenMap(key, nested, out)
+		}
+	}
 }
