@@ -258,8 +258,11 @@ func (d *Daemon) registerApprovalHandler() {
 	}
 
 	messageFn := func(topicID, text, incomingMsgID string) {
+		// Normalize: accept both "/done" and "done" (Slack intercepts slash commands)
+		cmd := strings.TrimPrefix(strings.TrimSpace(text), "/")
+
 		// /agents works on any notifier -- find whichever one sent it
-		if text == "/agents" || strings.HasPrefix(text, "/agents@") {
+		if cmd == "agents" || strings.HasPrefix(text, "/agents@") {
 			jobs := d.Store.List()
 			msg := "No active agents."
 			if len(jobs) > 0 {
@@ -275,7 +278,7 @@ func (d *Daemon) registerApprovalHandler() {
 			return
 		}
 
-		if text == "/status" || strings.HasPrefix(text, "/status@") {
+		if cmd == "status" || strings.HasPrefix(text, "/status@") {
 			jobs := d.Store.List()
 			var running []*store.Job
 			for _, j := range jobs {
@@ -327,7 +330,7 @@ func (d *Daemon) registerApprovalHandler() {
 		}
 		n := d.notifierFor(job.PylonName)
 
-		if text == "/done" || strings.HasPrefix(text, "/done@") {
+		if cmd == "done" || strings.HasPrefix(text, "/done@") {
 			runner.CleanupWorkspace(job.ID)
 			n.SendMessage(topicID, "Job closed.")
 			n.CloseTopic(topicID)
