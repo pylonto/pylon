@@ -48,7 +48,7 @@ opencode "${OPENCODE_ARGS[@]}" 2>&1 | tee "$RAW_FILE" | node -e "
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tool_name: tool, tool_input: input }),
-        }).catch(() => {});
+        }).catch(e => process.stderr.write('[agent] [${SHORT_ID}] hooks POST failed: ' + e.message + '\n'));
       }
     } catch {}
   });

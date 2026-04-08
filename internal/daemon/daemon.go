@@ -300,7 +300,7 @@ func (d *Daemon) registerApprovalHandler() {
 			for _, j := range running {
 				ids = append(ids, j.ID)
 			}
-			logs := runner.PeekContainerLogs(ids, 3)
+			logs := runner.PeekContainerLogs(ids, 8)
 			var b strings.Builder
 			for _, j := range running {
 				elapsed := time.Since(j.CreatedAt).Truncate(time.Second)
