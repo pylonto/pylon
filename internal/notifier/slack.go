@@ -165,16 +165,18 @@ func (s *SlackNotifier) listenSocketMode(ctx context.Context) {
 	}
 }
 
-func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
-	// Always ack immediately to prevent Slack from showing a warning.
-	if evt.Request != nil {
+func (s *SlackNotifier) ack(evt socketmode.Event) {
+	if evt.Request != nil && evt.Request.EnvelopeID != "" {
 		if err := s.sm.Ack(*evt.Request); err != nil {
 			log.Printf("[slack] ack failed: %v", err)
 		}
 	}
+}
 
+func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
 	switch evt.Type {
 	case socketmode.EventTypeInteractive:
+		s.ack(evt)
 		callback, ok := evt.Data.(slack.InteractionCallback)
 		if !ok {
 			return
@@ -198,6 +200,7 @@ func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
 		}
 
 	case socketmode.EventTypeEventsAPI:
+		s.ack(evt)
 		apiEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 		if !ok {
 			return
