@@ -25,10 +25,11 @@ func init() {
 }
 
 var startCmd = &cobra.Command{
-	Use:   "start [name]",
-	Short: "Start the Pylon daemon",
-	Long:  "Start the daemon and power up all pylons, or a single named pylon.",
-	RunE:  runStart,
+	Use:               "start [name]",
+	Short:             "Start the Pylon daemon",
+	Long:              "Start the daemon and power up all pylons, or a single named pylon.",
+	ValidArgsFunction: completePylonNames,
+	RunE:              runStart,
 }
 
 var stopCmd = &cobra.Command{

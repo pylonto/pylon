@@ -29,9 +29,10 @@ var listCmd = &cobra.Command{
 }
 
 var editCmd = &cobra.Command{
-	Use:   "edit <name>",
-	Short: "Open pylon config in $EDITOR",
-	Args:  cobra.ExactArgs(1),
+	Use:               "edit <name>",
+	Short:             "Open pylon config in $EDITOR",
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completePylonNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := config.PylonPath(args[0])
 		if _, err := os.Stat(path); err != nil {
@@ -48,16 +49,18 @@ var editCmd = &cobra.Command{
 }
 
 var testCmd = &cobra.Command{
-	Use:   "test <name>",
-	Short: "Send a mock webhook to trigger the pipeline",
-	Args:  cobra.ExactArgs(1),
+	Use:               "test <name>",
+	Short:             "Send a mock webhook to trigger the pipeline",
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completePylonNames,
 	RunE:  runTest,
 }
 
 var destroyCmd = &cobra.Command{
-	Use:   "destroy <name>",
-	Short: "Delete a pylon and its config",
-	Args:  cobra.ExactArgs(1),
+	Use:               "destroy <name>",
+	Short:             "Delete a pylon and its config",
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completePylonNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if _, err := config.LoadPylon(name); err != nil {

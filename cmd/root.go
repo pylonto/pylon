@@ -24,6 +24,31 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(completionCmd)
+}
+
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish]",
+	Short: "Generate shell completion script",
+	Long: `Generate a completion script for your shell. Add it to your profile to enable tab completion.
+
+  bash:  eval "$(pylon completion bash)"
+  zsh:   eval "$(pylon completion zsh)"
+  fish:  pylon completion fish | source`,
+	Args:      cobra.ExactArgs(1),
+	ValidArgs: []string{"bash", "zsh", "fish"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return rootCmd.GenBashCompletionV2(os.Stdout, true)
+		case "zsh":
+			return rootCmd.GenZshCompletion(os.Stdout)
+		case "fish":
+			return rootCmd.GenFishCompletion(os.Stdout, true)
+		default:
+			return fmt.Errorf("unsupported shell %q", args[0])
+		}
+	},
 }
 
 var versionCmd = &cobra.Command{
