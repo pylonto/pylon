@@ -97,10 +97,16 @@ func (d *Daemon) notifierFor(pylonName string) notifier.Notifier {
 }
 
 func (d *Daemon) registerRoutes() {
+	registered := make(map[string]string) // path -> pylon name
 	for name, pyl := range d.Pylons {
 		if pyl.Trigger.Type != "webhook" {
 			continue
 		}
+		if existing, ok := registered[pyl.Trigger.Path]; ok {
+			log.Printf("[pylon] WARNING: %q skipped -- path %s already registered by %q", name, pyl.Trigger.Path, existing)
+			continue
+		}
+		registered[pyl.Trigger.Path] = name
 		d.registerWebhook(name, pyl)
 	}
 	d.registerCallbackRoute()
