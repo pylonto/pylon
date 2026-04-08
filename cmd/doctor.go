@@ -25,6 +25,7 @@ var doctorCmd = &cobra.Command{
 }
 
 func runDoctor(cmd *cobra.Command, args []string) error {
+	config.LoadEnv()
 	fmt.Printf("\nPylon Doctor\n\n")
 
 	issues := 0

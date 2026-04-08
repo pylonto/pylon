@@ -45,6 +45,7 @@ type WorkspaceConfig struct {
 type PylonAgent struct {
 	Type    string `yaml:"type,omitempty"`
 	Auth    string `yaml:"auth,omitempty"`
+	APIKey  string `yaml:"api_key,omitempty"` // e.g. "${ANTHROPIC_API_KEY_B}"
 	Prompt  string `yaml:"prompt"`
 	Timeout string `yaml:"timeout,omitempty"`
 }

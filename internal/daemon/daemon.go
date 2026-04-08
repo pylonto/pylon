@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
@@ -58,26 +59,36 @@ func (l *AgentLimiter) Active() int {
 
 // Daemon is the main Pylon server.
 type Daemon struct {
-	Global  *config.GlobalConfig
-	Pylons  map[string]*config.PylonConfig
-	Store   *store.Store
-	Notify  notifier.Notifier
-	Limiter *AgentLimiter
-	Mux     *http.ServeMux
+	Global    *config.GlobalConfig
+	Pylons    map[string]*config.PylonConfig
+	Store     *store.Store
+	Notify    notifier.Notifier            // global default
+	Notifiers map[string]notifier.Notifier // per-pylon overrides
+	Limiter   *AgentLimiter
+	Mux       *http.ServeMux
 }
 
 // New creates a Daemon from global config and loaded pylons.
-func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st *store.Store, n notifier.Notifier) *Daemon {
+func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st *store.Store, n notifier.Notifier, perPylon map[string]notifier.Notifier) *Daemon {
 	d := &Daemon{
-		Global:  global,
-		Pylons:  pylons,
-		Store:   st,
-		Notify:  n,
-		Limiter: NewAgentLimiter(global.Docker.MaxConcurrent),
-		Mux:     http.NewServeMux(),
+		Global:    global,
+		Pylons:    pylons,
+		Store:     st,
+		Notify:    n,
+		Notifiers: perPylon,
+		Limiter:   NewAgentLimiter(global.Docker.MaxConcurrent),
+		Mux:       http.NewServeMux(),
 	}
 	d.registerRoutes()
 	return d
+}
+
+// notifierFor returns the per-pylon notifier if configured, otherwise the global one.
+func (d *Daemon) notifierFor(pylonName string) notifier.Notifier {
+	if n, ok := d.Notifiers[pylonName]; ok {
+		return n
+	}
+	return d.Notify
 }
 
 func (d *Daemon) registerRoutes() {
@@ -89,10 +100,7 @@ func (d *Daemon) registerRoutes() {
 	}
 	d.registerCallbackRoute()
 	d.registerHooksRoute()
-
-	if d.Notify != nil {
-		d.registerApprovalHandler()
-	}
+	d.registerApprovalHandler()
 }
 
 func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
@@ -126,12 +134,13 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		callbackURL := fmt.Sprintf("http://host.docker.internal:%d/callback/%s", d.Global.Server.Port, jobID)
 		log.Printf("[pylon] [%s] %q triggered", jobID[:8], name)
 
-		needsApproval := d.Notify != nil && pyl.Notify != nil && pyl.Notify.Approval
+		n := d.notifierFor(name)
+		needsApproval := n != nil && pyl.Notify != nil && pyl.Notify.Approval
 
 		if needsApproval {
-			topicID, _ := d.Notify.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
+			topicID, _ := n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
 			msg := runner.ResolveTemplateEscaped(pyl.Notify.Message, body)
-			msgID, err := d.Notify.SendApproval(topicID, msg, jobID)
+			msgID, err := n.SendApproval(topicID, msg, jobID)
 			if err != nil {
 				log.Printf("[pylon] [%s] approval failed, running immediately: %v", jobID[:8], err)
 				d.runJob(name, pyl, jobID, body, callbackURL, "", "", "")
@@ -143,9 +152,9 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 			}
 		} else {
 			var topicID string
-			if d.Notify != nil && pyl.Notify != nil && pyl.Notify.Message != "" {
-				topicID, _ = d.Notify.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
-				d.Notify.SendMessage(topicID, runner.ResolveTemplateEscaped(pyl.Notify.Message, body))
+			if n != nil && pyl.Notify != nil && pyl.Notify.Message != "" {
+				topicID, _ = n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
+				n.SendMessage(topicID, runner.ResolveTemplateEscaped(pyl.Notify.Message, body))
 			}
 			d.runJob(name, pyl, jobID, body, callbackURL, topicID, "", "")
 		}
@@ -157,10 +166,11 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 }
 
 func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string, body map[string]interface{}, callbackURL, topicID, promptOverride, sessionID string) {
+	n := d.notifierFor(pylonName)
 	if !d.Limiter.Acquire() {
 		log.Printf("[pylon] [%s] at capacity (%d), queued", jobID[:8], d.Global.Docker.MaxConcurrent)
-		if d.Notify != nil && topicID != "" {
-			d.Notify.SendMessage(topicID, notifier.EscapeMarkdownV2(
+		if n != nil && topicID != "" {
+			n.SendMessage(topicID, notifier.EscapeMarkdownV2(
 				fmt.Sprintf("Queued -- %d/%d agent slots in use.", d.Limiter.Active(), d.Global.Docker.MaxConcurrent)))
 		}
 		// TODO: implement proper queue. For now, reject.
@@ -180,9 +190,14 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 
 	go func() {
 		defer d.Limiter.Release()
+		apiKey := ""
+		if pyl.Agent != nil {
+			apiKey = pyl.Agent.APIKey
+		}
 		err := runner.RunAgentJob(context.Background(), runner.RunParams{
 			Image:       pyl.ResolveAgentImage(d.Global),
 			Auth:        pyl.ResolveAuth(d.Global),
+			APIKey:      apiKey,
 			Prompt:      prompt,
 			Timeout:     pyl.ResolveTimeout(d.Global),
 			JobID:       jobID,
@@ -190,7 +205,7 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 			SessionID:   sessionID,
 			Repo:        repo,
 			Ref:         ref,
-			Notifier:    d.Notify,
+			Notifier:    n,
 			TopicID:     topicID,
 		})
 		if err != nil {
@@ -202,7 +217,7 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 }
 
 func (d *Daemon) registerApprovalHandler() {
-	d.Notify.OnAction(func(jobID, action string) {
+	actionFn := func(jobID, action string) {
 		job, ok := d.Store.Get(jobID)
 		if !ok {
 			return
@@ -211,32 +226,37 @@ func (d *Daemon) registerApprovalHandler() {
 		if !exists {
 			return
 		}
+		n := d.notifierFor(job.PylonName)
 		switch action {
 		case "investigate":
 			log.Printf("[pylon] [%s] approved", jobID[:8])
 			d.Store.UpdateStatus(jobID, "running")
-			d.Notify.EditMessage(job.TopicID, job.MessageID, notifier.EscapeMarkdownV2("Spinning up agent..."))
+			n.EditMessage(job.TopicID, job.MessageID, notifier.EscapeMarkdownV2("Spinning up agent..."))
 			d.runJob(job.PylonName, pyl, jobID, job.Body, job.CallbackURL, job.TopicID, "", job.SessionID)
 		case "ignore":
 			log.Printf("[pylon] [%s] dismissed", jobID[:8])
-			d.Notify.EditMessage(job.TopicID, job.MessageID, notifier.EscapeMarkdownV2("Dismissed"))
+			n.EditMessage(job.TopicID, job.MessageID, notifier.EscapeMarkdownV2("Dismissed"))
 			d.Store.UpdateStatus(jobID, "dismissed")
 			d.Store.Delete(jobID)
 		}
-	})
+	}
 
-	d.Notify.OnMessage(func(topicID, text string) {
+	messageFn := func(topicID, text string) {
+		// /agents works on any notifier -- find whichever one sent it
 		if text == "/agents" || strings.HasPrefix(text, "/agents@") {
 			jobs := d.Store.List()
-			if len(jobs) == 0 {
-				d.Notify.SendMessage(topicID, notifier.EscapeMarkdownV2("No active agents."))
-				return
+			msg := "No active agents."
+			if len(jobs) > 0 {
+				var b strings.Builder
+				for _, j := range jobs {
+					fmt.Fprintf(&b, "%s [%s] %s\n", j.ID[:8], j.Status, j.PylonName)
+				}
+				msg = b.String()
 			}
-			var b strings.Builder
-			for _, j := range jobs {
-				fmt.Fprintf(&b, "%s [%s] %s\n", j.ID[:8], j.Status, j.PylonName)
+			// Send via whichever notifier has this topic
+			for _, nn := range d.allNotifiers() {
+				nn.SendMessage(topicID, notifier.EscapeMarkdownV2(msg))
 			}
-			d.Notify.SendMessage(topicID, notifier.EscapeMarkdownV2(b.String()))
 			return
 		}
 
@@ -248,24 +268,48 @@ func (d *Daemon) registerApprovalHandler() {
 		if !exists {
 			return
 		}
+		n := d.notifierFor(job.PylonName)
 
 		if text == "/done" || strings.HasPrefix(text, "/done@") {
 			runner.CleanupWorkspace(job.ID)
-			d.Notify.SendMessage(topicID, notifier.EscapeMarkdownV2("Job closed."))
-			d.Notify.CloseTopic(topicID)
+			n.SendMessage(topicID, notifier.EscapeMarkdownV2("Job closed."))
+			n.CloseTopic(topicID)
 			d.Store.Delete(job.ID)
 			return
 		}
 
 		if job.Status == "running" {
-			d.Notify.SendMessage(topicID, notifier.EscapeMarkdownV2("Agent is still working, please wait."))
+			n.SendMessage(topicID, notifier.EscapeMarkdownV2("Agent is still working, please wait."))
 			return
 		}
 		if job.Status == "active" {
 			d.Store.UpdateStatus(job.ID, "running")
 			d.runJob(job.PylonName, pyl, job.ID, job.Body, job.CallbackURL, job.TopicID, text, job.SessionID)
 		}
-	})
+	}
+
+	// Register handlers on all notifiers
+	for _, n := range d.allNotifiers() {
+		n.OnAction(actionFn)
+		n.OnMessage(messageFn)
+	}
+}
+
+// allNotifiers returns all unique notifiers (global + per-pylon).
+func (d *Daemon) allNotifiers() []notifier.Notifier {
+	seen := make(map[notifier.Notifier]bool)
+	var all []notifier.Notifier
+	if d.Notify != nil {
+		seen[d.Notify] = true
+		all = append(all, d.Notify)
+	}
+	for _, n := range d.Notifiers {
+		if n != nil && !seen[n] {
+			seen[n] = true
+			all = append(all, n)
+		}
+	}
+	return all
 }
 
 func (d *Daemon) registerCallbackRoute() {
@@ -299,7 +343,7 @@ func (d *Daemon) registerCallbackRoute() {
 			} else {
 				d.Store.SetFailed(jobID, result.Error)
 			}
-			if d.Notify != nil {
+			if n := d.notifierFor(job.PylonName); n != nil {
 				var msg string
 				if result.Status == "completed" {
 					msg = extractResultText(result.Output)
@@ -307,7 +351,7 @@ func (d *Daemon) registerCallbackRoute() {
 					msg = "Agent error: " + result.Error
 				}
 				if msg != "" {
-					d.Notify.SendMessage(job.TopicID, notifier.EscapeMarkdownV2(msg))
+					n.SendMessage(job.TopicID, notifier.EscapeMarkdownV2(msg))
 				}
 			}
 		}
@@ -333,8 +377,10 @@ func (d *Daemon) registerHooksRoute() {
 
 		msg := formatToolEvent(event.ToolName, event.ToolInput)
 		if msg != "" {
-			if job, ok := d.Store.Get(jobID); ok && d.Notify != nil {
-				d.Notify.SendMessage(job.TopicID, notifier.EscapeMarkdownV2(msg))
+			if job, ok := d.Store.Get(jobID); ok {
+				if n := d.notifierFor(job.PylonName); n != nil {
+					n.SendMessage(job.TopicID, notifier.EscapeMarkdownV2(msg))
+				}
 			}
 		}
 		w.WriteHeader(http.StatusOK)
@@ -349,7 +395,8 @@ func verifySignature(trigger config.TriggerConfig, header http.Header, body []by
 	if sig == "" {
 		return false
 	}
-	mac := hmac.New(sha256.New, []byte(trigger.Secret))
+	secret := os.ExpandEnv(trigger.Secret)
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(sig), []byte(expected))

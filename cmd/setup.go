@@ -180,7 +180,10 @@ func setupTelegram() (*config.TelegramConfig, error) {
 		fmt.Sscanf(chatIDStr, "%d", &chatID)
 	}
 
+	// Save token to ~/.pylon/.env so pylon start can load it
+	config.SaveEnvVar("TELEGRAM_BOT_TOKEN", token)
 	os.Setenv("TELEGRAM_BOT_TOKEN", token)
+	fmt.Printf("  Token saved to %s\n", config.EnvPath())
 
 	return &config.TelegramConfig{
 		BotToken: "${TELEGRAM_BOT_TOKEN}",

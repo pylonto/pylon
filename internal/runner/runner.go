@@ -24,6 +24,7 @@ import (
 type RunParams struct {
 	Image       string
 	Auth        string
+	APIKey      string // env var name or literal, expanded at use time
 	Prompt      string
 	Timeout     time.Duration
 	JobID       string
@@ -101,7 +102,11 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 			mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude.json"), Target: "/home/pylon/.claude.json"},
 		)
 	} else {
-		if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		apiKey := os.ExpandEnv(p.APIKey)
+		if apiKey == "" {
+			apiKey = os.Getenv("ANTHROPIC_API_KEY")
+		}
+		if apiKey != "" {
 			envList = append(envList, "ANTHROPIC_API_KEY="+apiKey)
 		}
 	}

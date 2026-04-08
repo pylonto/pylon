@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -119,6 +121,78 @@ func SaveGlobal(cfg *GlobalConfig) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 	return os.WriteFile(GlobalPath(), data, 0644)
+}
+
+// EnvPath returns the path to the secrets env file.
+func EnvPath() string {
+	return filepath.Join(Dir(), ".env")
+}
+
+// LoadEnv reads ~/.pylon/.env and sets any variables not already in the environment.
+// Format: KEY=VALUE (one per line, # comments, no export prefix).
+func LoadEnv() {
+	f, err := os.Open(EnvPath())
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || line[0] == '#' {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		// Don't override existing env vars
+		if os.Getenv(key) == "" {
+			os.Setenv(key, val)
+		}
+	}
+}
+
+// SaveEnvVar appends or updates a key=value pair in ~/.pylon/.env.
+func SaveEnvVar(key, value string) error {
+	os.MkdirAll(Dir(), 0755)
+	envPath := EnvPath()
+
+	// Read existing
+	existing := make(map[string]string)
+	var order []string
+	if f, err := os.Open(envPath); err == nil {
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || line[0] == '#' {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				k := strings.TrimSpace(parts[0])
+				existing[k] = strings.TrimSpace(parts[1])
+				order = append(order, k)
+			}
+		}
+		f.Close()
+	}
+
+	// Update or add
+	if _, ok := existing[key]; !ok {
+		order = append(order, key)
+	}
+	existing[key] = value
+
+	// Write back
+	var b strings.Builder
+	for _, k := range order {
+		fmt.Fprintf(&b, "%s=%s\n", k, existing[k])
+	}
+	return os.WriteFile(envPath, []byte(b.String()), 0600)
 }
 
 // GlobalExists returns true if the global config file exists.

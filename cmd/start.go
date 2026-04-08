@@ -44,6 +44,7 @@ var restartCmd = &cobra.Command{
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
+	config.LoadEnv()
 	global, err := config.LoadGlobal()
 	if err != nil {
 		return fmt.Errorf("load config: %w (run `pylon setup` first)", err)
@@ -102,15 +103,32 @@ func runStart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var n notifier.Notifier
+	var globalNotifier notifier.Notifier
 	if global.Defaults.Notifier.Type == "telegram" && global.Defaults.Notifier.Telegram != nil {
 		tg := global.Defaults.Notifier.Telegram
 		token := os.ExpandEnv(tg.BotToken)
-		n = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
-		log.Println("[pylon] telegram notifications enabled")
+		if token != "" {
+			globalNotifier = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
+			log.Println("[pylon] telegram notifications enabled")
+		} else {
+			log.Println("[pylon] TELEGRAM_BOT_TOKEN not set, notifications disabled")
+		}
 	}
 
-	d := daemon.New(global, pylons, st, n)
+	// Build per-pylon notifiers for pylons that override the default
+	perPylon := make(map[string]notifier.Notifier)
+	for name, pyl := range pylons {
+		if pyl.Notify != nil && pyl.Notify.Type == "telegram" && pyl.Notify.Telegram != nil {
+			tg := pyl.Notify.Telegram
+			token := os.ExpandEnv(tg.BotToken)
+			if token != "" {
+				perPylon[name] = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
+				log.Printf("[pylon] %q: using custom telegram bot", name)
+			}
+		}
+	}
+
+	d := daemon.New(global, pylons, st, globalNotifier, perPylon)
 
 	fmt.Printf("\nPowering up pylons...\n\n")
 	for name, pyl := range pylons {
