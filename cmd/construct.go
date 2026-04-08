@@ -71,13 +71,16 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		path := defaultPath
 		if err := huh.NewInput().
 			Title("Webhook path:").
-			Description(fmt.Sprintf("Will listen at http://%s:%d%s", global.Server.Host, global.Server.Port, defaultPath)).
+			Description(fmt.Sprintf("Your server: http://%s:%d", global.Server.Host, global.Server.Port)).
 			Placeholder(defaultPath).
 			Value(&path).Run(); err != nil {
 			return err
 		}
 		if path == "" {
 			path = defaultPath
+		}
+		if path[0] != '/' {
+			path = "/" + path
 		}
 		pyl.Trigger.Path = path
 	case "cron":
