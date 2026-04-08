@@ -68,8 +68,8 @@ type Daemon struct {
 	Limiter   *AgentLimiter
 	Mux       *http.ServeMux
 
-	hooksMu    sync.Mutex
-	lastHooks  map[string]string // jobID -> last tool-use description
+	hooksMu   sync.Mutex
+	hookLog   map[string][]string // jobID -> recent tool-use descriptions
 }
 
 // New creates a Daemon from global config and loaded pylons.
@@ -82,7 +82,7 @@ func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st 
 		Notifiers: perPylon,
 		Limiter:   NewAgentLimiter(global.Docker.MaxConcurrent),
 		Mux:       http.NewServeMux(),
-		lastHooks: make(map[string]string),
+		hookLog: make(map[string][]string),
 	}
 	d.registerRoutes()
 	return d
@@ -290,27 +290,24 @@ func (d *Daemon) registerApprovalHandler() {
 				return
 			}
 			d.hooksMu.Lock()
-			hooksCopy := make(map[string]string, len(d.lastHooks))
-			for k, v := range d.lastHooks {
-				hooksCopy[k] = v
+			hooksCopy := make(map[string][]string, len(d.hookLog))
+			for k, v := range d.hookLog {
+				cp := make([]string, len(v))
+				copy(cp, v)
+				hooksCopy[k] = cp
 			}
 			d.hooksMu.Unlock()
 
-			var ids []string
-			for _, j := range running {
-				ids = append(ids, j.ID)
-			}
-			logs := runner.PeekContainerLogs(ids, 8)
 			var b strings.Builder
 			for _, j := range running {
 				elapsed := time.Since(j.CreatedAt).Truncate(time.Second)
 				fmt.Fprintf(&b, "%s [%s] (%s)\n", j.ID[:8], j.PylonName, elapsed)
-				if hook, ok := hooksCopy[j.ID]; ok {
-					fmt.Fprintf(&b, "  > %s\n", hook)
-				} else if tail, ok := logs[j.ID]; ok && tail != "" {
-					fmt.Fprintf(&b, "%s\n", tail)
+				if events, ok := hooksCopy[j.ID]; ok && len(events) > 0 {
+					for _, e := range events {
+						fmt.Fprintf(&b, "  > %s\n", e)
+					}
 				} else {
-					fmt.Fprintf(&b, "  (starting up)\n")
+					b.WriteString("  (starting up)\n")
 				}
 				b.WriteString("\n")
 			}
@@ -438,13 +435,11 @@ func (d *Daemon) registerHooksRoute() {
 		msg := formatToolEvent(event.ToolName, event.ToolInput)
 		if msg != "" {
 			d.hooksMu.Lock()
-			d.lastHooks[jobID] = msg
-			d.hooksMu.Unlock()
-			if job, ok := d.Store.Get(jobID); ok {
-				if n := d.notifierFor(job.PylonName); n != nil {
-					n.SendMessage(job.TopicID, notifier.EscapeMarkdownV2(msg))
-				}
+			d.hookLog[jobID] = append(d.hookLog[jobID], msg)
+			if len(d.hookLog[jobID]) > 8 {
+				d.hookLog[jobID] = d.hookLog[jobID][len(d.hookLog[jobID])-8:]
 			}
+			d.hooksMu.Unlock()
 		}
 		w.WriteHeader(http.StatusOK)
 	})
