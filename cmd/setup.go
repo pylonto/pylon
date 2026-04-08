@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/notifier"
 )
@@ -121,7 +122,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}}
 	}
 
-	ensureAgentImage(cfg.Defaults.Agent.Type)
+	agentimage.Ensure(cfg.Defaults.Agent.Type)
 
 	if err := config.SaveGlobal(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)

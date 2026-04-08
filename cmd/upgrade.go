@@ -7,6 +7,8 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/pylonto/pylon/internal/agentimage"
 )
 
 func init() {
@@ -55,6 +57,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("replacing binary: %w (try with sudo)", err)
 	}
 
-	fmt.Printf("Upgraded: %s", string(out))
+	fmt.Printf("Upgraded: %s\n", string(out))
+	agentimage.Rebuild()
 	return nil
 }

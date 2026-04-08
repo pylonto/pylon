@@ -2,15 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/runner"
 )
@@ -228,7 +225,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			effectiveType = "claude"
 		}
 	}
-	ensureAgentImage(effectiveType)
+	agentimage.Ensure(effectiveType)
 
 	// Prompt
 	prompt := "Investigate this error and suggest a fix: {{ .body.error }}"
@@ -354,37 +351,4 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 	fmt.Printf("  Config: %s\n", config.PylonPath(name))
 	fmt.Printf("  Edit it: pylon edit %s\n\n", name)
 	return nil
-}
-
-// ensureAgentImage checks if the Docker image for the given agent type exists,
-// and builds it from source if available.
-func ensureAgentImage(agentType string) {
-	image := "pylon/agent-" + agentType
-	if out, err := exec.Command("docker", "images", image, "-q").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
-		return
-	}
-
-	// Find source dir relative to the pylon binary or cwd.
-	sourceDir := filepath.Join("agent", agentType)
-	if self, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(self), "agent", agentType)
-		if _, err := os.Stat(filepath.Join(candidate, "Dockerfile")); err == nil {
-			sourceDir = candidate
-		}
-	}
-
-	if _, err := os.Stat(filepath.Join(sourceDir, "Dockerfile")); err == nil {
-		fmt.Printf("\nBuilding agent image %s...\n", image)
-		cmd := exec.Command("docker", "build", "-t", image, sourceDir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("  Warning: image build failed: %v\n", err)
-			fmt.Printf("  Run manually: docker build -t %s %s\n", image, sourceDir)
-		}
-		return
-	}
-
-	fmt.Printf("\nAgent image %s not found.\n", image)
-	fmt.Printf("  Build it: docker build -t %s agent/%s/\n", image, agentType)
 }
