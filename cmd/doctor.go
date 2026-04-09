@@ -191,9 +191,10 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			}
 			url := pyl.ResolvePublicURL(global)
 			resp, err := client.Post(url, "application/json", strings.NewReader("{}"))
+			nginxHint := fmt.Sprintf("    Add to your nginx config:\n      location = %s { proxy_pass http://localhost:%d; }\n", pyl.Trigger.Path, global.Server.Port)
 			if err != nil {
 				fmt.Printf("  %s webhook ... FAIL  %s unreachable\n", name, url)
-				fmt.Printf("    Check your reverse proxy routes this path to port %d\n", global.Server.Port)
+				fmt.Print(nginxHint)
 				issues++
 				continue
 			}
@@ -207,6 +208,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
 			} else {
 				fmt.Printf("  %s webhook ... WARN  %s returned %d (may not be routed to pylon)\n", name, url, resp.StatusCode)
+				fmt.Print(nginxHint)
 				recommendations++
 			}
 		}
