@@ -168,8 +168,20 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			ln.Close()
 			fmt.Printf("Port %d ........... ok    available\n", global.Server.Port)
 		} else {
-			fmt.Printf("Port %d ........... WARN  in use\n", global.Server.Port)
-			recommendations++
+			// Check if pylon itself owns the port by hitting the callback route
+			resp, pingErr := http.Get(fmt.Sprintf("http://localhost:%d/callback/doctor-ping", global.Server.Port))
+			if pingErr == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusMethodNotAllowed {
+					fmt.Printf("Port %d ........... ok    pylon is running\n", global.Server.Port)
+				} else {
+					fmt.Printf("Port %d ........... WARN  in use (not by pylon)\n", global.Server.Port)
+					recommendations++
+				}
+			} else {
+				fmt.Printf("Port %d ........... WARN  in use\n", global.Server.Port)
+				recommendations++
+			}
 		}
 	}
 
@@ -190,7 +202,8 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				continue
 			}
 			url := pyl.ResolvePublicURL(global)
-			resp, err := client.Post(url, "application/json", strings.NewReader("{}"))
+			// Use GET so pylon returns 405 without triggering a real job
+			resp, err := client.Get(url)
 			nginxHint := fmt.Sprintf("    Add to your nginx config:\n      location = %s { proxy_pass http://localhost:%d; }\n", pyl.Trigger.Path, global.Server.Port)
 			if err != nil {
 				fmt.Printf("  %s webhook ... FAIL  %s unreachable\n", name, url)
