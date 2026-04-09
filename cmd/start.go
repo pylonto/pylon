@@ -178,7 +178,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		trigger := pyl.Trigger.Type
 		path := pyl.Trigger.Path
 		if pyl.Trigger.Cron != "" {
-			path = pyl.Trigger.Cron
+			path = pyl.Trigger.Cron + " (" + describeCron(pyl.Trigger.Cron) + ")"
 		}
 		fmt.Printf("  %-24s ok  %s %s\n", name, trigger, path)
 	}

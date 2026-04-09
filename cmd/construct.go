@@ -115,10 +115,12 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		schedule := "0 9 * * 1-5"
 		if err := huh.NewInput().
 			Title("Cron schedule:").
+			Description("e.g. 0 9 * * 1-5").
 			Value(&schedule).Run(); err != nil {
 			return err
 		}
 		pyl.Trigger.Cron = schedule
+		fmt.Printf("  Schedule: %s (%s)\n", schedule, describeCron(schedule))
 	default:
 		comingSoon(triggerType)
 		return nil

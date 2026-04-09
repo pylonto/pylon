@@ -102,7 +102,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		trigger := pyl.Trigger.Type
 		path := pyl.Trigger.Path
 		if pyl.Trigger.Cron != "" {
-			path = pyl.Trigger.Cron
+			path = pyl.Trigger.Cron + " (" + describeCron(pyl.Trigger.Cron) + ")"
 		}
 		fmt.Printf("%-28s %-12s %-30s %s\n", name, trigger, path, pyl.Description)
 	}
