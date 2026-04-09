@@ -3,10 +3,12 @@ package cmd
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -177,6 +179,37 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Pylons .............. %d constructed (%s)\n", len(names), strings.Join(names, ", "))
 	} else {
 		fmt.Println("Pylons .............. 0 constructed")
+	}
+
+	// Webhook reachability per pylon
+	if global != nil && len(names) > 0 {
+		client := &http.Client{Timeout: 5 * time.Second}
+		for _, name := range names {
+			pyl, err := config.LoadPylon(name)
+			if err != nil || pyl.Trigger.Type != "webhook" {
+				continue
+			}
+			url := pyl.ResolvePublicURL(global)
+			resp, err := client.Post(url, "application/json", strings.NewReader("{}"))
+			if err != nil {
+				fmt.Printf("  %s webhook ... FAIL  %s unreachable\n", name, url)
+				fmt.Printf("    Check your reverse proxy routes this path to port %d\n", global.Server.Port)
+				issues++
+				continue
+			}
+			resp.Body.Close()
+			// Pylon returns 202 for valid webhooks; anything else means
+			// the request went somewhere else or pylon isn't running
+			if resp.StatusCode == http.StatusAccepted {
+				fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
+			} else if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
+				// 405/400/401 from pylon means it received the request (just rejected our test)
+				fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
+			} else {
+				fmt.Printf("  %s webhook ... WARN  %s returned %d (may not be routed to pylon)\n", name, url, resp.StatusCode)
+				recommendations++
+			}
+		}
 	}
 
 	// systemd
