@@ -113,7 +113,9 @@ func setupLocal(p RunParams) (string, error) {
 	// Symlink so WorkDir(jobID) resolves for the exec gateway
 	linkPath := WorkDir(p.JobID)
 	os.MkdirAll(filepath.Dir(linkPath), 0755)
-	os.Symlink(absPath, linkPath)
+	if err := os.Symlink(absPath, linkPath); err != nil {
+		log.Printf("[pylon] [%s] symlink %s -> %s failed: %v", p.JobID[:8], linkPath, absPath, err)
+	}
 	log.Printf("[pylon] [%s] using local workspace: %s", p.JobID[:8], absPath)
 	return absPath, nil
 }
