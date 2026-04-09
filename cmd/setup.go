@@ -13,6 +13,7 @@ import (
 	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/proxy"
 )
 
 func init() {
@@ -143,6 +144,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 	if publicURL != "" {
 		cfg.Server.PublicURL = strings.TrimRight(publicURL, "/")
+		fmt.Println()
+		proxy.PrintHints("/<pylon-path>", cfg.Server.Port)
 	}
 
 	if err := config.SaveGlobal(cfg); err != nil {

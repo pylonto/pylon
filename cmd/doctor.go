@@ -14,6 +14,7 @@ import (
 
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/proxy"
 )
 
 func init() {
@@ -204,10 +205,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			url := pyl.ResolvePublicURL(global)
 			// Use GET so pylon returns 405 without triggering a real job
 			resp, err := client.Get(url)
-			nginxHint := fmt.Sprintf("    Add to your nginx config:\n      location = %s { proxy_pass http://localhost:%d; }\n", pyl.Trigger.Path, global.Server.Port)
 			if err != nil {
 				fmt.Printf("  %s webhook ... FAIL  %s unreachable\n", name, url)
-				fmt.Print(nginxHint)
+				proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
 				issues++
 				continue
 			}
@@ -221,7 +221,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
 			} else {
 				fmt.Printf("  %s webhook ... WARN  %s returned %d (may not be routed to pylon)\n", name, url, resp.StatusCode)
-				fmt.Print(nginxHint)
+				proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
 				recommendations++
 			}
 		}

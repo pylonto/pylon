@@ -10,6 +10,7 @@ import (
 
 	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/proxy"
 	"github.com/pylonto/pylon/internal/runner"
 )
 
@@ -329,6 +330,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Config: %s\n", config.PylonPath(name))
 	if pyl.Trigger.Type == "webhook" {
 		fmt.Printf("  Webhook: %s\n", pyl.ResolvePublicURL(global))
+		proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
 	}
 	fmt.Printf("\n  Start it:  pylon start %s\n", name)
 	fmt.Printf("  Test it:   pylon test %s\n", name)
