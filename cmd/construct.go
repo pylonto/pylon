@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -92,6 +93,23 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			path = "/" + path
 		}
 		pyl.Trigger.Path = path
+
+		// Public URL override (per-pylon)
+		defaultBase := global.Server.PublicURL
+		if defaultBase == "" {
+			defaultBase = fmt.Sprintf("http://%s:%d", global.Server.Host, global.Server.Port)
+		}
+		var publicURL string
+		if err := huh.NewInput().
+			Title("Public URL for this webhook (optional):").
+			Description(fmt.Sprintf("Leave blank to use default: %s", defaultBase)).
+			Placeholder("https://my-service.app").
+			Value(&publicURL).Run(); err != nil {
+			return err
+		}
+		if publicURL != "" {
+			pyl.Trigger.PublicURL = strings.TrimRight(publicURL, "/")
+		}
 	case "cron":
 		schedule := "0 9 * * 1-5"
 		if err := huh.NewInput().
@@ -233,6 +251,30 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	}
 	agentimage.Ensure(effectiveType)
 
+	// Host tools
+	if len(global.Tools) > 0 {
+		var options []huh.Option[string]
+		for _, t := range global.Tools {
+			options = append(options, huh.NewOption(fmt.Sprintf("%s (%s)", t.Name, t.Path), t.Name))
+		}
+
+		var toolChoices []string
+		if err := huh.NewMultiSelect[string]().
+			Title("Host tools -- which CLIs can this agent use?").
+			Description("Select the tools this agent is allowed to execute on the host.\nLeave empty for none.").
+			Options(options...).
+			Value(&toolChoices).Run(); err != nil {
+			return err
+		}
+
+		if len(toolChoices) > 0 {
+			if pyl.Agent == nil {
+				pyl.Agent = &config.PylonAgent{}
+			}
+			pyl.Agent.Tools = toolChoices
+		}
+	}
+
 	// Prompt
 	prompt := "Investigate this error and suggest a fix: {{ .body.error }}"
 	if err := huh.NewText().
@@ -281,7 +323,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nPylon constructed: %s\n", name)
 	fmt.Printf("  Config: %s\n", config.PylonPath(name))
 	if pyl.Trigger.Type == "webhook" {
-		fmt.Printf("  Webhook: http://%s:%d%s\n", global.Server.Host, global.Server.Port, pyl.Trigger.Path)
+		fmt.Printf("  Webhook: %s\n", pyl.ResolvePublicURL(global))
 	}
 	fmt.Printf("\n  Start it:  pylon start %s\n", name)
 	fmt.Printf("  Test it:   pylon test %s\n", name)

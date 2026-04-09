@@ -28,6 +28,21 @@ type TriggerConfig struct {
 	Cron            string `yaml:"cron,omitempty"`
 	Secret          string `yaml:"secret,omitempty"`
 	SignatureHeader string `yaml:"signature_header,omitempty"`
+	PublicURL       string `yaml:"public_url,omitempty"` // overrides global server.public_url
+}
+
+// ResolvePublicURL returns the full public webhook URL for this pylon.
+// Falls back to global public_url, then to http://host:port.
+func (p *PylonConfig) ResolvePublicURL(global *GlobalConfig) string {
+	base := p.Trigger.PublicURL
+	if base == "" {
+		base = global.Server.PublicURL
+	}
+	if base == "" {
+		base = fmt.Sprintf("http://%s:%d", global.Server.Host, global.Server.Port)
+	}
+	base = strings.TrimRight(base, "/")
+	return base + p.Trigger.Path
 }
 
 type PylonNotify struct {
@@ -53,6 +68,27 @@ type PylonAgent struct {
 	Env      map[string]string `yaml:"env,omitempty"`
 	Prompt   string            `yaml:"prompt"`
 	Timeout  string            `yaml:"timeout,omitempty"`
+	Tools    []string          `yaml:"tools,omitempty"` // optional subset of global tools
+}
+
+// ResolveTools returns the ToolConfigs available to this pylon.
+// Only tools explicitly listed in agent.tools are allowed (opt-in).
+// An empty list means no tools are available.
+func (p *PylonConfig) ResolveTools(global *GlobalConfig) []ToolConfig {
+	if p.Agent == nil || len(p.Agent.Tools) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(p.Agent.Tools))
+	for _, name := range p.Agent.Tools {
+		allowed[name] = true
+	}
+	var tools []ToolConfig
+	for _, t := range global.Tools {
+		if allowed[t.Name] {
+			tools = append(tools, t)
+		}
+	}
+	return tools
 }
 
 // PylonDir returns the directory for a named pylon.

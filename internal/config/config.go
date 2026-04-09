@@ -17,11 +17,40 @@ type GlobalConfig struct {
 	Server   ServerConfig   `yaml:"server"`
 	Defaults DefaultsConfig `yaml:"defaults"`
 	Docker   DockerConfig   `yaml:"docker"`
+	Tools    []ToolConfig   `yaml:"tools,omitempty"`
+}
+
+// ToolConfig defines a host CLI tool available to agent containers via the exec gateway.
+type ToolConfig struct {
+	Name    string `yaml:"name"`
+	Path    string `yaml:"path"`
+	Timeout string `yaml:"timeout,omitempty"` // default "30s"
+}
+
+// TimeoutDuration returns the parsed timeout, defaulting to 30s.
+func (t *ToolConfig) TimeoutDuration() time.Duration {
+	if t.Timeout != "" {
+		if d, err := time.ParseDuration(t.Timeout); err == nil {
+			return d
+		}
+	}
+	return 30 * time.Second
+}
+
+// ToolByName returns the ToolConfig for a given tool name, or nil if not found.
+func (c *GlobalConfig) ToolByName(name string) *ToolConfig {
+	for i := range c.Tools {
+		if c.Tools[i].Name == name {
+			return &c.Tools[i]
+		}
+	}
+	return nil
 }
 
 type ServerConfig struct {
-	Port int    `yaml:"port"`
-	Host string `yaml:"host"`
+	Port      int    `yaml:"port"`
+	Host      string `yaml:"host"`
+	PublicURL string `yaml:"public_url,omitempty"` // default base URL for webhook endpoints
 }
 
 type DefaultsConfig struct {

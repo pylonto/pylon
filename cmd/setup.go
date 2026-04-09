@@ -130,6 +130,21 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	agentimage.Ensure(cfg.Defaults.Agent.Type)
 
+	fmt.Println()
+
+	// Public URL (optional)
+	var publicURL string
+	if err := huh.NewInput().
+		Title("Public URL (optional):").
+		Description("Base URL where external services (Sentry, GitHub, etc.) can reach pylon.\nLeave blank if you only run locally.").
+		Placeholder("https://agent-arnold.app").
+		Value(&publicURL).Run(); err != nil {
+		return err
+	}
+	if publicURL != "" {
+		cfg.Server.PublicURL = strings.TrimRight(publicURL, "/")
+	}
+
 	if err := config.SaveGlobal(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -111,6 +113,7 @@ func (d *Daemon) registerRoutes() {
 	}
 	d.registerCallbackRoute()
 	d.registerHooksRoute()
+	d.registerExecRoute()
 	d.registerApprovalHandler()
 }
 
@@ -199,6 +202,30 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 		ref = "main"
 	}
 
+	// Resolve available tools and inject into prompt + env
+	tools := pyl.ResolveTools(d.Global)
+	if len(tools) > 0 {
+		names := make([]string, len(tools))
+		for i, t := range tools {
+			names[i] = t.Name
+		}
+		prompt += fmt.Sprintf(
+			"\n\nYou have access to the following host CLI tools via the pylon tool gateway: %s. "+
+				"To execute a tool, send a POST request to $PYLON_EXEC_URL with JSON body "+
+				`{"tool": "<name>", "args": ["arg1", "arg2"]}. `+
+				"The response contains {exit_code, stdout, stderr}. "+
+				"Example: curl -s -X POST \"$PYLON_EXEC_URL\" -H 'Content-Type: application/json' "+
+				`-d '{"tool":"<name>","args":[...]}'`,
+			strings.Join(names, ", "),
+		)
+	}
+
+	d.Store.Put(&store.Job{
+		ID: jobID, PylonName: pylonName, Status: "running",
+		Body: body, TopicID: topicID, CallbackURL: callbackURL,
+		SessionID: sessionID,
+	})
+
 	go func() {
 		defer d.Limiter.Release()
 		var apiKey string
@@ -207,6 +234,20 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 			apiKey = pyl.Agent.APIKey
 			extraEnv = pyl.Agent.Env
 		}
+
+		// Inject tool gateway env vars
+		if len(tools) > 0 {
+			if extraEnv == nil {
+				extraEnv = make(map[string]string)
+			}
+			names := make([]string, len(tools))
+			for i, t := range tools {
+				names[i] = t.Name
+			}
+			extraEnv["PYLON_TOOLS"] = strings.Join(names, ",")
+			extraEnv["PYLON_EXEC_URL"] = fmt.Sprintf("http://host.docker.internal:%d/exec/%s", d.Global.Server.Port, jobID)
+		}
+
 		err := runner.RunAgentJob(context.Background(), runner.RunParams{
 			AgentType:   pyl.ResolveAgentType(d.Global),
 			Image:       pyl.ResolveAgentImage(d.Global),
@@ -445,6 +486,98 @@ func (d *Daemon) registerHooksRoute() {
 			d.hooksMu.Unlock()
 		}
 		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func (d *Daemon) registerExecRoute() {
+	d.Mux.HandleFunc("/exec/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		jobID := strings.TrimPrefix(r.URL.Path, "/exec/")
+		rawBody, _ := io.ReadAll(r.Body)
+		defer r.Body.Close()
+
+		var req struct {
+			Tool string   `json:"tool"`
+			Args []string `json:"args"`
+		}
+		if json.Unmarshal(rawBody, &req) != nil || req.Tool == "" {
+			http.Error(w, `{"error":"invalid request: tool is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		job, ok := d.Store.Get(jobID)
+		if !ok {
+			http.Error(w, `{"error":"job not found"}`, http.StatusNotFound)
+			return
+		}
+		if job.Status != "running" {
+			http.Error(w, `{"error":"job is not running"}`, http.StatusConflict)
+			return
+		}
+
+		pyl, exists := d.Pylons[job.PylonName]
+		if !exists {
+			http.Error(w, `{"error":"pylon not found"}`, http.StatusNotFound)
+			return
+		}
+
+		tools := pyl.ResolveTools(d.Global)
+		var toolCfg *config.ToolConfig
+		for i := range tools {
+			if tools[i].Name == req.Tool {
+				toolCfg = &tools[i]
+				break
+			}
+		}
+		if toolCfg == nil {
+			http.Error(w, `{"error":"tool not allowed"}`, http.StatusForbidden)
+			return
+		}
+
+		if _, err := os.Stat(toolCfg.Path); err != nil {
+			http.Error(w, `{"error":"tool binary not found on host"}`, http.StatusInternalServerError)
+			return
+		}
+
+		timeout := toolCfg.TimeoutDuration()
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, toolCfg.Path, req.Args...)
+		cmd.Dir = runner.WorkDir(jobID)
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		exitCode := 0
+		if err := cmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = -1
+			}
+		}
+
+		log.Printf("[pylon] [%s] exec %s %v -> exit %d", jobID[:8], req.Tool, req.Args, exitCode)
+
+		// Record in hook log for /status visibility
+		d.hooksMu.Lock()
+		d.hookLog[jobID] = append(d.hookLog[jobID], fmt.Sprintf("exec %s %v -> %d", req.Tool, req.Args, exitCode))
+		if len(d.hookLog[jobID]) > 8 {
+			d.hookLog[jobID] = d.hookLog[jobID][len(d.hookLog[jobID])-8:]
+		}
+		d.hooksMu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"exit_code": exitCode,
+			"stdout":    stdout.String(),
+			"stderr":    stderr.String(),
+		})
 	})
 }
 
