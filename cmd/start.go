@@ -99,6 +99,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		activeIDs[j.ID] = true
 	}
 	runner.PruneOrphanedWorkspaces(activeIDs)
+	runner.PruneWorktreeMetadata()
 	runner.PruneOrphanedContainers(activeIDs)
 
 	// Set up notifier

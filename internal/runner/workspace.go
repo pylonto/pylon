@@ -3,6 +3,8 @@ package runner
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -18,12 +20,114 @@ import (
 // JobsDir is the workspace root for agent job files.
 var JobsDir string
 
+// ReposDir is the cache root for bare repos used by git-worktree.
+var ReposDir string
+
 func init() {
 	if home, err := os.UserHomeDir(); err == nil {
 		JobsDir = filepath.Join(home, ".pylon", "jobs")
+		ReposDir = filepath.Join(home, ".pylon", "repos")
 	} else {
 		JobsDir = filepath.Join(os.TempDir(), "pylon-jobs")
+		ReposDir = filepath.Join(os.TempDir(), "pylon-repos")
 	}
+}
+
+// SetupWorkspace prepares the workspace directory based on the configured type.
+func SetupWorkspace(ctx context.Context, p RunParams) (string, error) {
+	switch p.WorkspaceType {
+	case "git-worktree":
+		return setupWorktree(ctx, p)
+	case "local":
+		return setupLocal(p)
+	case "none":
+		return setupNone(p)
+	default: // "git-clone" or empty
+		return setupClone(ctx, p)
+	}
+}
+
+func setupClone(ctx context.Context, p RunParams) (string, error) {
+	workDir := WorkDir(p.JobID)
+	if _, err := os.Stat(workDir); os.IsNotExist(err) {
+		if p.Repo != "" {
+			log.Printf("[pylon] [%s] cloning %s@%s", p.JobID[:8], p.Repo, p.Ref)
+			if err := CloneRepo(ctx, p.Repo, p.Ref, workDir); err != nil {
+				return "", err
+			}
+		} else {
+			os.MkdirAll(workDir, 0755)
+		}
+	} else {
+		log.Printf("[pylon] [%s] reusing workspace", p.JobID[:8])
+	}
+	return workDir, nil
+}
+
+func setupWorktree(ctx context.Context, p RunParams) (string, error) {
+	if p.Repo == "" {
+		return setupNone(p)
+	}
+
+	sshRepo := ToSSHURL(p.Repo)
+	bareDir := filepath.Join(ReposDir, repoHash(sshRepo))
+	workDir := WorkDir(p.JobID)
+
+	if _, err := os.Stat(filepath.Join(bareDir, "HEAD")); os.IsNotExist(err) {
+		log.Printf("[pylon] [%s] initial bare clone of %s", p.JobID[:8], sshRepo)
+		os.MkdirAll(filepath.Dir(bareDir), 0755)
+		cmd := exec.CommandContext(ctx, "git", "clone", "--bare", sshRepo, bareDir)
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("bare clone: %w", err)
+		}
+	} else {
+		log.Printf("[pylon] [%s] fetching %s", p.JobID[:8], sshRepo)
+		cmd := exec.CommandContext(ctx, "git", "fetch", "--all")
+		cmd.Dir = bareDir
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		cmd.Run() // best-effort; if offline, use stale
+	}
+
+	log.Printf("[pylon] [%s] creating worktree for %s", p.JobID[:8], p.Ref)
+	cmd := exec.CommandContext(ctx, "git", "worktree", "add", "--detach", workDir, p.Ref)
+	cmd.Dir = bareDir
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("worktree add: %w", err)
+	}
+	return workDir, nil
+}
+
+func setupLocal(p RunParams) (string, error) {
+	if p.LocalPath == "" {
+		return "", fmt.Errorf("workspace type 'local' requires a path")
+	}
+	absPath, err := filepath.Abs(p.LocalPath)
+	if err != nil {
+		return "", fmt.Errorf("resolving local path: %w", err)
+	}
+	if _, err := os.Stat(absPath); err != nil {
+		return "", fmt.Errorf("local path %q does not exist: %w", absPath, err)
+	}
+	// Symlink so WorkDir(jobID) resolves for the exec gateway
+	linkPath := WorkDir(p.JobID)
+	os.MkdirAll(filepath.Dir(linkPath), 0755)
+	os.Symlink(absPath, linkPath)
+	log.Printf("[pylon] [%s] using local workspace: %s", p.JobID[:8], absPath)
+	return absPath, nil
+}
+
+func setupNone(p RunParams) (string, error) {
+	workDir := WorkDir(p.JobID)
+	os.MkdirAll(workDir, 0755)
+	log.Printf("[pylon] [%s] empty workspace", p.JobID[:8])
+	return workDir, nil
+}
+
+func repoHash(repo string) string {
+	h := sha256.Sum256([]byte(repo))
+	return hex.EncodeToString(h[:8])
 }
 
 // CloneRepo performs a shallow git clone of a repo at a specific ref.
@@ -46,8 +150,18 @@ func WorkDir(jobID string) string {
 }
 
 // CleanupWorkspace removes the workspace directory for a job.
+// For local workspaces (symlinks), only the symlink is removed, not the target.
 func CleanupWorkspace(jobID string) {
 	dir := WorkDir(jobID)
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return // already gone
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		// local workspace -- remove symlink only, never the user's directory
+		os.Remove(dir)
+		return
+	}
 	if err := os.RemoveAll(dir); err != nil {
 		log.Printf("[pylon] [%s] failed to remove workspace: %v", jobID[:8], err)
 	}
@@ -136,7 +250,7 @@ func ToSSHURL(repo string) string {
 	return repo
 }
 
-// PruneOrphanedWorkspaces removes workspace dirs without active jobs.
+// PruneOrphanedWorkspaces removes workspace dirs (and symlinks) without active jobs.
 func PruneOrphanedWorkspaces(activeJobIDs map[string]bool) int {
 	entries, err := os.ReadDir(JobsDir)
 	if err != nil {
@@ -144,15 +258,41 @@ func PruneOrphanedWorkspaces(activeJobIDs map[string]bool) int {
 	}
 	pruned := 0
 	for _, e := range entries {
+		if activeJobIDs[e.Name()] {
+			continue
+		}
+		p := filepath.Join(JobsDir, e.Name())
+		// Check for symlink (local workspace) -- remove link only
+		if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			os.Remove(p)
+			pruned++
+			continue
+		}
 		if !e.IsDir() {
 			continue
 		}
-		if !activeJobIDs[e.Name()] {
-			os.RemoveAll(filepath.Join(JobsDir, e.Name()))
-			pruned++
-		}
+		os.RemoveAll(p)
+		pruned++
 	}
 	return pruned
+}
+
+// PruneWorktreeMetadata runs `git worktree prune` on all cached bare repos
+// to clean up stale worktree entries whose directories no longer exist.
+func PruneWorktreeMetadata() {
+	entries, err := os.ReadDir(ReposDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		repoDir := filepath.Join(ReposDir, e.Name())
+		cmd := exec.Command("git", "worktree", "prune")
+		cmd.Dir = repoDir
+		cmd.Run() // best-effort
+	}
 }
 
 // PruneOrphanedContainers kills Docker containers labeled pylon.job

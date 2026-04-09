@@ -201,6 +201,10 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 	if ref == "" {
 		ref = "main"
 	}
+	wsType := pyl.Workspace.Type
+	if wsType == "" {
+		wsType = "git-clone"
+	}
 
 	// Resolve available tools and inject into prompt + env
 	tools := pyl.ResolveTools(d.Global)
@@ -249,21 +253,23 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 		}
 
 		err := runner.RunAgentJob(context.Background(), runner.RunParams{
-			AgentType:   pyl.ResolveAgentType(d.Global),
-			Image:       pyl.ResolveAgentImage(d.Global),
-			Auth:        pyl.ResolveAuth(d.Global),
-			APIKey:      apiKey,
-			Provider:    pyl.ResolveProvider(d.Global),
-			ExtraEnv:    extraEnv,
-			Prompt:      prompt,
-			Timeout:     pyl.ResolveTimeout(d.Global),
-			JobID:       jobID,
-			CallbackURL: callbackURL,
-			SessionID:   sessionID,
-			Repo:        repo,
-			Ref:         ref,
-			Notifier:    n,
-			TopicID:     topicID,
+			AgentType:     pyl.ResolveAgentType(d.Global),
+			Image:         pyl.ResolveAgentImage(d.Global),
+			Auth:          pyl.ResolveAuth(d.Global),
+			APIKey:        apiKey,
+			Provider:      pyl.ResolveProvider(d.Global),
+			ExtraEnv:      extraEnv,
+			Prompt:        prompt,
+			Timeout:       pyl.ResolveTimeout(d.Global),
+			JobID:         jobID,
+			CallbackURL:   callbackURL,
+			SessionID:     sessionID,
+			Repo:          repo,
+			Ref:           ref,
+			WorkspaceType: wsType,
+			LocalPath:     pyl.Workspace.Path,
+			Notifier:      n,
+			TopicID:       topicID,
 		})
 		if err != nil {
 			log.Printf("[pylon] [%s] failed: %v", jobID[:8], err)

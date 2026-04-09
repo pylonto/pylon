@@ -23,39 +23,31 @@ import (
 
 // RunParams holds everything needed to run an agent job.
 type RunParams struct {
-	AgentType   string
-	Image       string
-	Auth        string
-	APIKey      string // env var name or literal, expanded at use time
-	Provider    string
-	ExtraEnv    map[string]string
-	Prompt      string
-	Timeout     time.Duration
-	JobID       string
-	CallbackURL string
-	SessionID   string
-	Repo        string
-	Ref         string
-	Notifier    notifier.Notifier
-	TopicID     string
+	AgentType     string
+	Image         string
+	Auth          string
+	APIKey        string // env var name or literal, expanded at use time
+	Provider      string
+	ExtraEnv      map[string]string
+	Prompt        string
+	Timeout       time.Duration
+	JobID         string
+	CallbackURL   string
+	SessionID     string
+	Repo          string
+	Ref           string
+	WorkspaceType string // "git-clone", "git-worktree", "local", "none"
+	LocalPath     string // for type "local"
+	Notifier      notifier.Notifier
+	TopicID       string
 }
 
-// RunAgentJob clones a repo, starts an agent container, streams output,
+// RunAgentJob sets up a workspace, starts an agent container, streams output,
 // enforces a timeout, and cleans up.
 func RunAgentJob(ctx context.Context, p RunParams) error {
-	workDir := WorkDir(p.JobID)
-
-	if _, err := os.Stat(workDir); os.IsNotExist(err) {
-		if p.Repo != "" {
-			log.Printf("[pylon] [%s] cloning %s@%s", p.JobID[:8], p.Repo, p.Ref)
-			if err := CloneRepo(ctx, p.Repo, p.Ref, workDir); err != nil {
-				return err
-			}
-		} else {
-			os.MkdirAll(workDir, 0755)
-		}
-	} else {
-		log.Printf("[pylon] [%s] reusing workspace", p.JobID[:8])
+	workDir, err := SetupWorkspace(ctx, p)
+	if err != nil {
+		return fmt.Errorf("workspace setup: %w", err)
 	}
 
 	// Typing indicator while agent works.
