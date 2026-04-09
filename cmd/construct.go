@@ -340,13 +340,13 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 	switch tmpl {
 	case "sentry":
 		pyl.Trigger = config.TriggerConfig{Type: "webhook", Path: "/" + name}
-		pyl.Workspace = config.WorkspaceConfig{Type: "git-clone", Repo: "{{ .body.repo }}", Ref: "{{ .body.ref }}"}
+		pyl.Workspace = config.WorkspaceConfig{Type: "git-clone"}
 		pyl.Notify = &config.PylonNotify{
-			Message:  "{{ .body.error }}\nRepo: {{ .body.repo }}",
+			Message:  "{{ .body.data.issue.title }}\n{{ .body.data.issue.culprit }}\n{{ .body.data.issue.web_url }}",
 			Approval: true,
 		}
 		pyl.Agent = &config.PylonAgent{
-			Prompt:  "Investigate this Sentry error: {{ .body.error }}. Look at the stack trace and suggest a fix.",
+			Prompt:  "Investigate this Sentry error and suggest a fix.\n\nTitle: {{ .body.data.issue.title }}\nCulprit: {{ .body.data.issue.culprit }}\nLevel: {{ .body.data.issue.level }}\nPlatform: {{ .body.data.issue.platform }}\nSentry URL: {{ .body.data.issue.web_url }}",
 			Timeout: "10m",
 		}
 	case "github-pr":

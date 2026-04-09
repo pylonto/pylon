@@ -5,21 +5,25 @@ trigger:
   type: webhook
   path: /{{NAME}}
   # secret: "${SENTRY_CLIENT_SECRET}"
-  # signature_header: sentry-hook-signature
+  # signature_header: Sentry-Hook-Signature
 
 notify:
   message: |
-    {{ .body.error }}
-    Repo: {{ .body.repo }}
+    {{ .body.data.issue.title }}
+    {{ .body.data.issue.culprit }}
+    {{ .body.data.issue.web_url }}
   approval: true
 
 workspace:
   type: git-clone
-  repo: "{{ .body.repo }}"
-  ref: "{{ .body.ref }}"
 
 agent:
   prompt: |
-    Investigate this Sentry error: {{ .body.error }}.
-    Look at the stack trace and suggest a fix.
+    Investigate this Sentry error and suggest a fix.
+
+    Title: {{ .body.data.issue.title }}
+    Culprit: {{ .body.data.issue.culprit }}
+    Level: {{ .body.data.issue.level }}
+    Platform: {{ .body.data.issue.platform }}
+    Sentry URL: {{ .body.data.issue.web_url }}
   timeout: 10m
