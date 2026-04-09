@@ -68,27 +68,17 @@ type PylonAgent struct {
 	Env      map[string]string `yaml:"env,omitempty"`
 	Prompt   string            `yaml:"prompt"`
 	Timeout  string            `yaml:"timeout,omitempty"`
-	Tools    []string          `yaml:"tools,omitempty"` // optional subset of global tools
+	Tools    []ToolConfig      `yaml:"tools,omitempty"` // per-pylon tool definitions
 }
 
 // ResolveTools returns the ToolConfigs available to this pylon.
-// Only tools explicitly listed in agent.tools are allowed (opt-in).
-// An empty list means no tools are available.
+// Per-pylon tools take priority. If none are defined, falls back to global tools.
+// An empty list in both means no tools are available.
 func (p *PylonConfig) ResolveTools(global *GlobalConfig) []ToolConfig {
-	if p.Agent == nil || len(p.Agent.Tools) == 0 {
-		return nil
+	if p.Agent != nil && len(p.Agent.Tools) > 0 {
+		return p.Agent.Tools
 	}
-	allowed := make(map[string]bool, len(p.Agent.Tools))
-	for _, name := range p.Agent.Tools {
-		allowed[name] = true
-	}
-	var tools []ToolConfig
-	for _, t := range global.Tools {
-		if allowed[t.Name] {
-			tools = append(tools, t)
-		}
-	}
-	return tools
+	return global.Tools
 }
 
 // PylonDir returns the directory for a named pylon.

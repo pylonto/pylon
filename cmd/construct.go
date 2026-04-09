@@ -251,7 +251,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	}
 	agentimage.Ensure(effectiveType)
 
-	// Host tools
+	// Host tools (from global config)
 	if len(global.Tools) > 0 {
 		var options []huh.Option[string]
 		for _, t := range global.Tools {
@@ -271,7 +271,12 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			if pyl.Agent == nil {
 				pyl.Agent = &config.PylonAgent{}
 			}
-			pyl.Agent.Tools = toolChoices
+			// Copy full ToolConfig for selected tools
+			for _, name := range toolChoices {
+				if t := global.ToolByName(name); t != nil {
+					pyl.Agent.Tools = append(pyl.Agent.Tools, *t)
+				}
+			}
 		}
 	}
 
