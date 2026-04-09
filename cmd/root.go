@@ -13,7 +13,7 @@ var Version = "dev"
 var rootCmd = &cobra.Command{
 	Use:   "pylon",
 	Short: "Pylon -- power your AI coding agents",
-	Long:  "Self-hosted daemon that listens for events, spins up isolated AI coding agents in Docker, and reports results back to chat.",
+	Long:  "Self-hosted daemon that listens for events, spins up sandboxed agents, and reports results back to chat.",
 }
 
 func Execute() {

@@ -342,11 +342,11 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 		pyl.Trigger = config.TriggerConfig{Type: "webhook", Path: "/" + name}
 		pyl.Workspace = config.WorkspaceConfig{Type: "git-clone"}
 		pyl.Notify = &config.PylonNotify{
-			Message:  "{{ .body.data.issue.title }}\n{{ .body.data.issue.culprit }}\n{{ .body.data.issue.web_url }}",
+			Message:  "{{ .body.data.event.title }}\n{{ .body.data.event.culprit }}\n{{ .body.data.event.web_url }}",
 			Approval: true,
 		}
 		pyl.Agent = &config.PylonAgent{
-			Prompt:  "Investigate this Sentry error and suggest a fix.\n\nTitle: {{ .body.data.issue.title }}\nCulprit: {{ .body.data.issue.culprit }}\nLevel: {{ .body.data.issue.level }}\nPlatform: {{ .body.data.issue.platform }}\nSentry URL: {{ .body.data.issue.web_url }}",
+			Prompt:  "Investigate this Sentry error and suggest a fix.\n\nTitle: {{ .body.data.event.title }}\nCulprit: {{ .body.data.event.culprit }}\nLevel: {{ .body.data.event.level }}\nPlatform: {{ .body.data.event.platform }}\nSentry URL: {{ .body.data.event.web_url }}",
 			Timeout: "10m",
 		}
 	case "github-pr":

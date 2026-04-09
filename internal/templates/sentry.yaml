@@ -9,9 +9,9 @@ trigger:
 
 notify:
   message: |
-    {{ .body.data.issue.title }}
-    {{ .body.data.issue.culprit }}
-    {{ .body.data.issue.web_url }}
+    {{ .body.data.event.title }}
+    {{ .body.data.event.culprit }}
+    {{ .body.data.event.web_url }}
   approval: true
 
 workspace:
@@ -21,9 +21,9 @@ agent:
   prompt: |
     Investigate this Sentry error and suggest a fix.
 
-    Title: {{ .body.data.issue.title }}
-    Culprit: {{ .body.data.issue.culprit }}
-    Level: {{ .body.data.issue.level }}
-    Platform: {{ .body.data.issue.platform }}
-    Sentry URL: {{ .body.data.issue.web_url }}
+    Title: {{ .body.data.event.title }}
+    Culprit: {{ .body.data.event.culprit }}
+    Level: {{ .body.data.event.level }}
+    Platform: {{ .body.data.event.platform }}
+    Sentry URL: {{ .body.data.event.web_url }}
   timeout: 10m

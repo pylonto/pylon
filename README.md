@@ -1,6 +1,6 @@
 # Pylon
 
-Self-hosted daemon that listens for events (webhooks, cron, chat commands), spins up isolated AI coding agents in Docker containers, and reports results back to chat.
+Self-hosted daemon that listens for events, spins up sandboxed agents, and reports results back to chat.
 
 ```
 curl -fsSL https://pylon.to/install.sh | sh
