@@ -7,7 +7,7 @@ trigger:
   # secret: "${SENTRY_CLIENT_SECRET}"
   # signature_header: Sentry-Hook-Signature
 
-notify:
+channel:
   message: |
     {{ .body.data.event.title }}
     {{ .body.data.event.culprit }}

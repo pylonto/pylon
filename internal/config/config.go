@@ -116,6 +116,67 @@ func PylonsDir() string {
 	return filepath.Join(Dir(), "pylons")
 }
 
+var validNotifierTypes = map[string]bool{
+	"telegram": true, "slack": true, "webhook": true, "stdout": true, "": true,
+}
+
+var validAgentTypes = map[string]bool{
+	"claude": true, "opencode": true, "": true,
+}
+
+// validateChannelConfig checks that the channel type matches its config section
+// and that required fields are present.
+func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path string) error {
+	hint := " -- update " + path + " or press e to edit"
+	switch typ {
+	case "telegram":
+		if sl != nil && tg == nil {
+			return fmt.Errorf("channel type is %q but config has a slack section -- replace with a telegram section" + hint, typ)
+		}
+		if tg == nil {
+			return fmt.Errorf("channel type is %q but telegram config is missing. Add:\n\n  telegram:\n    bot_token: ${TELEGRAM_BOT_TOKEN}\n    chat_id: 123456\n\n" + hint, typ)
+		}
+		if tg.BotToken == "" {
+			return fmt.Errorf("telegram.bot_token is required" + hint)
+		}
+		if tg.ChatID == 0 {
+			return fmt.Errorf("telegram.chat_id is required" + hint)
+		}
+	case "slack":
+		if tg != nil && sl == nil {
+			return fmt.Errorf("channel type is %q but config has a telegram section -- replace with a slack section" + hint, typ)
+		}
+		if sl == nil {
+			return fmt.Errorf("channel type is %q but slack config is missing. Add:\n\n  slack:\n    bot_token: ${SLACK_BOT_TOKEN}\n    app_token: ${SLACK_APP_TOKEN}\n    channel_id: C1234567890\n\n" + hint, typ)
+		}
+		if sl.BotToken == "" {
+			return fmt.Errorf("slack.bot_token is required" + hint)
+		}
+		if sl.AppToken == "" {
+			return fmt.Errorf("slack.app_token is required" + hint)
+		}
+		if sl.ChannelID == "" {
+			return fmt.Errorf("slack.channel_id is required" + hint)
+		}
+	}
+	return nil
+}
+
+// Validate checks the global config for invalid values.
+func (c *GlobalConfig) Validate() error {
+	path := GlobalPath()
+	if !validNotifierTypes[c.Defaults.Notifier.Type] {
+		return fmt.Errorf("unsupported channel type %q (supported: telegram, slack, webhook, stdout) -- update %s", c.Defaults.Notifier.Type, path)
+	}
+	if err := validateChannelConfig(c.Defaults.Notifier.Type, c.Defaults.Notifier.Telegram, c.Defaults.Notifier.Slack, path); err != nil {
+		return err
+	}
+	if !validAgentTypes[c.Defaults.Agent.Type] {
+		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode) -- update %s", c.Defaults.Agent.Type, path)
+	}
+	return nil
+}
+
 // LoadGlobal loads the global config from ~/.pylon/config.yaml.
 func LoadGlobal() (*GlobalConfig, error) {
 	data, err := os.ReadFile(GlobalPath())
@@ -127,6 +188,9 @@ func LoadGlobal() (*GlobalConfig, error) {
 		return nil, fmt.Errorf("parsing global config: %w", err)
 	}
 	cfg.applyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid global config: %w", err)
+	}
 	return &cfg, nil
 }
 

@@ -197,11 +197,11 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return err
 			}
-			pyl.Notify = &config.PylonNotify{Type: "slack", Slack: sl}
+			pyl.Channel = &config.PylonChannel{Type: "slack", Slack: sl}
 		case "discord", "whatsapp", "imessage":
 			comingSoon(notifyChoice)
 		default:
-			pyl.Notify = &config.PylonNotify{Type: notifyChoice}
+			pyl.Channel = &config.PylonChannel{Type: notifyChoice}
 		}
 	}
 
@@ -305,10 +305,10 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if pyl.Notify == nil {
-		pyl.Notify = &config.PylonNotify{}
+	if pyl.Channel == nil {
+		pyl.Channel = &config.PylonChannel{}
 	}
-	pyl.Notify.Approval = approval
+	pyl.Channel.Approval = approval
 
 	if approval {
 		msgTemplate := "{{ .body.issue.title }}\n{{ .body.error }}"
@@ -319,7 +319,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if msgTemplate != "" {
-			pyl.Notify.Message = msgTemplate
+			pyl.Channel.Message = msgTemplate
 		}
 	}
 
@@ -350,7 +350,7 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 	case "sentry":
 		pyl.Trigger = config.TriggerConfig{Type: "webhook", Path: "/" + name}
 		pyl.Workspace = config.WorkspaceConfig{Type: "git-clone"}
-		pyl.Notify = &config.PylonNotify{
+		pyl.Channel = &config.PylonChannel{
 			Message:  "{{ .body.data.event.title }}\n{{ .body.data.event.culprit }}\n{{ .body.data.event.web_url }}",
 			Approval: true,
 		}
@@ -362,7 +362,7 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 		pyl.Trigger = config.TriggerConfig{Type: "webhook", Path: "/" + name}
 		pyl.Workspace = config.WorkspaceConfig{Type: "git-clone",
 			Repo: "{{ .body.repository.clone_url }}", Ref: "{{ .body.pull_request.head.ref }}"}
-		pyl.Notify = &config.PylonNotify{
+		pyl.Channel = &config.PylonChannel{
 			Message:  "PR #{{ .body.number }}: {{ .body.pull_request.title }}",
 			Approval: false,
 		}
@@ -373,7 +373,7 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 	case "cron-audit":
 		pyl.Trigger = config.TriggerConfig{Type: "cron", Cron: "0 9 * * 1"}
 		pyl.Workspace = config.WorkspaceConfig{Type: "git-clone"}
-		pyl.Notify = &config.PylonNotify{Message: "Weekly codebase audit", Approval: false}
+		pyl.Channel = &config.PylonChannel{Message: "Weekly codebase audit", Approval: false}
 		pyl.Agent = &config.PylonAgent{
 			Prompt:  "Audit this codebase for security vulnerabilities, outdated dependencies, and code quality issues. Provide a summary report.",
 			Timeout: "30m",

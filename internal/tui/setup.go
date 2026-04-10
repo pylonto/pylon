@@ -55,8 +55,8 @@ func newSetupWizard() wizardModel {
 		}},
 		{Key: "notifier", Create: func() Step {
 			return NewSelectStep(
-				"Default notifier",
-				"Where should alerts go?",
+				"Default channel",
+				"Where should pylons communicate?",
 				[]selectOption{
 					{"Telegram", "telegram"},
 					{"Slack", "slack"},
@@ -72,7 +72,6 @@ func newSetupWizard() wizardModel {
 				[]selectOption{
 					{"Claude Code", "claude"},
 					{"OpenCode", "opencode"},
-					{"Custom command", "custom"},
 				},
 			)
 		}},

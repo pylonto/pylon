@@ -7,7 +7,7 @@ trigger:
   # secret: "${GITHUB_WEBHOOK_SECRET}"
   # signature_header: X-Hub-Signature-256
 
-notify:
+channel:
   message: |
     PR #{{ .body.number }}: {{ .body.pull_request.title }}
   approval: false

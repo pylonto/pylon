@@ -19,14 +19,16 @@ type detailModel struct {
 	global         *config.GlobalConfig
 	jobs           []*store.Job
 	cursor         int
+	focused        bool // true when the detail pane has keyboard focus
 	showFullPrompt bool
+	showJobs       bool // toggle jobs section visibility
 	confirmKill    bool // when true, waiting for y/n to confirm kill
 	copyFlash      copyFlashModel
 	err            error
 }
 
 func newDetailModel(name string) detailModel {
-	return detailModel{name: name}
+	return detailModel{name: name, showJobs: true}
 }
 
 type detailLoadedMsg struct {
@@ -133,11 +135,11 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 
 		switch msg.String() {
 		case keyUp, keyK:
-			if m.cursor > 0 {
+			if m.showJobs && m.cursor > 0 {
 				m.cursor--
 			}
 		case keyDown, keyJ:
-			if m.cursor < len(m.jobs)-1 {
+			if m.showJobs && m.cursor < len(m.jobs)-1 {
 				m.cursor++
 			}
 		case keyY:
@@ -146,10 +148,10 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			}
 		case keyP:
 			m.showFullPrompt = !m.showFullPrompt
+		case "t":
+			m.showJobs = !m.showJobs
 		case keyE:
-			if m.pylon != nil {
-				return m, m.openEditor()
-			}
+			return m, m.openEditor()
 		case "l":
 			if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
 				return m, findContainerCmd(j.ID, "logs")
@@ -179,39 +181,20 @@ func (m detailModel) View(width, height int) string {
 		return mutedStyle.Render("  Loading...")
 	}
 
-	// Determine layout: side-by-side or stacked
-	sideBySide := width >= 100
+	out := m.renderConfig(width)
 
-	flash := m.copyFlash.View()
-
-	if sideBySide {
-		leftWidth := width/2 - 1
-		rightWidth := width - leftWidth - 2 // 1 for separator
-
-		configPanel := m.renderConfig(leftWidth, sideBySide)
-		jobsPanel := m.renderJobs(rightWidth, sideBySide)
-
-		left := lipgloss.NewStyle().Width(leftWidth).Render(configPanel)
-		sep := renderDetailSeparator(height)
-		right := lipgloss.NewStyle().Width(rightWidth).Render(jobsPanel)
-
-		out := lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
-		if flash != "" {
-			out += "\n  " + flash
-		}
-		return out
+	if m.showJobs {
+		out += "\n" + m.renderJobs(width)
 	}
 
-	configPanel := m.renderConfig(width, sideBySide)
-	jobsPanel := m.renderJobs(width, sideBySide)
-	out := configPanel + "\n\n" + jobsPanel
+	flash := m.copyFlash.View()
 	if flash != "" {
 		out += "\n  " + flash
 	}
 	return out
 }
 
-func (m detailModel) renderConfig(width int, sideBySide bool) string {
+func (m detailModel) renderConfig(width int) string {
 	pyl := m.pylon
 	global := m.global
 
@@ -271,14 +254,16 @@ func (m detailModel) renderConfig(width int, sideBySide bool) string {
 
 	// Notifier
 	notifyType := "default"
-	if pyl.Notify != nil && pyl.Notify.Type != "" {
-		notifyType = pyl.Notify.Type
+	if pyl.Channel != nil && pyl.Channel.Type != "" {
+		notifyType = pyl.Channel.Type
 	}
-	s += row("Notifier", notifyType)
+	s += row("Channel", notifyType)
 
-	// Approval
-	if pyl.Notify != nil && pyl.Notify.Approval {
-		s += row("Approval", "yes")
+	// Auto-run (inverted from Approval)
+	if pyl.Channel != nil && pyl.Channel.Approval {
+		s += row("Auto-run", "no")
+	} else {
+		s += row("Auto-run", "yes")
 	}
 
 	// Prompt
@@ -300,7 +285,7 @@ func (m detailModel) renderConfig(width int, sideBySide bool) string {
 	return s
 }
 
-func (m detailModel) renderJobs(width int, sideBySide bool) string {
+func (m detailModel) renderJobs(width int) string {
 	if len(m.jobs) == 0 {
 		return mutedStyle.Render("  No jobs yet.")
 	}
@@ -344,7 +329,7 @@ func (m detailModel) renderJobs(width int, sideBySide bool) string {
 
 		cursor := " "
 		style := tableRowStyle
-		if i == m.cursor {
+		if i == m.cursor && m.focused {
 			cursor = cursorStyle.Render("◆")
 			style = selectedRowStyle
 		}
@@ -496,22 +481,8 @@ func (m detailModel) openEditor() tea.Cmd {
 	})
 }
 
-func renderDetailSeparator(height int) string {
-	style := lipgloss.NewStyle().Foreground(colorGoldDim)
-	var b strings.Builder
-	for i := 0; i < height; i++ {
-		b.WriteString(style.Render("│"))
-		if i < height-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
-}
-
 func (m detailModel) footerBindings() []keyBinding {
-	bindings := []keyBinding{
-		{"esc", "back"},
-	}
+	var bindings []keyBinding
 	if m.pylon != nil && m.pylon.Trigger.Type == "webhook" {
 		bindings = append(bindings, keyBinding{"y", "copy url"})
 	}
@@ -519,13 +490,20 @@ func (m detailModel) footerBindings() []keyBinding {
 		if m.showFullPrompt {
 			bindings = append(bindings, keyBinding{"p", "collapse prompt"})
 		} else {
-			bindings = append(bindings, keyBinding{"p", "full prompt"})
+			bindings = append(bindings, keyBinding{"p", "expand prompt"})
 		}
 	}
+	if m.showJobs {
+		bindings = append(bindings, keyBinding{"t", "hide jobs"})
+	} else {
+		bindings = append(bindings, keyBinding{"t", "show jobs"})
+	}
 	bindings = append(bindings, keyBinding{"e", "edit"})
-	if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
-		bindings = append(bindings, keyBinding{"l", "logs"})
-		bindings = append(bindings, keyBinding{"x", "kill"})
+	if m.showJobs {
+		if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
+			bindings = append(bindings, keyBinding{"l", "logs"})
+			bindings = append(bindings, keyBinding{"x", "kill"})
+		}
 	}
 	return bindings
 }

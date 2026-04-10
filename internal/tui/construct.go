@@ -57,8 +57,8 @@ func newConstructWizard(name string) wizardModel {
 			// Could add per-pylon notifier options here
 			opts = append(opts, selectOption{"stdout (console only)", "stdout"})
 			return NewSelectStep(
-				"Notifier",
-				"Where should this pylon send alerts?",
+				"Channel",
+				"Where should this pylon communicate?",
 				opts,
 			)
 		}},
@@ -82,9 +82,9 @@ func newConstructWizard(name string) wizardModel {
 		}},
 		{Key: "approval", Create: func() Step {
 			return NewConfirmStep(
-				"Require human approval before agent runs?",
-				"Yes = notification with Investigate/Ignore buttons\nNo = agent runs immediately on every trigger",
-				false,
+				"Auto-run on trigger?",
+				"Yes = agent runs immediately\nNo = you get a notification to approve first",
+				true,
 			)
 		}},
 		{Key: "confirm", Create: func() Step {
@@ -106,7 +106,7 @@ func constructOnStepDone(key, value string, values map[string]string) []StepDef 
 	case "workspace":
 		return workspaceSteps(value)
 	case "approval":
-		if value == "yes" {
+		if value == "no" {
 			return []StepDef{
 				{Key: "approval.message", Create: func() Step {
 					return NewEditorStep(
@@ -246,18 +246,18 @@ func constructOnComplete(values map[string]string) error {
 	// Notifier
 	notifierChoice := values["notifier_choice"]
 	if notifierChoice != "default" {
-		pyl.Notify = &config.PylonNotify{
+		pyl.Channel = &config.PylonChannel{
 			Type: notifierChoice,
 		}
 	}
 
 	// Approval
-	if values["approval"] == "yes" {
-		if pyl.Notify == nil {
-			pyl.Notify = &config.PylonNotify{}
+	if values["approval"] == "no" {
+		if pyl.Channel == nil {
+			pyl.Channel = &config.PylonChannel{}
 		}
-		pyl.Notify.Approval = true
-		pyl.Notify.Message = strings.TrimSpace(values["approval.message"])
+		pyl.Channel.Approval = true
+		pyl.Channel.Message = strings.TrimSpace(values["approval.message"])
 	}
 
 	return config.SavePylon(pyl)

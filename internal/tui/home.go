@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,11 +24,22 @@ type pylonRow struct {
 	description string
 }
 
+// focusArea tracks which pane has keyboard focus.
+type focusArea int
+
+const (
+	focusList   focusArea = iota // pylon sidebar
+	focusDetail                  // detail pane
+)
+
 // homeModel is the dashboard view showing all pylons.
 type homeModel struct {
 	rows          []pylonRow
 	cursor        int
 	daemonRunning bool
+	focus         focusArea
+	detail        detailModel
+	detailLoaded  bool // true once the first pylon detail has been loaded
 	width, height int
 	err           error
 }
@@ -88,7 +101,6 @@ func loadPylonsCmd() tea.Cmd {
 				row.endpoint = pyl.Trigger.Cron
 			}
 
-			// Load last job
 			dbPath := config.PylonDBPath(name)
 			if _, statErr := os.Stat(dbPath); statErr == nil {
 				if s, openErr := store.Open(dbPath); openErr == nil {
@@ -134,6 +146,11 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	case pylonsLoadedMsg:
 		m.rows = msg.rows
 		m.err = msg.err
+		// Auto-load detail for the first pylon if we haven't yet
+		if !m.detailLoaded && len(m.rows) > 0 {
+			m.detailLoaded = true
+			return m, tea.Batch(tickCmd(), m.loadDetailForCursor())
+		}
 		return m, tickCmd()
 
 	case daemonStatusMsg:
@@ -150,32 +167,99 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	case tickMsg:
 		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 
-	case tea.KeyMsg:
-		switch msg.String() {
+	case pylonEditDoneMsg:
+		// Reload after editing
+		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
+	}
+
+	// Non-key messages (detailLoadedMsg, containerFoundMsg, etc.)
+	// always go to the detail model regardless of focus.
+	if _, isKey := msg.(tea.KeyMsg); !isKey {
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		if cmd != nil {
+			return m, cmd
+		}
+	}
+
+	// When detail pane has focus, delegate key presses there
+	if m.focus == focusDetail {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "h", keyEsc:
+				m.focus = focusList
+				m.detail.focused = false
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.detail, cmd = m.detail.Update(msg)
+				return m, cmd
+			}
+		}
+		return m, nil
+	}
+
+	// List navigation (focusList)
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
 		case keyUp, keyK:
 			if m.cursor > 0 {
 				m.cursor--
+				return m, m.loadDetailForCursor()
 			}
 		case keyDown, keyJ:
 			if m.cursor < len(m.rows)-1 {
 				m.cursor++
+				return m, m.loadDetailForCursor()
+			}
+		case keyEnter, "l":
+			if len(m.rows) > 0 {
+				m.focus = focusDetail
+				m.detail.focused = true
+				return m, nil
+			}
+		case keyE:
+			name := m.selectedPylon()
+			if name != "" {
+				return m, m.openEditorForPylon(name)
 			}
 		}
 	}
+
 	return m, nil
 }
 
-// leftPanelWidth is the fixed width of the branding column.
-const leftPanelWidth = 26
+// pylonEditDoneMsg is sent when the editor closes.
+type pylonEditDoneMsg struct{ err error }
+
+// openEditorForPylon opens the pylon config in $EDITOR.
+func (m *homeModel) openEditorForPylon(name string) tea.Cmd {
+	editor := resolveEditor()
+	path := config.PylonPath(name)
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return pylonEditDoneMsg{err: err}
+	})
+}
+
+// loadDetailForCursor loads the detail for the currently selected pylon.
+func (m *homeModel) loadDetailForCursor() tea.Cmd {
+	name := m.selectedPylon()
+	if name == "" {
+		return nil
+	}
+	m.detail = newDetailModel(name)
+	return m.detail.Init()
+}
+
+// sidebarWidth is the width of the pylon name sidebar.
+const sidebarWidth = 16
 
 func (m homeModel) View(width, height int) string {
 	if m.err != nil {
 		return statusFailed.Render(fmt.Sprintf("Error: %v", m.err))
 	}
-	return m.renderTable(width)
-}
 
-func (m homeModel) renderTable(width int) string {
 	if len(m.rows) == 0 {
 		msg := mutedStyle.Render("No pylons constructed yet.\n\n") +
 			subtextStyle.Render("Press ") + keyStyle.Render("c") + subtextStyle.Render(" to construct,\n") +
@@ -183,57 +267,56 @@ func (m homeModel) renderTable(width int) string {
 		return "\n" + msg + "\n"
 	}
 
-	// Column widths -- fixed, compact
-	colName := 20
-	colTrigger := 9
-	colStatus := 9
-	colLastJob := 10
+	// Sidebar (pylon names)
+	sidebar := m.renderSidebar(height)
+	sidebarStyled := lipgloss.NewStyle().
+		Width(sidebarWidth).
+		Render(sidebar)
 
-	// Let name grow a bit on wider terminals, but cap it
-	remaining := width - colTrigger - colStatus - colLastJob - 8
-	if remaining > colName && remaining <= 32 {
-		colName = remaining
-	} else if remaining > 32 {
-		colName = 32
+	// Separator
+	sep := renderGoldSeparator(height)
+
+	// Detail pane
+	detailWidth := width - sidebarWidth - 1
+	if detailWidth < 30 {
+		detailWidth = 30
 	}
+	detailContent := m.detail.View(detailWidth, height)
+	detailStyled := lipgloss.NewStyle().
+		Width(detailWidth).
+		Render(detailContent)
 
-	// Header
-	header := tableHeaderStyle.Render(
-		fmt.Sprintf("  %-*s  %-*s  %-*s  %s",
-			colName, "NAME",
-			colTrigger, "TRIGGER",
-			colStatus, "STATUS",
-			"LAST JOB"))
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebarStyled, sep, detailStyled)
+}
 
-	// Rows
-	var rows string
+// renderSidebar renders the pylon name list.
+func (m homeModel) renderSidebar(height int) string {
+	var b strings.Builder
+
+	b.WriteString(tableHeaderStyle.Render(" Pylons") + "\n")
+
 	for i, r := range m.rows {
 		name := r.name
-		if len(name) > colName {
-			name = name[:colName-1] + "~"
+		maxLen := sidebarWidth - 3
+		if len(name) > maxLen {
+			name = name[:maxLen-1] + "~"
 		}
 
 		cursor := " "
 		style := tableRowStyle
 		if i == m.cursor {
-			cursor = cursorStyle.Render("◆")
+			if m.focus == focusList {
+				cursor = cursorStyle.Render("◆")
+			} else {
+				cursor = cursorStyle.Render("◇")
+			}
 			style = selectedRowStyle
 		}
 
-		status := renderStatus(r.status)
-		statusPad := colStatus - lipgloss.Width(status)
-		if statusPad < 0 {
-			statusPad = 0
-		}
-
-		line := cursor + fmt.Sprintf(" %-*s  %-*s  ",
-			colName, name,
-			colTrigger, r.trigger) +
-			status + spaces(statusPad) + "  " + r.lastJob
-		rows += style.Render(line) + "\n"
+		b.WriteString(style.Render(cursor+" "+name) + "\n")
 	}
 
-	return header + "\n" + rows
+	return b.String()
 }
 
 // selectedPylon returns the name of the currently selected pylon.
@@ -279,11 +362,28 @@ func (m homeModel) footerBindings() []keyBinding {
 		{"s", "setup"},
 		{"c", "construct"},
 	}
-	if len(m.rows) > 0 {
-		bindings = append(bindings, keyBinding{"enter", "detail"})
+
+	if m.focus == focusDetail {
+		bindings = append(bindings, keyBinding{"h", "back"})
+		bindings = append(bindings, m.detail.footerBindings()...)
+	} else if len(m.rows) > 0 {
+		bindings = append(bindings, keyBinding{"l", "detail"})
+		bindings = append(bindings, keyBinding{"e", "edit"})
 	}
-	bindings = append(bindings,
-		keyBinding{"q", "quit"},
-	)
+
+	bindings = append(bindings, keyBinding{"q", "quit"})
 	return bindings
+}
+
+// renderGoldSeparator renders a vertical gold bar.
+func renderGoldSeparator(height int) string {
+	style := lipgloss.NewStyle().Foreground(colorGoldDim)
+	var b strings.Builder
+	for i := 0; i < height; i++ {
+		b.WriteString(style.Render("│"))
+		if i < height-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }

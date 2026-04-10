@@ -12,7 +12,6 @@ type viewID int
 
 const (
 	viewHome viewID = iota
-	viewDetail
 	viewSetup
 	viewConstruct
 )
@@ -24,6 +23,9 @@ type (
 	pylonSelectedMsg struct{ name string }
 )
 
+// leftPanelWidth is the fixed width of the branding column.
+const leftPanelWidth = 22
+
 // AppModel is the top-level bubbletea model.
 type AppModel struct {
 	version string
@@ -32,7 +34,6 @@ type AppModel struct {
 	viewStack  []viewID
 
 	home   homeModel
-	detail detailModel
 	wizard wizardModel
 	glyph  pylonGlyph
 
@@ -71,18 +72,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Global navigation from home
 		if m.activeView == viewHome {
 			switch msg.String() {
 			case keyQ:
 				return m, tea.Quit
-			case keyEnter, "l":
-				name := m.home.selectedPylon()
-				if name != "" {
-					m.detail = newDetailModel(name)
-					m.pushView(viewDetail)
-					return m, m.detail.Init()
-				}
 			case keyS:
 				m.wizard = newSetupWizard()
 				m.pushView(viewSetup)
@@ -94,7 +87,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Back navigation (Esc/h from detail, Esc from wizard)
+		// Back from wizard
 		if m.activeView != viewHome {
 			if msg.String() == keyEsc {
 				m.popView()
@@ -102,10 +95,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 				}
 				return m, nil
-			}
-			if m.activeView == viewDetail && (msg.String() == keyQ || msg.String() == "h") {
-				m.popView()
-				return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 			}
 		}
 	}
@@ -115,8 +104,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.activeView {
 	case viewHome:
 		m.home, cmd = m.home.Update(msg)
-	case viewDetail:
-		m.detail, cmd = m.detail.Update(msg)
 	case viewSetup, viewConstruct:
 		m.wizard, cmd = m.wizard.Update(msg)
 	}
@@ -131,15 +118,15 @@ func (m AppModel) View() string {
 
 	contentHeight := m.height - 2 // reserve for footer
 
-	// Left panel is always visible
+	// Left branding panel -- always visible
 	left := m.renderLeftPanel()
 	leftStyled := lipgloss.NewStyle().
 		Width(leftPanelWidth).
 		Render(left)
 
-	// Separator + right panel
 	sep := m.renderSeparator(contentHeight)
-	rightWidth := m.width - leftPanelWidth - 1 // 1 for separator
+
+	rightWidth := m.width - leftPanelWidth - 1
 	if rightWidth < 30 {
 		rightWidth = 30
 	}
@@ -151,9 +138,6 @@ func (m AppModel) View() string {
 	case viewHome:
 		rightContent = m.home.View(rightWidth, contentHeight)
 		footer = renderFooter(m.home.footerBindings(), m.width)
-	case viewDetail:
-		rightContent = m.detail.View(rightWidth, contentHeight)
-		footer = renderFooter(m.detail.footerBindings(), m.width)
 	case viewSetup, viewConstruct:
 		rightContent = m.wizard.View(rightWidth, contentHeight)
 		footer = renderFooter(m.wizard.footerBindings(), m.width)
@@ -181,27 +165,27 @@ func (m AppModel) View() string {
 func (m AppModel) renderLeftPanel() string {
 	var b strings.Builder
 
-	// Line 1: spinner + title + version
 	spinner := m.glyph.View()
 	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Pylon Nexus")
 	ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
-	b.WriteString("  " + spinner + " " + title + " " + ver + "\n")
+	b.WriteString(" " + spinner + " " + title + "\n")
+	b.WriteString("   " + ver + "\n")
 
-	// Line 2: daemon status
+	// Daemon status
 	if m.home.daemonRunning {
-		b.WriteString("    " + statusActive.Render("Daemon ON") + "\n")
+		b.WriteString("   " + statusActive.Render("Daemon ON") + "\n")
 	} else {
-		b.WriteString("    " + mutedStyle.Render("Daemon OFF") + "\n")
+		b.WriteString("   " + mutedStyle.Render("Daemon OFF") + "\n")
 	}
 
-	// Line 3: pylon/service count + active agents
+	// Service count + active
 	pylonCount := len(m.home.rows)
 	countStyle := lipgloss.NewStyle().Foreground(colorText).Bold(true)
 	pylonLabel := "services"
 	if pylonCount == 1 {
 		pylonLabel = "service"
 	}
-	info := "    " + countStyle.Render(fmt.Sprintf("%d", pylonCount)) + " " + subtextStyle.Render(pylonLabel)
+	info := "   " + countStyle.Render(fmt.Sprintf("%d", pylonCount)) + " " + subtextStyle.Render(pylonLabel)
 
 	active := 0
 	for _, r := range m.home.rows {
@@ -210,8 +194,7 @@ func (m AppModel) renderLeftPanel() string {
 		}
 	}
 	if active > 0 {
-		agentLabel := "active"
-		info += mutedStyle.Render(", ") + statusActive.Render(fmt.Sprintf("%d", active)) + " " + subtextStyle.Render(agentLabel)
+		info += "\n   " + statusActive.Render(fmt.Sprintf("%d", active)) + " " + subtextStyle.Render("active")
 	}
 	b.WriteString(info + "\n")
 

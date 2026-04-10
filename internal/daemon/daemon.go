@@ -149,11 +149,11 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		log.Printf("[pylon] [%s] %q triggered, payload: %s", jobID[:8], name, string(rawBody))
 
 		n := d.notifierFor(name)
-		needsApproval := n != nil && pyl.Notify != nil && pyl.Notify.Approval
+		needsApproval := n != nil && pyl.Channel != nil && pyl.Channel.Approval
 
 		if needsApproval {
 			topicID, _ := n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
-			msg := runner.ResolveTemplate(pyl.Notify.Message, body)
+			msg := runner.ResolveTemplate(pyl.Channel.Message, body)
 			msgID, err := n.SendApproval(topicID, msg, jobID)
 			if err != nil {
 				log.Printf("[pylon] [%s] approval failed, running immediately: %v", jobID[:8], err)
@@ -166,9 +166,9 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 			}
 		} else {
 			var topicID string
-			if n != nil && pyl.Notify != nil && pyl.Notify.Message != "" {
+			if n != nil && pyl.Channel != nil && pyl.Channel.Message != "" {
 				topicID, _ = n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
-				n.SendMessage(topicID, runner.ResolveTemplate(pyl.Notify.Message, body))
+				n.SendMessage(topicID, runner.ResolveTemplate(pyl.Channel.Message, body))
 			}
 			d.runJob(name, pyl, jobID, body, callbackURL, topicID, "", "")
 		}

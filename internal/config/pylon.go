@@ -17,7 +17,7 @@ type PylonConfig struct {
 	Created     time.Time `yaml:"created"`
 
 	Trigger   TriggerConfig   `yaml:"trigger"`
-	Notify    *PylonNotify    `yaml:"notify,omitempty"`
+	Channel   *PylonChannel   `yaml:"channel,omitempty"`
 	Workspace WorkspaceConfig `yaml:"workspace"`
 	Agent     *PylonAgent     `yaml:"agent,omitempty"`
 }
@@ -45,7 +45,7 @@ func (p *PylonConfig) ResolvePublicURL(global *GlobalConfig) string {
 	return base + p.Trigger.Path
 }
 
-type PylonNotify struct {
+type PylonChannel struct {
 	Type     string          `yaml:"type,omitempty"`
 	Telegram *TelegramConfig `yaml:"telegram,omitempty"`
 	Slack    *SlackConfig    `yaml:"slack,omitempty"`
@@ -96,6 +96,44 @@ func PylonDBPath(name string) string {
 	return filepath.Join(PylonDir(name), "jobs.db")
 }
 
+var validTriggerTypes = map[string]bool{
+	"webhook": true, "cron": true, "": true,
+}
+
+var validWorkspaceTypes = map[string]bool{
+	"git-clone": true, "git-worktree": true, "local": true, "none": true, "": true,
+}
+
+// Validate checks the pylon config for invalid values.
+// loadedFrom is the file path the config was loaded from (used in error messages).
+func (p *PylonConfig) Validate(loadedFrom string) error {
+	path := loadedFrom
+	if path == "" {
+		path = PylonPath(p.Name)
+	}
+	if p.Name == "" {
+		return fmt.Errorf("pylon name is required -- update %s or press e to edit", path)
+	}
+	if !validTriggerTypes[p.Trigger.Type] {
+		return fmt.Errorf("unsupported trigger type %q (supported: webhook, cron) -- update %s or press e to edit", p.Trigger.Type, path)
+	}
+	if !validWorkspaceTypes[p.Workspace.Type] {
+		return fmt.Errorf("unsupported workspace type %q (supported: git-clone, git-worktree, local, none) -- update %s or press e to edit", p.Workspace.Type, path)
+	}
+	if p.Channel != nil && p.Channel.Type != "" && !validNotifierTypes[p.Channel.Type] {
+		return fmt.Errorf("unsupported channel type %q (supported: telegram, slack, webhook, stdout) -- update %s or press e to edit", p.Channel.Type, path)
+	}
+	if p.Channel != nil {
+		if err := validateChannelConfig(p.Channel.Type, p.Channel.Telegram, p.Channel.Slack, path); err != nil {
+			return err
+		}
+	}
+	if p.Agent != nil && p.Agent.Type != "" && !validAgentTypes[p.Agent.Type] {
+		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode) -- update %s or press e to edit", p.Agent.Type, path)
+	}
+	return nil
+}
+
 // LoadPylon loads a single pylon config by name.
 func LoadPylon(name string) (*PylonConfig, error) {
 	data, err := os.ReadFile(PylonPath(name))
@@ -105,6 +143,9 @@ func LoadPylon(name string) (*PylonConfig, error) {
 	var cfg PylonConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing pylon config %q: %w", name, err)
+	}
+	if err := cfg.Validate(PylonPath(name)); err != nil {
+		return nil, fmt.Errorf("pylon %q: %w", name, err)
 	}
 	return &cfg, nil
 }

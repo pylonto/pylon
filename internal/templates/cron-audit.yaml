@@ -5,7 +5,7 @@ trigger:
   type: cron
   cron: "0 9 * * 1"  # Every Monday at 9am
 
-notify:
+channel:
   message: "Weekly codebase audit"
   approval: false
 

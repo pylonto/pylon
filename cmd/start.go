@@ -136,13 +136,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Build per-pylon notifiers for pylons that override the default
 	perPylon := make(map[string]notifier.Notifier)
 	for name, pyl := range pylons {
-		if pyl.Notify == nil {
+		if pyl.Channel == nil {
 			continue
 		}
-		switch pyl.Notify.Type {
+		switch pyl.Channel.Type {
 		case "telegram":
-			if pyl.Notify.Telegram != nil {
-				tg := pyl.Notify.Telegram
+			if pyl.Channel.Telegram != nil {
+				tg := pyl.Channel.Telegram
 				token := os.ExpandEnv(tg.BotToken)
 				if token != "" {
 					perPylon[name] = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
@@ -150,8 +150,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 				}
 			}
 		case "slack":
-			if pyl.Notify.Slack != nil {
-				sl := pyl.Notify.Slack
+			if pyl.Channel.Slack != nil {
+				sl := pyl.Channel.Slack
 				botToken := os.ExpandEnv(sl.BotToken)
 				appToken := os.ExpandEnv(sl.AppToken)
 				if botToken != "" && appToken != "" {
