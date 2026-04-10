@@ -53,10 +53,7 @@ func (s *editorStep) launchEditor() tea.Cmd {
 	}
 	tmpFile.Close()
 
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vi"
-	}
+	editor := resolveEditor()
 
 	c := exec.Command(editor, s.tmpPath)
 	tmpPath := s.tmpPath

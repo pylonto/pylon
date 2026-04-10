@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -12,13 +14,15 @@ import (
 
 // detailModel shows a single pylon's config and recent jobs.
 type detailModel struct {
-	name      string
-	pylon     *config.PylonConfig
-	global    *config.GlobalConfig
-	jobs      []*store.Job
-	cursor    int
-	copyFlash copyFlashModel
-	err       error
+	name           string
+	pylon          *config.PylonConfig
+	global         *config.GlobalConfig
+	jobs           []*store.Job
+	cursor         int
+	showFullPrompt bool
+	confirmKill    bool // when true, waiting for y/n to confirm kill
+	copyFlash      copyFlashModel
+	err            error
 }
 
 func newDetailModel(name string) detailModel {
@@ -50,6 +54,19 @@ func (m detailModel) Init() tea.Cmd {
 			}
 		}
 
+		// Check running/active jobs against live containers.
+		// If the container is gone, mark as stale.
+		for _, j := range jobs {
+			if !isRunningStatus(j.Status) {
+				continue
+			}
+			out, cerr := exec.Command("docker", "ps", "-a", "--filter",
+				fmt.Sprintf("label=pylon.job=%s", j.ID), "--format", "{{.ID}}").Output()
+			if cerr != nil || strings.TrimSpace(string(out)) == "" {
+				j.Status = "stale"
+			}
+		}
+
 		return detailLoadedMsg{pylon: pyl, global: global, jobs: jobs}
 	}
 }
@@ -62,6 +79,10 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		m.jobs = msg.jobs
 		m.err = msg.err
 
+	case detailEditorDoneMsg:
+		// Reload config after editing
+		return m, m.Init()
+
 	case copiedMsg:
 		var cmd tea.Cmd
 		m.copyFlash, cmd = m.copyFlash.show(msg.label)
@@ -70,7 +91,46 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 	case copyFlashClearMsg:
 		m.copyFlash = m.copyFlash.Update(msg)
 
+	case containerFoundMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		switch msg.action {
+		case "logs":
+			c := exec.Command("docker", "logs", "-f", msg.containerID)
+			return m, tea.ExecProcess(c, func(err error) tea.Msg {
+				return detailEditorDoneMsg{err: err}
+			})
+		case "kill":
+			return m, killContainerCmd(msg.containerID)
+		}
+		return m, nil
+
+	case jobKilledMsg:
+		m.confirmKill = false
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		return m, m.Init()
+
 	case tea.KeyMsg:
+		// Kill confirmation mode intercepts all keys
+		if m.confirmKill {
+			switch msg.String() {
+			case "y":
+				j := m.selectedJob()
+				if j != nil {
+					m.confirmKill = false
+					return m, findContainerCmd(j.ID, "kill")
+				}
+				m.confirmKill = false
+			default:
+				m.confirmKill = false
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case keyUp, keyK:
 			if m.cursor > 0 {
@@ -83,6 +143,20 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		case keyY:
 			if url := m.webhookURL(); url != "" {
 				return m, copyToClipboard(url, "webhook URL")
+			}
+		case keyP:
+			m.showFullPrompt = !m.showFullPrompt
+		case keyE:
+			if m.pylon != nil {
+				return m, m.openEditor()
+			}
+		case "l":
+			if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
+				return m, findContainerCmd(j.ID, "logs")
+			}
+		case "x":
+			if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
+				m.confirmKill = true
 			}
 		}
 	}
@@ -108,25 +182,28 @@ func (m detailModel) View(width, height int) string {
 	// Determine layout: side-by-side or stacked
 	sideBySide := width >= 100
 
-	configPanel := m.renderConfig(width, sideBySide)
-	jobsPanel := m.renderJobs(width, sideBySide)
-
 	flash := m.copyFlash.View()
 
 	if sideBySide {
 		leftWidth := width/2 - 1
-		rightWidth := width - leftWidth - 1
+		rightWidth := width - leftWidth - 2 // 1 for separator
+
+		configPanel := m.renderConfig(leftWidth, sideBySide)
+		jobsPanel := m.renderJobs(rightWidth, sideBySide)
 
 		left := lipgloss.NewStyle().Width(leftWidth).Render(configPanel)
+		sep := renderDetailSeparator(height)
 		right := lipgloss.NewStyle().Width(rightWidth).Render(jobsPanel)
 
-		out := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+		out := lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
 		if flash != "" {
 			out += "\n  " + flash
 		}
 		return out
 	}
 
+	configPanel := m.renderConfig(width, sideBySide)
+	jobsPanel := m.renderJobs(width, sideBySide)
 	out := configPanel + "\n\n" + jobsPanel
 	if flash != "" {
 		out += "\n  " + flash
@@ -204,17 +281,20 @@ func (m detailModel) renderConfig(width int, sideBySide bool) string {
 		s += row("Approval", "yes")
 	}
 
-	// Prompt (truncated)
+	// Prompt
 	if pyl.Agent != nil && pyl.Agent.Prompt != "" {
-		prompt := pyl.Agent.Prompt
-		maxLen := 60
-		if sideBySide {
-			maxLen = width/2 - 16
+		if m.showFullPrompt {
+			s += row("Prompt", mutedStyle.Render("[p] collapse"))
+			s += "  " + subtextStyle.Render(pyl.Agent.Prompt) + "\n"
+		} else {
+			// Flatten to single line
+			prompt := strings.ReplaceAll(pyl.Agent.Prompt, "\n", " ")
+			maxLen := 24
+			if len(prompt) > maxLen {
+				prompt = prompt[:maxLen-3] + "..."
+			}
+			s += row("Prompt", prompt+"  "+mutedStyle.Render("[p] expand"))
 		}
-		if len(prompt) > maxLen {
-			prompt = prompt[:maxLen-3] + "..."
-		}
-		s += row("Prompt", prompt)
 	}
 
 	return s
@@ -230,7 +310,7 @@ func (m detailModel) renderJobs(width int, sideBySide bool) string {
 	colTriggered := 14
 
 	header := tableHeaderStyle.Render(
-		fmt.Sprintf("  %-*s  %-*s  %-*s  %s",
+		fmt.Sprintf("   %-*s  %-*s  %-*s  %s",
 			colID, "ID",
 			colStatus, "STATUS",
 			colTriggered, "TRIGGERED",
@@ -249,35 +329,58 @@ func (m detailModel) renderJobs(width int, sideBySide bool) string {
 			triggered = timeAgo(j.CreatedAt)
 		}
 		duration := "-"
-		if j.CompletedAt != nil {
+		if j.CompletedAt != nil && !j.CompletedAt.IsZero() {
 			start := j.CreatedAt
-			if j.StartedAt != nil {
+			if j.StartedAt != nil && !j.StartedAt.IsZero() {
 				start = *j.StartedAt
 			}
-			d := j.CompletedAt.Sub(start)
-			duration = formatDuration(d)
+			if !start.IsZero() {
+				d := j.CompletedAt.Sub(start)
+				if d >= 0 {
+					duration = formatDuration(d)
+				}
+			}
 		}
 
+		cursor := " "
+		style := tableRowStyle
 		if i == m.cursor {
-			line := fmt.Sprintf("  %-*s  %-*s  %-*s  %s",
-				colID, id,
-				colStatus, j.Status,
-				colTriggered, triggered,
-				duration)
-			rows += selectedRowStyle.Width(width).Render(line) + "\n"
-		} else {
-			statusPad := colStatus - lipgloss.Width(status)
-			if statusPad < 0 {
-				statusPad = 0
-			}
-			line := fmt.Sprintf("  %-*s  ", colID, id) +
-				status + spaces(statusPad) +
-				fmt.Sprintf("  %-*s  %s", colTriggered, triggered, duration)
-			rows += tableRowStyle.Render(line) + "\n"
+			cursor = cursorStyle.Render("◆")
+			style = selectedRowStyle
 		}
+
+		statusPad := colStatus - lipgloss.Width(status)
+		if statusPad < 0 {
+			statusPad = 0
+		}
+
+		line := cursor + fmt.Sprintf(" %-*s  ", colID, id) +
+			status + spaces(statusPad) +
+			fmt.Sprintf("  %-*s  %s", colTriggered, triggered, duration)
+		rows += style.Render(line) + "\n"
 	}
 
-	return header + "\n" + rows
+	out := header + "\n" + rows
+
+	if m.confirmKill {
+		out += "\n  " + statusFailed.Render("Kill this job?") + " " + mutedStyle.Render("y/n")
+	}
+
+	return out
+}
+
+// jobStatusLabel returns the plain display text for a job status.
+func jobStatusLabel(status string) string {
+	switch status {
+	case "active":
+		return "running"
+	case "awaiting_approval":
+		return "approval"
+	case "stale":
+		return "stale"
+	default:
+		return status
+	}
 }
 
 func renderJobStatus(status string) string {
@@ -290,6 +393,8 @@ func renderJobStatus(status string) string {
 		return statusActive.Render("running")
 	case "awaiting_approval":
 		return lipgloss.NewStyle().Foreground(colorWarning).Render("approval")
+	case "stale":
+		return lipgloss.NewStyle().Foreground(colorWarning).Render("stale")
 	default:
 		return mutedStyle.Render(status)
 	}
@@ -310,6 +415,99 @@ func formatDuration(d interface{ Seconds() float64 }) string {
 	return fmt.Sprintf("%dh%dm", hours, remMins)
 }
 
+// selectedJob returns the currently selected job, or nil.
+func (m detailModel) selectedJob() *store.Job {
+	if len(m.jobs) == 0 || m.cursor >= len(m.jobs) {
+		return nil
+	}
+	return m.jobs[m.cursor]
+}
+
+func isRunningStatus(status string) bool {
+	return status == "running" || status == "active"
+}
+
+// jobKilledMsg is sent after a kill attempt.
+type jobKilledMsg struct {
+	err error
+}
+
+// containerFoundMsg carries the resolved container ID for a job.
+type containerFoundMsg struct {
+	containerID string
+	action      string // "logs" or "kill"
+	err         error
+}
+
+// findContainerCmd looks up the container ID for a job.
+func findContainerCmd(jobID, action string) tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("docker", "ps", "-a", "--filter",
+			fmt.Sprintf("label=pylon.job=%s", jobID), "--format", "{{.ID}}").Output()
+		if err != nil {
+			return containerFoundMsg{err: fmt.Errorf("docker not reachable: %w", err)}
+		}
+		containerID := strings.TrimSpace(string(out))
+		if containerID == "" {
+			id := jobID
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			return containerFoundMsg{err: fmt.Errorf("container gone for job %s (status may be stale)", id)}
+		}
+		return containerFoundMsg{containerID: containerID, action: action}
+	}
+}
+
+// killContainerCmd kills a container by ID.
+func killContainerCmd(containerID string) tea.Cmd {
+	return func() tea.Msg {
+		c := exec.Command("docker", "kill", containerID)
+		if err := c.Run(); err != nil {
+			return jobKilledMsg{err: err}
+		}
+		return jobKilledMsg{}
+	}
+}
+
+// detailEditorDoneMsg is sent when the editor closes so we can reload the config.
+type detailEditorDoneMsg struct {
+	err error
+}
+
+// resolveEditor returns the best available editor.
+func resolveEditor() string {
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	if e := os.Getenv("VISUAL"); e != "" {
+		return e
+	}
+	// Fallback chain: vi is POSIX-mandated
+	return "vi"
+}
+
+func (m detailModel) openEditor() tea.Cmd {
+	editor := resolveEditor()
+	path := config.PylonPath(m.name)
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return detailEditorDoneMsg{err: err}
+	})
+}
+
+func renderDetailSeparator(height int) string {
+	style := lipgloss.NewStyle().Foreground(colorGoldDim)
+	var b strings.Builder
+	for i := 0; i < height; i++ {
+		b.WriteString(style.Render("│"))
+		if i < height-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
 func (m detailModel) footerBindings() []keyBinding {
 	bindings := []keyBinding{
 		{"esc", "back"},
@@ -317,6 +515,17 @@ func (m detailModel) footerBindings() []keyBinding {
 	if m.pylon != nil && m.pylon.Trigger.Type == "webhook" {
 		bindings = append(bindings, keyBinding{"y", "copy url"})
 	}
+	if m.pylon != nil && m.pylon.Agent != nil && m.pylon.Agent.Prompt != "" {
+		if m.showFullPrompt {
+			bindings = append(bindings, keyBinding{"p", "collapse prompt"})
+		} else {
+			bindings = append(bindings, keyBinding{"p", "full prompt"})
+		}
+	}
 	bindings = append(bindings, keyBinding{"e", "edit"})
+	if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
+		bindings = append(bindings, keyBinding{"l", "logs"})
+		bindings = append(bindings, keyBinding{"x", "kill"})
+	}
 	return bindings
 }

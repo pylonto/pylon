@@ -14,16 +14,18 @@ type pylonGlyph struct {
 
 type glyphTickMsg struct{}
 
-const glyphInterval = 240 * time.Millisecond
+const glyphInterval = 150 * time.Millisecond
 
 // Crystal-themed spinner frames: diamond forms and pulses.
 var glyphFrames = []string{
+	"·", // dot -- pause
+	"✧", // white four-pointed star
 	"◇", // open diamond
 	"◈", // diamond with dot -- filling
 	"◆", // solid diamond -- full
 	"◈", // diamond with dot -- fading
 	"◇", // open diamond
-	"·", // dot -- pause
+	"✧", // white four-pointed star
 }
 
 func glyphTickCmd() tea.Cmd {

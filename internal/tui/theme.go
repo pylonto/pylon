@@ -21,6 +21,7 @@ var (
 	colorBase    = lipgloss.Color(palette.Base().Hex)     // #1e1e2e
 	colorTeal    = lipgloss.Color(palette.Teal().Hex)     // #94e2d5
 	colorHighlight = lipgloss.Color("#1e3a5f") // dark navy -- subtle blue-tinted row highlight
+	colorGoldDim   = lipgloss.Color("#7d6348") // dimmed gold for separators
 )
 
 // Title bar spans the full terminal width.
@@ -35,10 +36,12 @@ var tableHeaderStyle = lipgloss.NewStyle().
 	Foreground(colorAccent).
 	Bold(true)
 
-// Selected row in tables -- blue bg with dark text for clear contrast.
+// Selected row cursor indicator.
+var cursorStyle = lipgloss.NewStyle().Foreground(colorGold)
+
+// Selected row text -- just bold, no background.
 var selectedRowStyle = lipgloss.NewStyle().
-	Background(colorAccent).
-	Foreground(colorBase).
+	Foreground(colorText).
 	Bold(true)
 
 // Normal table row.

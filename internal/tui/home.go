@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,19 +27,17 @@ type homeModel struct {
 	rows          []pylonRow
 	cursor        int
 	daemonRunning bool
-	version       string
-	glyph         pylonGlyph
 	width, height int
 	err           error
 }
 
-func newHomeModel(version string) homeModel {
-	return homeModel{version: version}
+func newHomeModel() homeModel {
+	return homeModel{}
 }
 
 // Init loads pylon data and checks daemon status.
 func (m homeModel) Init() tea.Cmd {
-	return tea.Batch(loadPylonsCmd(), checkDaemonCmd(), glyphTickCmd())
+	return tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 }
 
 // pylonsLoadedMsg carries loaded pylon data.
@@ -153,9 +150,6 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	case tickMsg:
 		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 
-	case glyphTickMsg:
-		return m, m.glyph.Update(msg)
-
 	case tea.KeyMsg:
 		switch msg.String() {
 		case keyUp, keyK:
@@ -178,70 +172,7 @@ func (m homeModel) View(width, height int) string {
 	if m.err != nil {
 		return statusFailed.Render(fmt.Sprintf("Error: %v", m.err))
 	}
-
-	// Build left panel: title + art + stats
-	left := m.renderLeftPanel(height)
-
-	// Build right panel: table
-	rightWidth := width - leftPanelWidth - 1
-	if rightWidth < 30 {
-		rightWidth = 30
-	}
-	right := m.renderTable(rightWidth)
-
-	leftStyled := lipgloss.NewStyle().
-		Width(leftPanelWidth).
-		Render(left)
-
-	rightStyled := lipgloss.NewStyle().
-		Width(rightWidth).
-		Render(right)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftStyled, rightStyled)
-}
-
-func (m homeModel) renderLeftPanel(height int) string {
-	var b strings.Builder
-
-	// Line 1: spinner + title + version
-	spinner := m.glyph.View()
-	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Pylon Nexus")
-	ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
-	b.WriteString("  " + spinner + " " + title + " " + ver + "\n")
-
-	// Line 2: pylon count
-	pylonCount := len(m.rows)
-	pylonLabel := "pylons"
-	if pylonCount == 1 {
-		pylonLabel = "pylon"
-	}
-	countStyle := lipgloss.NewStyle().Foreground(colorText).Bold(true)
-	b.WriteString("    " + countStyle.Render(fmt.Sprintf("%d", pylonCount)) + " " + subtextStyle.Render(pylonLabel) + "\n")
-
-	// Line 3: daemon status (+ active agents if any)
-	daemonStatus := mutedStyle.Render("stopped")
-	if m.daemonRunning {
-		daemonStatus = statusActive.Render("running")
-	}
-
-	active := 0
-	for _, r := range m.rows {
-		if r.status == "active" {
-			active++
-		}
-	}
-
-	statusLine := "    " + daemonStatus
-	if active > 0 {
-		agentLabel := "agent"
-		if active > 1 {
-			agentLabel = "agents"
-		}
-		statusLine += mutedStyle.Render(" / ") + statusActive.Render(fmt.Sprintf("%d", active)) + " " + subtextStyle.Render(agentLabel)
-	}
-	b.WriteString(statusLine + "\n")
-
-	return b.String()
+	return m.renderTable(width)
 }
 
 func (m homeModel) renderTable(width int) string {
@@ -252,21 +183,23 @@ func (m homeModel) renderTable(width int) string {
 		return "\n" + msg + "\n"
 	}
 
-	// Column widths -- adapt to available space
-	colName := 18
+	// Column widths -- fixed, compact
+	colName := 20
 	colTrigger := 9
 	colStatus := 9
 	colLastJob := 10
 
-	// Give remaining space to name
+	// Let name grow a bit on wider terminals, but cap it
 	remaining := width - colTrigger - colStatus - colLastJob - 8
-	if remaining > colName {
+	if remaining > colName && remaining <= 32 {
 		colName = remaining
+	} else if remaining > 32 {
+		colName = 32
 	}
 
 	// Header
 	header := tableHeaderStyle.Render(
-		fmt.Sprintf(" %-*s  %-*s  %-*s  %s",
+		fmt.Sprintf("  %-*s  %-*s  %-*s  %s",
 			colName, "NAME",
 			colTrigger, "TRIGGER",
 			colStatus, "STATUS",
@@ -280,27 +213,24 @@ func (m homeModel) renderTable(width int) string {
 			name = name[:colName-1] + "~"
 		}
 
+		cursor := " "
+		style := tableRowStyle
 		if i == m.cursor {
-			// Selected row: plain text so the highlight is uniform (no inner ANSI fighting it)
-			line := fmt.Sprintf(" %-*s  %-*s  %-*s  %s",
-				colName, name,
-				colTrigger, r.trigger,
-				colStatus, r.status,
-				r.lastJob)
-			rows += selectedRowStyle.Width(width).Render(line) + "\n"
-		} else {
-			// Normal row: styled status
-			status := renderStatus(r.status)
-			statusPad := colStatus - lipgloss.Width(status)
-			if statusPad < 0 {
-				statusPad = 0
-			}
-			line := fmt.Sprintf(" %-*s  %-*s  ",
-				colName, name,
-				colTrigger, r.trigger) +
-				status + spaces(statusPad) + "  " + r.lastJob
-			rows += tableRowStyle.Render(line) + "\n"
+			cursor = cursorStyle.Render("◆")
+			style = selectedRowStyle
 		}
+
+		status := renderStatus(r.status)
+		statusPad := colStatus - lipgloss.Width(status)
+		if statusPad < 0 {
+			statusPad = 0
+		}
+
+		line := cursor + fmt.Sprintf(" %-*s  %-*s  ",
+			colName, name,
+			colTrigger, r.trigger) +
+			status + spaces(statusPad) + "  " + r.lastJob
+		rows += style.Render(line) + "\n"
 	}
 
 	return header + "\n" + rows
@@ -353,7 +283,6 @@ func (m homeModel) footerBindings() []keyBinding {
 		bindings = append(bindings, keyBinding{"enter", "detail"})
 	}
 	bindings = append(bindings,
-		keyBinding{"d", "doctor"},
 		keyBinding{"q", "quit"},
 	)
 	return bindings

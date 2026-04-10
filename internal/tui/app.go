@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type viewID int
@@ -17,8 +19,8 @@ const (
 
 // Navigation messages emitted by child views.
 type (
-	navigateMsg     struct{ target viewID }
-	navigateBackMsg struct{}
+	navigateMsg      struct{ target viewID }
+	navigateBackMsg  struct{}
 	pylonSelectedMsg struct{ name string }
 )
 
@@ -32,6 +34,7 @@ type AppModel struct {
 	home   homeModel
 	detail detailModel
 	wizard wizardModel
+	glyph  pylonGlyph
 
 	width, height int
 }
@@ -41,12 +44,12 @@ func NewApp(version string) AppModel {
 	return AppModel{
 		version:    version,
 		activeView: viewHome,
-		home:       newHomeModel(version),
+		home:       newHomeModel(),
 	}
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return m.home.Init()
+	return tea.Batch(m.home.Init(), glyphTickCmd())
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -55,6 +58,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
+	case glyphTickMsg:
+		return m, m.glyph.Update(msg)
 
 	case wizardCompleteMsg:
 		m.popView()
@@ -70,7 +76,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case keyQ:
 				return m, tea.Quit
-			case keyEnter:
+			case keyEnter, "l":
 				name := m.home.selectedPylon()
 				if name != "" {
 					m.detail = newDetailModel(name)
@@ -88,7 +94,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Back navigation (Esc from wizard or detail)
+		// Back navigation (Esc/h from detail, Esc from wizard)
 		if m.activeView != viewHome {
 			if msg.String() == keyEsc {
 				m.popView()
@@ -97,8 +103,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			// Only allow q to quit from home, not from wizards
-			if m.activeView == viewDetail && msg.String() == keyQ {
+			if m.activeView == viewDetail && (msg.String() == keyQ || msg.String() == "h") {
 				m.popView()
 				return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 			}
@@ -124,30 +129,45 @@ func (m AppModel) View() string {
 		return "\n  Terminal too narrow. Please resize to at least 60 columns.\n"
 	}
 
-	contentHeight := m.height - 2 // reserve for footer + padding
+	contentHeight := m.height - 2 // reserve for footer
 
-	var content string
+	// Left panel is always visible
+	left := m.renderLeftPanel()
+	leftStyled := lipgloss.NewStyle().
+		Width(leftPanelWidth).
+		Render(left)
+
+	// Separator + right panel
+	sep := m.renderSeparator(contentHeight)
+	rightWidth := m.width - leftPanelWidth - 1 // 1 for separator
+	if rightWidth < 30 {
+		rightWidth = 30
+	}
+
+	var rightContent string
 	var footer string
 
 	switch m.activeView {
 	case viewHome:
-		// Home view renders its own title/branding in the left panel
-		content = m.home.View(m.width, contentHeight)
+		rightContent = m.home.View(rightWidth, contentHeight)
 		footer = renderFooter(m.home.footerBindings(), m.width)
 	case viewDetail:
-		title := renderTitle("PYLON NEXUS", m.version, m.width)
-		content = title + "\n\n" + m.detail.View(m.width, contentHeight-3)
+		rightContent = m.detail.View(rightWidth, contentHeight)
 		footer = renderFooter(m.detail.footerBindings(), m.width)
 	case viewSetup, viewConstruct:
-		title := renderTitle("PYLON NEXUS", m.version, m.width)
-		content = title + "\n\n" + m.wizard.View(m.width, contentHeight-3)
+		rightContent = m.wizard.View(rightWidth, contentHeight)
 		footer = renderFooter(m.wizard.footerBindings(), m.width)
 	default:
-		content = fmt.Sprintf("  View %d not yet implemented.", m.activeView)
+		rightContent = fmt.Sprintf("  View %d not yet implemented.", m.activeView)
 	}
 
-	// Pad content to fill available space
-	rendered := content
+	rightStyled := lipgloss.NewStyle().
+		Width(rightWidth).
+		Render(rightContent)
+
+	rendered := lipgloss.JoinHorizontal(lipgloss.Top, leftStyled, sep, rightStyled)
+
+	// Pad to fill screen
 	lines := countLines(rendered)
 	for lines < m.height-1 {
 		rendered += "\n"
@@ -155,6 +175,60 @@ func (m AppModel) View() string {
 	}
 
 	return rendered + footer
+}
+
+// renderLeftPanel renders the persistent branding sidebar.
+func (m AppModel) renderLeftPanel() string {
+	var b strings.Builder
+
+	// Line 1: spinner + title + version
+	spinner := m.glyph.View()
+	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Pylon Nexus")
+	ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
+	b.WriteString("  " + spinner + " " + title + " " + ver + "\n")
+
+	// Line 2: daemon status
+	if m.home.daemonRunning {
+		b.WriteString("    " + statusActive.Render("Daemon ON") + "\n")
+	} else {
+		b.WriteString("    " + mutedStyle.Render("Daemon OFF") + "\n")
+	}
+
+	// Line 3: pylon/service count + active agents
+	pylonCount := len(m.home.rows)
+	countStyle := lipgloss.NewStyle().Foreground(colorText).Bold(true)
+	pylonLabel := "services"
+	if pylonCount == 1 {
+		pylonLabel = "service"
+	}
+	info := "    " + countStyle.Render(fmt.Sprintf("%d", pylonCount)) + " " + subtextStyle.Render(pylonLabel)
+
+	active := 0
+	for _, r := range m.home.rows {
+		if r.status == "active" {
+			active++
+		}
+	}
+	if active > 0 {
+		agentLabel := "active"
+		info += mutedStyle.Render(", ") + statusActive.Render(fmt.Sprintf("%d", active)) + " " + subtextStyle.Render(agentLabel)
+	}
+	b.WriteString(info + "\n")
+
+	return b.String()
+}
+
+// renderSeparator renders a vertical gold bar spanning the given height.
+func (m AppModel) renderSeparator(height int) string {
+	style := lipgloss.NewStyle().Foreground(colorGoldDim)
+	var b strings.Builder
+	for i := 0; i < height; i++ {
+		b.WriteString(style.Render("│"))
+		if i < height-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 func (m *AppModel) pushView(v viewID) {
