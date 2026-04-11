@@ -49,9 +49,9 @@ func Build(agentType string) error {
 
 	image := "pylon/agent-" + agentType
 	cmd := exec.Command("docker", "build", "-t", image, tmpDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		os.Stderr.Write(output)
 		return fmt.Errorf("docker build failed: %w", err)
 	}
 	return nil
