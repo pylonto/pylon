@@ -30,11 +30,223 @@ type detailModel struct {
 	err            error
 
 	// Alert template builder
-	alertBuilder  bool              // true when in builder mode
-	alertPaths    []string          // available {{ .body.X }} paths
-	alertValues   map[string]string // path -> sample value from last payload
-	alertCursor   int
-	alertChecked  map[int]bool
+	alertBuilder    bool                // true when in builder mode
+	alertGroups     []alertGroup        // grouped payload fields
+	alertRootFields []alertField        // ungrouped root-level fields
+	alertExpanded   map[string]bool     // which groups are expanded
+	alertCursor     int
+	alertChecked    map[string]bool     // path -> checked
+}
+
+// maxGroupDepth is the number of levels of collapsible sub-groups.
+// Fields deeper than this show relative paths instead of getting their own header.
+const maxGroupDepth = 3
+
+// alertGroup holds a category of payload fields with recursive sub-groups.
+type alertGroup struct {
+	key       string       // local key (e.g. "values")
+	fullKey   string       // full dot path (e.g. "event.exception.values") for expand state
+	fields    []alertField // leaf fields at this level
+	subgroups []alertGroup // child groups (up to maxGroupDepth)
+}
+
+// alertField holds a single payload field path and its sample value.
+type alertField struct {
+	path        string // full original path (e.g. "event.exception.values.type")
+	displayName string // shown in UI (e.g. "type" or "meta.source" for deep fields)
+	value       string
+}
+
+// alertItem represents one visible row in the builder UI.
+type alertItem struct {
+	isHeader     bool
+	isRoot       bool   // true for ungrouped root-level fields
+	groupKey     string // local key for display (headers only)
+	groupFullKey string // full path for expand/collapse (headers only)
+	path         string // full dot path (fields only)
+	displayName  string // display name (fields only)
+	value        string // sample value (fields only)
+	childCount   int    // total descendant count (collapsed headers)
+	depth        int    // nesting depth for indentation
+}
+
+// alertVisibleItems returns the flattened list of currently visible rows,
+// accounting for collapsed/expanded group state.
+func (m detailModel) alertVisibleItems() []alertItem {
+	var items []alertItem
+	m.appendGroupItems(&items, m.alertGroups, 0)
+	for _, f := range m.alertRootFields {
+		items = append(items, alertItem{
+			path: f.path, displayName: f.displayName,
+			value: f.value, isRoot: true, depth: 0,
+		})
+	}
+	return items
+}
+
+func (m detailModel) appendGroupItems(items *[]alertItem, groups []alertGroup, depth int) {
+	for _, g := range groups {
+		expanded := m.alertExpanded[g.fullKey]
+		*items = append(*items, alertItem{
+			isHeader: true, groupKey: g.key, groupFullKey: g.fullKey,
+			childCount: countDescendants(g), depth: depth,
+		})
+		if expanded {
+			m.appendGroupItems(items, g.subgroups, depth+1)
+			for _, f := range g.fields {
+				*items = append(*items, alertItem{
+					path: f.path, displayName: f.displayName,
+					value: f.value, depth: depth + 1,
+				})
+			}
+		}
+	}
+}
+
+func countDescendants(g alertGroup) int {
+	count := len(g.fields)
+	for _, sg := range g.subgroups {
+		count += countDescendants(sg)
+	}
+	return count
+}
+
+// buildAlertGroups organizes flat paths into a recursive tree of groups.
+// Paths are grouped by dot-segment up to maxGroupDepth levels; deeper
+// fields show their remaining path as the display name.
+func buildAlertGroups(paths []string, values map[string]string) ([]alertGroup, []alertField) {
+	root := &pathNode{children: make(map[string]*pathNode)}
+	for _, p := range paths {
+		segments := strings.Split(p, ".")
+		node := root
+		for i, seg := range segments {
+			if i == len(segments)-1 {
+				node.leafPaths = append(node.leafPaths, p)
+			} else {
+				if node.children[seg] == nil {
+					node.children[seg] = &pathNode{children: make(map[string]*pathNode)}
+					node.childOrder = append(node.childOrder, seg)
+				}
+				node = node.children[seg]
+			}
+		}
+	}
+	return convertNode(root, values, 0, "")
+}
+
+// pathNode is an intermediate tree used while building alert groups.
+type pathNode struct {
+	children   map[string]*pathNode
+	childOrder []string
+	leafPaths  []string // full original paths of leaves at this node
+}
+
+func convertNode(node *pathNode, values map[string]string, depth int, prefix string) ([]alertGroup, []alertField) {
+	var groups []alertGroup
+	var fields []alertField
+
+	for _, p := range node.leafPaths {
+		segments := strings.Split(p, ".")
+		fields = append(fields, alertField{
+			path: p, displayName: segments[len(segments)-1], value: values[p],
+		})
+	}
+
+	for _, childKey := range node.childOrder {
+		child := node.children[childKey]
+		childPrefix := childKey
+		if prefix != "" {
+			childPrefix = prefix + "." + childKey
+		}
+		if depth >= maxGroupDepth-1 {
+			// At max depth: flatten all descendants as fields with relative paths
+			var descPaths []string
+			collectDescendantPaths(child, &descPaths)
+			for _, p := range descPaths {
+				segments := strings.Split(p, ".")
+				// Display name is the relative path from this point
+				relParts := segments[depth+1:]
+				fields = append(fields, alertField{
+					path: p, displayName: strings.Join(relParts, "."), value: values[p],
+				})
+			}
+		} else {
+			subgroups, subfields := convertNode(child, values, depth+1, childPrefix)
+			groups = append(groups, alertGroup{
+				key: childKey, fullKey: childPrefix,
+				subgroups: subgroups, fields: subfields,
+			})
+		}
+	}
+
+	return groups, fields
+}
+
+func collectDescendantPaths(node *pathNode, out *[]string) {
+	*out = append(*out, node.leafPaths...)
+	for _, key := range node.childOrder {
+		collectDescendantPaths(node.children[key], out)
+	}
+}
+
+// collectGroupKeys returns all fullKeys in the group tree (for auto-expanding).
+func collectGroupKeys(groups []alertGroup) []string {
+	var keys []string
+	for _, g := range groups {
+		keys = append(keys, g.fullKey)
+		keys = append(keys, collectGroupKeys(g.subgroups)...)
+	}
+	return keys
+}
+
+// collectCheckedFields gathers all checked fields from the recursive group tree and root fields.
+func collectCheckedFields(groups []alertGroup, rootFields []alertField, checked map[string]bool) []string {
+	var lines []string
+	for _, g := range groups {
+		lines = append(lines, collectCheckedFields(g.subgroups, nil, checked)...)
+		for _, f := range g.fields {
+			if checked[f.path] {
+				lines = append(lines, deriveLabel(f.path)+": {{ .body."+f.path+" }}")
+			}
+		}
+	}
+	for _, f := range rootFields {
+		if checked[f.path] {
+			lines = append(lines, deriveLabel(f.path)+": {{ .body."+f.path+" }}")
+		}
+	}
+	return lines
+}
+
+// preCheckFields marks fields as checked if they appear in an existing message template.
+func preCheckFields(groups []alertGroup, rootFields []alertField, message string, checked map[string]bool) {
+	for _, g := range groups {
+		preCheckFields(g.subgroups, nil, message, checked)
+		for _, f := range g.fields {
+			if strings.Contains(message, ".body."+f.path) {
+				checked[f.path] = true
+			}
+		}
+	}
+	for _, f := range rootFields {
+		if strings.Contains(message, ".body."+f.path) {
+			checked[f.path] = true
+		}
+	}
+}
+
+// deriveLabel converts a dot path's last segment to a human-readable label.
+// e.g. "issue.title" -> "Title", "repository.full_name" -> "Full Name"
+func deriveLabel(path string) string {
+	parts := strings.Split(path, ".")
+	last := parts[len(parts)-1]
+	words := strings.Split(last, "_")
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 func newDetailModel(name string) detailModel {
@@ -192,25 +404,32 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 
 		// Alert builder mode
 		if m.alertBuilder {
+			items := m.alertVisibleItems()
 			switch msg.String() {
 			case keyUp, keyK:
 				if m.alertCursor > 0 {
 					m.alertCursor--
 				}
 			case keyDown, keyJ:
-				if m.alertCursor < len(m.alertPaths)-1 {
+				if m.alertCursor < len(items)-1 {
 					m.alertCursor++
 				}
 			case " ":
-				m.alertChecked[m.alertCursor] = !m.alertChecked[m.alertCursor]
-			case keyEnter:
-				// Build template from selected fields and save
-				var lines []string
-				for i, p := range m.alertPaths {
-					if m.alertChecked[i] {
-						lines = append(lines, "{{ .body."+p+" }}")
+				if m.alertCursor < len(items) {
+					item := items[m.alertCursor]
+					if item.isHeader {
+						m.alertExpanded[item.groupFullKey] = !m.alertExpanded[item.groupFullKey]
+						newItems := m.alertVisibleItems()
+						if m.alertCursor >= len(newItems) {
+							m.alertCursor = len(newItems) - 1
+						}
+					} else {
+						m.alertChecked[item.path] = !m.alertChecked[item.path]
 					}
 				}
+			case keyEnter:
+				// Build labeled template from checked fields and save
+				lines := collectCheckedFields(m.alertGroups, m.alertRootFields, m.alertChecked)
 				if len(lines) > 0 && m.pylon != nil {
 					if m.pylon.Channel == nil {
 						m.pylon.Channel = &config.PylonChannel{}
@@ -247,18 +466,18 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			return m, m.openEditor()
 		case keyA:
 			if paths, values := m.loadPayloadPaths(); len(paths) > 0 {
+				groups, rootFields := buildAlertGroups(paths, values)
 				m.alertBuilder = true
-				m.alertPaths = paths
-				m.alertValues = values
+				m.alertGroups = groups
+				m.alertRootFields = rootFields
+				m.alertExpanded = make(map[string]bool)
+				for _, key := range collectGroupKeys(groups) {
+					m.alertExpanded[key] = true
+				}
 				m.alertCursor = 0
-				m.alertChecked = make(map[int]bool)
-				// Pre-check fields that are already in the template
+				m.alertChecked = make(map[string]bool)
 				if m.pylon != nil && m.pylon.Channel != nil {
-					for i, p := range paths {
-						if strings.Contains(m.pylon.Channel.Message, ".body."+p) {
-							m.alertChecked[i] = true
-						}
-					}
+					preCheckFields(groups, rootFields, m.pylon.Channel.Message, m.alertChecked)
 				}
 			}
 		case keyL:
@@ -678,11 +897,13 @@ func flattenPaths(obj map[string]interface{}, prefix string, paths *[]string, va
 	sort.Strings(*paths)
 }
 
-// renderAlertBuilder renders the template field picker with a scrolling window.
+// renderAlertBuilder renders the template field picker with collapsible groups.
 func (m detailModel) renderAlertBuilder() string {
 	var b strings.Builder
 	b.WriteString("  " + lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Message Template Builder") + "\n")
 	b.WriteString("  " + subtextStyle.Render("Select fields to include in the message") + "\n\n")
+
+	items := m.alertVisibleItems()
 
 	// Scrolling window: show ~15 items centered on cursor
 	visible := 15
@@ -691,21 +912,25 @@ func (m detailModel) renderAlertBuilder() string {
 		start = 0
 	}
 	end := start + visible
-	if end > len(m.alertPaths) {
-		end = len(m.alertPaths)
+	if end > len(items) {
+		end = len(items)
 		start = end - visible
 		if start < 0 {
 			start = 0
 		}
 	}
 
-	// Find max path width for alignment
-	maxPath := 0
-	for _, p := range m.alertPaths {
-		w := len("{{ .body." + p + " }}")
-		if w > maxPath {
-			maxPath = w
+	// Find max display name width for alignment (only leaf fields)
+	maxField := 0
+	for _, item := range items {
+		if !item.isHeader {
+			if w := len(item.displayName); w > maxField {
+				maxField = w
+			}
 		}
+	}
+	if maxField < 12 {
+		maxField = 12
 	}
 
 	if start > 0 {
@@ -714,43 +939,60 @@ func (m detailModel) renderAlertBuilder() string {
 		b.WriteString("\n")
 	}
 
+	hdrStyle := lipgloss.NewStyle().Foreground(colorGold).Bold(true)
+
 	for i := start; i < end; i++ {
-		p := m.alertPaths[i]
-		check := "[ ] "
-		if m.alertChecked[i] {
-			check = lipgloss.NewStyle().Foreground(colorAccent).Render("[x] ")
-		}
+		item := items[i]
 		cursor := "  "
-		style := lipgloss.NewStyle().Foreground(colorText)
 		if i == m.alertCursor {
 			cursor = lipgloss.NewStyle().Foreground(colorAccent).Render("> ")
-			style = style.Bold(true)
 		}
-		raw := "{{ .body." + p + " }}"
-		field := style.Render(raw) + spaces(maxPath-len(raw))
-		preview := ""
-		if val, ok := m.alertValues[p]; ok {
-			if len(val) > 40 {
-				val = val[:37] + "..."
+
+		depthIndent := strings.Repeat("   ", item.depth)
+
+		if item.isHeader {
+			arrow := "▸"
+			extra := mutedStyle.Render(fmt.Sprintf("  %d fields", item.childCount))
+			if m.alertExpanded[item.groupFullKey] {
+				arrow = "▾"
+				extra = ""
 			}
-			preview = "  " + mutedStyle.Render(val)
+			hs := hdrStyle
+			if i == m.alertCursor {
+				hs = hs.Underline(true)
+			}
+			b.WriteString("  " + cursor + depthIndent + arrow + " " + hs.Render(item.groupKey) + extra + "\n")
+		} else {
+			check := "[ ] "
+			if m.alertChecked[item.path] {
+				check = lipgloss.NewStyle().Foreground(colorAccent).Render("[x] ")
+			}
+			style := lipgloss.NewStyle().Foreground(colorText)
+			if i == m.alertCursor {
+				style = style.Bold(true)
+			}
+			padded := fmt.Sprintf("%-*s", maxField, item.displayName)
+			field := style.Render(padded)
+			preview := ""
+			if item.value != "" {
+				val := item.value
+				if len(val) > 40 {
+					val = val[:37] + "..."
+				}
+				preview = "  " + mutedStyle.Render(val)
+			}
+			b.WriteString("  " + cursor + depthIndent + check + field + preview + "\n")
 		}
-		b.WriteString("  " + cursor + check + field + preview + "\n")
 	}
 
-	if end < len(m.alertPaths) {
-		b.WriteString("  " + mutedStyle.Render(fmt.Sprintf("  ... %d more below", len(m.alertPaths)-end)) + "\n")
+	if end < len(items) {
+		b.WriteString("  " + mutedStyle.Render(fmt.Sprintf("  ... %d more below", len(items)-end)) + "\n")
 	} else {
 		b.WriteString("\n")
 	}
 
-	// Preview
-	var selected []string
-	for i, p := range m.alertPaths {
-		if m.alertChecked[i] {
-			selected = append(selected, "{{ .body."+p+" }}")
-		}
-	}
+	// Preview with labels
+	selected := collectCheckedFields(m.alertGroups, m.alertRootFields, m.alertChecked)
 	if len(selected) > 0 {
 		b.WriteString("\n  " + mutedStyle.Render("Preview:") + "\n")
 		for _, s := range selected {
@@ -758,7 +1000,7 @@ func (m detailModel) renderAlertBuilder() string {
 		}
 	}
 
-	b.WriteString("\n  " + mutedStyle.Render("space toggle  enter save  esc cancel"))
+	b.WriteString("\n  " + mutedStyle.Render("space toggle/expand  enter save  esc cancel"))
 	return b.String()
 }
 
