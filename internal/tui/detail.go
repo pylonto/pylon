@@ -385,14 +385,14 @@ func (m detailModel) renderConfig(width int) string {
 		s += row("Topic", topic)
 	}
 
-	// Alert template
+	// Message template
 	if pyl.Channel != nil && pyl.Channel.Message != "" {
 		msg := strings.ReplaceAll(pyl.Channel.Message, "\n", " ")
 		maxLen := 36
 		if len(msg) > maxLen {
 			msg = msg[:maxLen-3] + "..."
 		}
-		s += row("Alert", msg)
+		s += row("Message", msg)
 	}
 
 	// Auto-run (inverted from Approval)
@@ -678,8 +678,8 @@ func flattenPaths(obj map[string]interface{}, prefix string, paths *[]string, va
 // renderAlertBuilder renders the template field picker with a scrolling window.
 func (m detailModel) renderAlertBuilder() string {
 	var b strings.Builder
-	b.WriteString("  " + lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Alert Template Builder") + "\n")
-	b.WriteString("  " + subtextStyle.Render("Select fields to include in the alert message") + "\n\n")
+	b.WriteString("  " + lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Message Template Builder") + "\n")
+	b.WriteString("  " + subtextStyle.Render("Select fields to include in the message") + "\n\n")
 
 	// Scrolling window: show ~15 items centered on cursor
 	visible := 15
@@ -803,7 +803,7 @@ func (m detailModel) footerBindings() []keyBinding {
 		bindings = append(bindings, keyBinding{"t", "show jobs"})
 	}
 	bindings = append(bindings, keyBinding{"e", "edit"})
-	bindings = append(bindings, keyBinding{"a", "alert builder"})
+	bindings = append(bindings, keyBinding{"a", "message builder"})
 	if m.showJobs {
 		if j := m.selectedJob(); j != nil {
 			if isRunningStatus(j.Status) {
