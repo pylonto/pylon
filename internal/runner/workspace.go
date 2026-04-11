@@ -73,6 +73,12 @@ func setupWorktree(ctx context.Context, p RunParams) (string, error) {
 	bareDir := filepath.Join(ReposDir, repoHash(sshRepo))
 	workDir := WorkDir(p.JobID)
 
+	// Reuse existing worktree for follow-ups
+	if _, err := os.Stat(filepath.Join(workDir, ".git")); err == nil {
+		log.Printf("[pylon] [%s] reusing worktree", p.JobID[:8])
+		return workDir, nil
+	}
+
 	if _, err := os.Stat(filepath.Join(bareDir, "HEAD")); os.IsNotExist(err) {
 		log.Printf("[pylon] [%s] initial bare clone of %s", p.JobID[:8], sshRepo)
 		os.MkdirAll(filepath.Dir(bareDir), 0755)
@@ -89,8 +95,7 @@ func setupWorktree(ctx context.Context, p RunParams) (string, error) {
 		cmd.Run() // best-effort; if offline, use stale
 	}
 
-	// Clean up any stale worktree from a previous run with the same job ID
-	os.RemoveAll(workDir)
+	// Clean up stale git worktree tracking from a previous run
 	pruneCmd := exec.CommandContext(ctx, "git", "worktree", "prune")
 	pruneCmd.Dir = bareDir
 	pruneCmd.Run() // best-effort

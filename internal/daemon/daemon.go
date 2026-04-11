@@ -257,7 +257,7 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 
 	go func() {
 		defer d.Limiter.Release()
-		defer runner.CleanupWorkspace(jobID)
+		// Workspace persists across follow-ups; cleaned up on /done or orphan pruning.
 		var apiKey string
 		var extraEnv map[string]string
 		if pyl.Agent != nil {
