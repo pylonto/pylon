@@ -167,17 +167,17 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		pyl.Workspace.Path = path
 	}
 
-	// Notifier
-	notifierLabel := "none"
+	// Channel
+	channelLabel := "none"
 	if global.Defaults.Channel.Type != "" {
-		notifierLabel = global.Defaults.Channel.Type
+		channelLabel = global.Defaults.Channel.Type
 	}
 
-	var notifyChoice string
+	var channelChoice string
 	if err := huh.NewSelect[string]().
-		Title("Notifier -- where should this pylon send alerts?").
+		Title("Channel -- where should this pylon send alerts?").
 		Options(
-			huh.NewOption(fmt.Sprintf("Use default (%s)", notifierLabel), "default"),
+			huh.NewOption(fmt.Sprintf("Use default (%s)", channelLabel), "default"),
 			huh.NewOption("Telegram (configure new)", "telegram"),
 			huh.NewOption("Slack (configure new)", "slack"),
 			huh.NewOption("Discord (coming soon)", "discord"),
@@ -186,12 +186,12 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			huh.NewOption("Webhook (generic HTTP POST)", "webhook"),
 			huh.NewOption("stdout (console only)", "stdout"),
 		).
-		Value(&notifyChoice).Run(); err != nil {
+		Value(&channelChoice).Run(); err != nil {
 		return err
 	}
 
-	if notifyChoice != "default" {
-		switch notifyChoice {
+	if channelChoice != "default" {
+		switch channelChoice {
 		case "slack":
 			sl, err := setupSlack()
 			if err != nil {
@@ -199,9 +199,9 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			}
 			pyl.Channel = &config.PylonChannel{Type: "slack", Slack: sl}
 		case "discord", "whatsapp", "imessage":
-			comingSoon(notifyChoice)
+			comingSoon(channelChoice)
 		default:
-			pyl.Channel = &config.PylonChannel{Type: notifyChoice}
+			pyl.Channel = &config.PylonChannel{Type: channelChoice}
 		}
 	}
 

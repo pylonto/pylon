@@ -1,4 +1,4 @@
-package notifier
+package channel
 
 // Command describes a bot command shown to users.
 type Command struct {
@@ -6,7 +6,7 @@ type Command struct {
 	Description string // e.g. "Close the current job and stop the agent"
 }
 
-// BotCommands is the canonical list of commands supported by all notifiers.
+// BotCommands is the canonical list of commands supported by all channels.
 var BotCommands = []Command{
 	{Name: "done", Description: "Close the current job and stop the agent"},
 	{Name: "status", Description: "Peek at what running agents are doing"},
@@ -14,9 +14,9 @@ var BotCommands = []Command{
 	{Name: "help", Description: "Show available commands"},
 }
 
-// Notifier abstracts a messaging backend that supports topic-based
+// Channel abstracts a messaging backend that supports topic-based
 // conversations and inline-action buttons (approve/reject).
-type Notifier interface {
+type Channel interface {
 	CreateTopic(name string) (topicID string, err error)
 	SendMessage(topicID string, text string) (messageID string, err error)
 	ReplyMessage(topicID string, text string, replyTo string) (messageID string, err error)

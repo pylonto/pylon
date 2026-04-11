@@ -50,11 +50,11 @@ func newConstructWizard(name string) wizardModel {
 				},
 			)
 		}},
-		{Key: "notifier_choice", Create: func() Step {
+		{Key: "channel_choice", Create: func() Step {
 			opts := []selectOption{
 				{"Use default", "default"},
 			}
-			// Could add per-pylon notifier options here
+			// Could add per-pylon channel options here
 			opts = append(opts, selectOption{"stdout (console only)", "stdout"})
 			return NewSelectStep(
 				"Channel",
@@ -243,11 +243,11 @@ func constructOnComplete(values map[string]string) error {
 	}
 	pyl.Agent.Prompt = strings.TrimSpace(values["prompt"])
 
-	// Notifier
-	notifierChoice := values["notifier_choice"]
-	if notifierChoice != "default" {
+	// Channel
+	channelChoice := values["channel_choice"]
+	if channelChoice != "default" {
 		pyl.Channel = &config.PylonChannel{
-			Type: notifierChoice,
+			Type: channelChoice,
 		}
 	}
 

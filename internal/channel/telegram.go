@@ -1,4 +1,4 @@
-package notifier
+package channel
 
 import (
 	"bytes"
@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// TelegramNotifier implements Notifier using the Telegram Bot API.
-type TelegramNotifier struct {
+// Telegram implements Channel using the Telegram Bot API.
+type Telegram struct {
 	token        string
 	chatID       int64
 	allowedUsers map[int64]bool
@@ -25,12 +25,12 @@ type TelegramNotifier struct {
 	messageFn    func(topicID string, text string, messageID string)
 }
 
-func NewTelegramNotifier(ctx context.Context, token string, chatID int64, allowedUsers []int64) *TelegramNotifier {
+func NewTelegram(ctx context.Context, token string, chatID int64, allowedUsers []int64) *Telegram {
 	allowed := make(map[int64]bool, len(allowedUsers))
 	for _, id := range allowedUsers {
 		allowed[id] = true
 	}
-	t := &TelegramNotifier{
+	t := &Telegram{
 		token: token, chatID: chatID, allowedUsers: allowed,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
@@ -39,7 +39,7 @@ func NewTelegramNotifier(ctx context.Context, token string, chatID int64, allowe
 	return t
 }
 
-func (t *TelegramNotifier) callAPI(method string, params map[string]interface{}) (json.RawMessage, error) {
+func (t *Telegram) callAPI(method string, params map[string]interface{}) (json.RawMessage, error) {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/%s", t.token, method)
 	body, _ := json.Marshal(params)
 	resp, err := t.client.Post(url, "application/json", bytes.NewReader(body))
@@ -62,7 +62,7 @@ func (t *TelegramNotifier) callAPI(method string, params map[string]interface{})
 	return result.Result, nil
 }
 
-func (t *TelegramNotifier) CreateTopic(name string) (string, error) {
+func (t *Telegram) CreateTopic(name string) (string, error) {
 	if len(name) > 128 {
 		name = name[:128]
 	}
@@ -80,7 +80,7 @@ func (t *TelegramNotifier) CreateTopic(name string) (string, error) {
 	return strconv.FormatInt(topic.MessageThreadID, 10), nil
 }
 
-func (t *TelegramNotifier) sendMsg(topicID, text string, replyMarkup interface{}) (string, error) {
+func (t *Telegram) sendMsg(topicID, text string, replyMarkup interface{}) (string, error) {
 	params := map[string]interface{}{
 		"chat_id": t.chatID, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
 	}
@@ -101,11 +101,11 @@ func (t *TelegramNotifier) sendMsg(topicID, text string, replyMarkup interface{}
 	return strconv.FormatInt(msg.MessageID, 10), nil
 }
 
-func (t *TelegramNotifier) SendMessage(topicID, text string) (string, error) {
+func (t *Telegram) SendMessage(topicID, text string) (string, error) {
 	return t.sendMsg(topicID, text, nil)
 }
 
-func (t *TelegramNotifier) ReplyMessage(topicID, text, replyTo string) (string, error) {
+func (t *Telegram) ReplyMessage(topicID, text, replyTo string) (string, error) {
 	params := map[string]interface{}{
 		"chat_id": t.chatID, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
 	}
@@ -126,7 +126,7 @@ func (t *TelegramNotifier) ReplyMessage(topicID, text, replyTo string) (string, 
 	return strconv.FormatInt(msg.MessageID, 10), nil
 }
 
-func (t *TelegramNotifier) SendApproval(topicID, text, jobID string) (string, error) {
+func (t *Telegram) SendApproval(topicID, text, jobID string) (string, error) {
 	keyboard := map[string]interface{}{
 		"inline_keyboard": [][]map[string]string{{
 			{"text": "Investigate", "callback_data": "investigate:" + jobID},
@@ -136,7 +136,7 @@ func (t *TelegramNotifier) SendApproval(topicID, text, jobID string) (string, er
 	return t.sendMsg(topicID, text, keyboard)
 }
 
-func (t *TelegramNotifier) EditMessage(topicID, messageID, text string) error {
+func (t *Telegram) EditMessage(topicID, messageID, text string) error {
 	mid, _ := strconv.ParseInt(messageID, 10, 64)
 	_, err := t.callAPI("editMessageText", map[string]interface{}{
 		"chat_id": t.chatID, "message_id": mid, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
@@ -144,7 +144,7 @@ func (t *TelegramNotifier) EditMessage(topicID, messageID, text string) error {
 	return err
 }
 
-func (t *TelegramNotifier) CloseTopic(topicID string) error {
+func (t *Telegram) CloseTopic(topicID string) error {
 	tid, _ := strconv.ParseInt(topicID, 10, 64)
 	if tid == 0 {
 		return nil
@@ -155,7 +155,7 @@ func (t *TelegramNotifier) CloseTopic(topicID string) error {
 	return err
 }
 
-func (t *TelegramNotifier) SendTyping(topicID string) error {
+func (t *Telegram) SendTyping(topicID string) error {
 	params := map[string]interface{}{"chat_id": t.chatID, "action": "typing"}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
@@ -164,22 +164,22 @@ func (t *TelegramNotifier) SendTyping(topicID string) error {
 	return err
 }
 
-func (t *TelegramNotifier) OnAction(cb func(string, string)) {
+func (t *Telegram) OnAction(cb func(string, string)) {
 	t.mu.Lock()
 	t.actionFn = cb
 	t.mu.Unlock()
 }
-func (t *TelegramNotifier) OnMessage(cb func(string, string, string)) {
+func (t *Telegram) OnMessage(cb func(string, string, string)) {
 	t.mu.Lock()
 	t.messageFn = cb
 	t.mu.Unlock()
 }
 
-func (t *TelegramNotifier) isAllowed(userID int64) bool {
+func (t *Telegram) isAllowed(userID int64) bool {
 	return len(t.allowedUsers) == 0 || t.allowedUsers[userID]
 }
 
-func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
+func (t *Telegram) pollUpdates(ctx context.Context) {
 	pollClient := &http.Client{Timeout: 45 * time.Second}
 	var offset int64
 
@@ -266,7 +266,7 @@ func (t *TelegramNotifier) pollUpdates(ctx context.Context) {
 	}
 }
 
-func (t *TelegramNotifier) setCommands() {
+func (t *Telegram) setCommands() {
 	cmds := make([]map[string]string, len(BotCommands))
 	for i, c := range BotCommands {
 		cmds[i] = map[string]string{"command": c.Name, "description": c.Description}
@@ -274,12 +274,12 @@ func (t *TelegramNotifier) setCommands() {
 	t.callAPI("setMyCommands", map[string]interface{}{"commands": cmds})
 }
 
-func (t *TelegramNotifier) Commands() []Command {
+func (t *Telegram) Commands() []Command {
 	return BotCommands
 }
 
 // TestConnection sends a test message and returns nil on success.
-func (t *TelegramNotifier) TestConnection() error {
+func (t *Telegram) TestConnection() error {
 	_, err := t.callAPI("getMe", map[string]interface{}{})
 	return err
 }

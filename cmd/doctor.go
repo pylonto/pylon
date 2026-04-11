@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/config"
-	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/proxy"
 )
 
@@ -75,7 +75,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			fmt.Println("Telegram bot ........ FAIL  TELEGRAM_BOT_TOKEN not set")
 			fmt.Println("  export TELEGRAM_BOT_TOKEN=<your token>")
 			issues++
-		} else if username, err := notifier.GetBotUsername(token); err == nil {
+		} else if username, err := channel.GetBotUsername(token); err == nil {
 			fmt.Printf("Telegram bot ........ ok    connected (@%s)\n", username)
 			chatID := global.Defaults.Channel.Telegram.ChatID
 			if chatID == 0 {
@@ -85,7 +85,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				} else {
 					issues++
 				}
-			} else if err := notifier.CheckChatAccess(token, chatID); err == nil {
+			} else if err := channel.CheckChatAccess(token, chatID); err == nil {
 				fmt.Printf("Telegram chat ....... ok    chat %d accessible\n", chatID)
 			} else {
 				fmt.Printf("Telegram chat ....... FAIL  chat %d: %v\n", chatID, err)
@@ -106,10 +106,10 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			fmt.Println("Slack bot ........... FAIL  SLACK_BOT_TOKEN not set")
 			fmt.Println("  export SLACK_BOT_TOKEN=<your token>")
 			issues++
-		} else if username, err := notifier.ValidateSlackToken(botToken); err == nil {
+		} else if username, err := channel.ValidateSlackToken(botToken); err == nil {
 			fmt.Printf("Slack bot ........... ok    connected (@%s)\n", username)
 			channelID := global.Defaults.Channel.Slack.ChannelID
-			if name, err := notifier.CheckSlackAccess(botToken, channelID); err == nil {
+			if name, err := channel.CheckSlackAccess(botToken, channelID); err == nil {
 				fmt.Printf("Slack channel ....... ok    #%s accessible\n", name)
 			} else {
 				fmt.Printf("Slack channel ....... FAIL  %s: %v\n", channelID, err)
@@ -284,7 +284,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				if token == "" || token == tg.BotToken {
 					fmt.Printf("  %s channel ... FAIL  bot token not set\n", name)
 					issues++
-				} else if username, err := notifier.GetBotUsername(token); err == nil {
+				} else if username, err := channel.GetBotUsername(token); err == nil {
 					if tg.ChatID == 0 || tg.ChatID == -1 {
 						fmt.Printf("  %s channel ... FAIL  chat_id not configured\n", name)
 						if fixPylonChatID(token, username, name, pyl) {
@@ -292,7 +292,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 						} else {
 							issues++
 						}
-					} else if err := notifier.CheckChatAccess(token, tg.ChatID); err == nil {
+					} else if err := channel.CheckChatAccess(token, tg.ChatID); err == nil {
 						fmt.Printf("  %s channel ... ok    chat %d accessible\n", name, tg.ChatID)
 					} else {
 						fmt.Printf("  %s channel ... FAIL  chat %d: %v\n", name, tg.ChatID, err)

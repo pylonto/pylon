@@ -14,7 +14,7 @@ import (
 	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/daemon"
-	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -82,16 +82,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 		pylons[name] = pyl
 	}
 
-	// Open a shared store (uses first pylon's DB for now, or a global one)
-	dbPath := config.PylonDBPath(pylonNames[0])
-	if len(pylonNames) > 1 {
-		dbPath = config.Dir() + "/pylon.db"
+	// Open per-pylon stores so each pylon's jobs live in its own DB.
+	stores := make(map[string]*store.Store)
+	for name := range pylons {
+		st, err := store.Open(config.PylonDBPath(name))
+		if err != nil {
+			return fmt.Errorf("opening database for %s: %w", name, err)
+		}
+		defer st.Close()
+		stores[name] = st
 	}
-	st, err := store.Open(dbPath)
-	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
-	}
-	defer st.Close()
+	st := store.NewMulti(stores)
 
 	if n := st.RecoverFromDB(); n > 0 {
 		log.Printf("[pylon] recovered %d pending jobs", n)
@@ -106,67 +107,39 @@ func runStart(cmd *cobra.Command, args []string) error {
 	runner.PruneWorktreeMetadata()
 	runner.PruneOrphanedContainers(activeIDs)
 
-	// Set up notifier
+	// Set up channels
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var globalNotifier notifier.Notifier
-	switch global.Defaults.Channel.Type {
-	case "telegram":
-		if global.Defaults.Channel.Telegram != nil {
-			tg := global.Defaults.Channel.Telegram
-			token := os.ExpandEnv(tg.BotToken)
-			if token != "" {
-				globalNotifier = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
-				log.Println("[pylon] telegram notifications enabled")
-			} else {
-				log.Println("[pylon] TELEGRAM_BOT_TOKEN not set, notifications disabled")
-			}
-		}
-	case "slack":
-		if global.Defaults.Channel.Slack != nil {
-			sl := global.Defaults.Channel.Slack
-			botToken := os.ExpandEnv(sl.BotToken)
-			appToken := os.ExpandEnv(sl.AppToken)
-			if botToken != "" && appToken != "" {
-				globalNotifier = notifier.NewSlackNotifier(ctx, botToken, appToken, sl.ChannelID, sl.AllowedUsers)
-				log.Println("[pylon] slack notifications enabled")
-			} else {
-				log.Println("[pylon] SLACK_BOT_TOKEN or SLACK_APP_TOKEN not set, notifications disabled")
-			}
-		}
-	}
-
-	// Build per-pylon notifiers for pylons that override the default
-	perPylon := make(map[string]notifier.Notifier)
+	// Build a channel per pylon using ResolveChannel (merges global + per-pylon).
+	channels := make(map[string]channel.Channel)
 	for name, pyl := range pylons {
-		if pyl.Channel == nil {
-			continue
-		}
-		switch pyl.Channel.Type {
+		chType, tg, sl := pyl.ResolveChannel(global)
+		switch chType {
 		case "telegram":
-			if pyl.Channel.Telegram != nil {
-				tg := pyl.Channel.Telegram
+			if tg != nil {
 				token := os.ExpandEnv(tg.BotToken)
 				if token != "" {
-					perPylon[name] = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
-					log.Printf("[pylon] %q: using custom telegram bot", name)
+					channels[name] = channel.NewTelegram(ctx, token, tg.ChatID, tg.AllowedUsers)
+					log.Printf("[pylon] %q: telegram enabled", name)
+				} else {
+					log.Printf("[pylon] %q: telegram token not set, notifications disabled", name)
 				}
 			}
 		case "slack":
-			if pyl.Channel.Slack != nil {
-				sl := pyl.Channel.Slack
+			if sl != nil {
 				botToken := os.ExpandEnv(sl.BotToken)
 				appToken := os.ExpandEnv(sl.AppToken)
 				if botToken != "" && appToken != "" {
-					perPylon[name] = notifier.NewSlackNotifier(ctx, botToken, appToken, sl.ChannelID, sl.AllowedUsers)
-					log.Printf("[pylon] %q: using custom slack bot", name)
+					channels[name] = channel.NewSlack(ctx, botToken, appToken, sl.ChannelID, sl.AllowedUsers)
+					log.Printf("[pylon] %q: slack enabled", name)
+				} else {
+					log.Printf("[pylon] %q: slack tokens not set, notifications disabled", name)
 				}
 			}
 		}
 	}
-
-	d := daemon.New(global, pylons, st, globalNotifier, perPylon)
+	d := daemon.New(global, pylons, st, nil, channels)
 
 	// Ensure agent images exist for all active pylons
 	seen := make(map[string]bool)

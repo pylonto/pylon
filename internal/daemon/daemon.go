@@ -20,7 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/pylonto/pylon/internal/config"
-	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -64,9 +64,9 @@ func (l *AgentLimiter) Active() int {
 type Daemon struct {
 	Global    *config.GlobalConfig
 	Pylons    map[string]*config.PylonConfig
-	Store     *store.Store
-	Notify    notifier.Notifier            // global default
-	Notifiers map[string]notifier.Notifier // per-pylon overrides
+	Store    *store.MultiStore
+	Channel  channel.Channel            // global default
+	Channels map[string]channel.Channel // per-pylon overrides
 	Limiter   *AgentLimiter
 	Mux       *http.ServeMux
 
@@ -75,13 +75,13 @@ type Daemon struct {
 }
 
 // New creates a Daemon from global config and loaded pylons.
-func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st *store.Store, n notifier.Notifier, perPylon map[string]notifier.Notifier) *Daemon {
+func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st *store.MultiStore, ch channel.Channel, perPylon map[string]channel.Channel) *Daemon {
 	d := &Daemon{
-		Global:    global,
-		Pylons:    pylons,
-		Store:     st,
-		Notify:    n,
-		Notifiers: perPylon,
+		Global:   global,
+		Pylons:   pylons,
+		Store:    st,
+		Channel:  ch,
+		Channels: perPylon,
 		Limiter:   NewAgentLimiter(global.Docker.MaxConcurrent),
 		Mux:       http.NewServeMux(),
 		hookLog: make(map[string][]string),
@@ -90,12 +90,12 @@ func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st 
 	return d
 }
 
-// notifierFor returns the per-pylon notifier if configured, otherwise the global one.
-func (d *Daemon) notifierFor(pylonName string) notifier.Notifier {
-	if n, ok := d.Notifiers[pylonName]; ok {
+// channelFor returns the per-pylon channel if configured, otherwise the global one.
+func (d *Daemon) channelFor(pylonName string) channel.Channel {
+	if n, ok := d.Channels[pylonName]; ok {
 		return n
 	}
-	return d.Notify
+	return d.Channel
 }
 
 func (d *Daemon) registerRoutes() {
@@ -148,7 +148,7 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		callbackURL := fmt.Sprintf("http://host.docker.internal:%d/callback/%s", d.Global.Server.Port, jobID)
 		log.Printf("[pylon] [%s] %q triggered, payload: %s", jobID[:8], name, string(rawBody))
 
-		n := d.notifierFor(name)
+		n := d.channelFor(name)
 		needsApproval := n != nil && pyl.Channel != nil && pyl.Channel.Approval
 
 		if needsApproval {
@@ -162,6 +162,7 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 				d.Store.Put(&store.Job{
 					ID: jobID, PylonName: name, Body: body, Status: "awaiting_approval",
 					TopicID: topicID, MessageID: msgID, CallbackURL: callbackURL,
+					CreatedAt: time.Now(),
 				})
 			}
 		} else {
@@ -180,7 +181,7 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 }
 
 func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string, body map[string]interface{}, callbackURL, topicID, promptOverride, sessionID string) {
-	n := d.notifierFor(pylonName)
+	n := d.channelFor(pylonName)
 	if !d.Limiter.Acquire() {
 		log.Printf("[pylon] [%s] at capacity (%d), queued", jobID[:8], d.Global.Docker.MaxConcurrent)
 		if n != nil && topicID != "" {
@@ -227,7 +228,7 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 	d.Store.Put(&store.Job{
 		ID: jobID, PylonName: pylonName, Status: "running",
 		Body: body, TopicID: topicID, CallbackURL: callbackURL,
-		SessionID: sessionID,
+		SessionID: sessionID, CreatedAt: time.Now(),
 	})
 
 	go func() {
@@ -269,7 +270,7 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 			Ref:           ref,
 			WorkspaceType: wsType,
 			LocalPath:     pyl.Workspace.Path,
-			Notifier:      n,
+			Channel:       n,
 			TopicID:       topicID,
 		})
 		if err != nil {
@@ -290,7 +291,7 @@ func (d *Daemon) registerApprovalHandler() {
 		if !exists {
 			return
 		}
-		n := d.notifierFor(job.PylonName)
+		n := d.channelFor(job.PylonName)
 		switch action {
 		case "investigate":
 			log.Printf("[pylon] [%s] approved", jobID[:8])
@@ -305,7 +306,7 @@ func (d *Daemon) registerApprovalHandler() {
 		}
 	}
 
-	makeMessageFn := func(source notifier.Notifier) func(string, string, string) {
+	makeMessageFn := func(source channel.Channel) func(string, string, string) {
 		return func(topicID, text, incomingMsgID string) {
 			// Normalize: accept both "/done" and "done" (Slack intercepts slash commands)
 			cmd := strings.TrimPrefix(strings.TrimSpace(text), "/")
@@ -375,7 +376,7 @@ func (d *Daemon) registerApprovalHandler() {
 			if !exists {
 				return
 			}
-			n := d.notifierFor(job.PylonName)
+			n := d.channelFor(job.PylonName)
 
 			if cmd == "done" || strings.HasPrefix(text, "/done@") {
 				runner.CleanupWorkspace(job.ID)
@@ -396,22 +397,22 @@ func (d *Daemon) registerApprovalHandler() {
 		}
 	}
 
-	// Register handlers on all notifiers
-	for _, n := range d.allNotifiers() {
+	// Register handlers on all channels
+	for _, n := range d.allChannels() {
 		n.OnAction(actionFn)
 		n.OnMessage(makeMessageFn(n))
 	}
 }
 
-// allNotifiers returns all unique notifiers (global + per-pylon).
-func (d *Daemon) allNotifiers() []notifier.Notifier {
-	seen := make(map[notifier.Notifier]bool)
-	var all []notifier.Notifier
-	if d.Notify != nil {
-		seen[d.Notify] = true
-		all = append(all, d.Notify)
+// allChannels returns all unique channels (global + per-pylon).
+func (d *Daemon) allChannels() []channel.Channel {
+	seen := make(map[channel.Channel]bool)
+	var all []channel.Channel
+	if d.Channel != nil {
+		seen[d.Channel] = true
+		all = append(all, d.Channel)
 	}
-	for _, n := range d.Notifiers {
+	for _, n := range d.Channels {
 		if n != nil && !seen[n] {
 			seen[n] = true
 			all = append(all, n)
@@ -451,7 +452,7 @@ func (d *Daemon) registerCallbackRoute() {
 			} else {
 				d.Store.SetFailed(jobID, result.Error)
 			}
-			if n := d.notifierFor(job.PylonName); n != nil {
+			if n := d.channelFor(job.PylonName); n != nil {
 				var msg string
 				if result.Status == "completed" {
 					msg = extractResultText(result.Output)
@@ -652,7 +653,7 @@ func extractSessionID(output json.RawMessage) string {
 	return p.SessionID
 }
 
-func commandHint(n notifier.Notifier) string {
+func commandHint(n channel.Channel) string {
 	cmds := n.Commands()
 	parts := make([]string, len(cmds))
 	for i, c := range cmds {

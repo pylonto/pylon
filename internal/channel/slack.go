@@ -1,4 +1,4 @@
-package notifier
+package channel
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
-// SlackNotifier implements Notifier using Slack's Web API and Socket Mode.
-type SlackNotifier struct {
+// Slack implements Channel using Slack's Web API and Socket Mode.
+type Slack struct {
 	api          *slack.Client
 	sm           *socketmode.Client
 	channelID    string
@@ -23,7 +23,7 @@ type SlackNotifier struct {
 	messageFn    func(topicID string, text string, messageID string)
 }
 
-func NewSlackNotifier(ctx context.Context, botToken, appToken, channelID string, allowedUsers []string) *SlackNotifier {
+func NewSlack(ctx context.Context, botToken, appToken, channelID string, allowedUsers []string) *Slack {
 	api := slack.New(botToken, slack.OptionAppLevelToken(appToken))
 	sm := socketmode.New(api)
 
@@ -32,7 +32,7 @@ func NewSlackNotifier(ctx context.Context, botToken, appToken, channelID string,
 		allowed[u] = true
 	}
 
-	s := &SlackNotifier{
+	s := &Slack{
 		api:          api,
 		sm:           sm,
 		channelID:    channelID,
@@ -42,7 +42,7 @@ func NewSlackNotifier(ctx context.Context, botToken, appToken, channelID string,
 	return s
 }
 
-func (s *SlackNotifier) CreateTopic(name string) (string, error) {
+func (s *Slack) CreateTopic(name string) (string, error) {
 	_, ts, err := s.api.PostMessage(s.channelID,
 		slack.MsgOptionText(name, false),
 	)
@@ -53,7 +53,7 @@ func (s *SlackNotifier) CreateTopic(name string) (string, error) {
 	return ts, nil
 }
 
-func (s *SlackNotifier) SendMessage(topicID, text string) (string, error) {
+func (s *Slack) SendMessage(topicID, text string) (string, error) {
 	opts := []slack.MsgOption{slack.MsgOptionText(text, false)}
 	if topicID != "" {
 		opts = append(opts, slack.MsgOptionTS(topicID))
@@ -65,11 +65,11 @@ func (s *SlackNotifier) SendMessage(topicID, text string) (string, error) {
 	return ts, nil
 }
 
-func (s *SlackNotifier) ReplyMessage(topicID, text, replyTo string) (string, error) {
+func (s *Slack) ReplyMessage(topicID, text, replyTo string) (string, error) {
 	return s.SendMessage(topicID, text)
 }
 
-func (s *SlackNotifier) SendApproval(topicID, text, jobID string) (string, error) {
+func (s *Slack) SendApproval(topicID, text, jobID string) (string, error) {
 	investigateBtn := slack.NewButtonBlockElement(
 		"investigate:"+jobID, "investigate",
 		slack.NewTextBlockObject(slack.PlainTextType, "Investigate", false, false),
@@ -98,7 +98,7 @@ func (s *SlackNotifier) SendApproval(topicID, text, jobID string) (string, error
 	return ts, nil
 }
 
-func (s *SlackNotifier) EditMessage(topicID, messageID, text string) error {
+func (s *Slack) EditMessage(topicID, messageID, text string) error {
 	_, _, _, err := s.api.UpdateMessage(s.channelID, messageID,
 		slack.MsgOptionText(text, false),
 		slack.MsgOptionBlocks(), // clear Block Kit blocks (removes stale buttons)
@@ -106,12 +106,12 @@ func (s *SlackNotifier) EditMessage(topicID, messageID, text string) error {
 	return err
 }
 
-func (s *SlackNotifier) SendTyping(topicID string) error {
+func (s *Slack) SendTyping(topicID string) error {
 	// Slack has no typing indicator API for bots in channels.
 	return nil
 }
 
-func (s *SlackNotifier) CloseTopic(topicID string) error {
+func (s *Slack) CloseTopic(topicID string) error {
 	if topicID == "" {
 		return nil
 	}
@@ -121,27 +121,27 @@ func (s *SlackNotifier) CloseTopic(topicID string) error {
 	})
 }
 
-func (s *SlackNotifier) OnAction(cb func(string, string)) {
+func (s *Slack) OnAction(cb func(string, string)) {
 	s.mu.Lock()
 	s.actionFn = cb
 	s.mu.Unlock()
 }
 
-func (s *SlackNotifier) Commands() []Command {
+func (s *Slack) Commands() []Command {
 	return BotCommands
 }
 
-func (s *SlackNotifier) OnMessage(cb func(string, string, string)) {
+func (s *Slack) OnMessage(cb func(string, string, string)) {
 	s.mu.Lock()
 	s.messageFn = cb
 	s.mu.Unlock()
 }
 
-func (s *SlackNotifier) isAllowed(userID string) bool {
+func (s *Slack) isAllowed(userID string) bool {
 	return len(s.allowedUsers) == 0 || s.allowedUsers[userID]
 }
 
-func (s *SlackNotifier) listenSocketMode(ctx context.Context) {
+func (s *Slack) listenSocketMode(ctx context.Context) {
 	go func() {
 		if err := s.sm.RunContext(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("[slack] socket mode exited: %v", err)
@@ -169,7 +169,7 @@ func (s *SlackNotifier) listenSocketMode(ctx context.Context) {
 	}
 }
 
-func (s *SlackNotifier) ack(evt socketmode.Event) {
+func (s *Slack) ack(evt socketmode.Event) {
 	if evt.Request != nil && evt.Request.EnvelopeID != "" {
 		if err := s.sm.Ack(*evt.Request); err != nil {
 			log.Printf("[slack] ack failed: %v", err)
@@ -177,7 +177,7 @@ func (s *SlackNotifier) ack(evt socketmode.Event) {
 	}
 }
 
-func (s *SlackNotifier) handleEvent(evt socketmode.Event) {
+func (s *Slack) handleEvent(evt socketmode.Event) {
 	switch evt.Type {
 	case socketmode.EventTypeInteractive:
 		s.ack(evt)

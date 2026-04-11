@@ -12,7 +12,7 @@ import (
 
 	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
-	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/proxy"
 )
 
@@ -41,10 +41,10 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// Notifier selection
-	var notifierChoice string
+	// Channel selection
+	var channelChoice string
 	err := huh.NewSelect[string]().
-		Title("Default notifier -- where should alerts go?").
+		Title("Default channel -- where should alerts go?").
 		Options(
 			huh.NewOption("Telegram", "telegram"),
 			huh.NewOption("Slack", "slack"),
@@ -54,7 +54,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			huh.NewOption("Webhook (generic HTTP POST)", "webhook"),
 			huh.NewOption("stdout (console only)", "stdout"),
 		).
-		Value(&notifierChoice).
+		Value(&channelChoice).
 		Run()
 	if err != nil {
 		return err
@@ -66,7 +66,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		Docker:  config.DockerConfig{MaxConcurrent: 3, DefaultTimeout: "15m"},
 	}
 
-	switch notifierChoice {
+	switch channelChoice {
 	case "telegram":
 		tg, err := setupTelegram()
 		if err != nil {
@@ -84,7 +84,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	case "webhook":
 		cfg.Defaults.Channel = config.ChannelDefaults{Type: "webhook"}
 	default:
-		comingSoon(notifierChoice)
+		comingSoon(channelChoice)
 		cfg.Defaults.Channel = config.ChannelDefaults{Type: "stdout"}
 	}
 
@@ -178,7 +178,7 @@ func setupTelegram() (*config.TelegramConfig, error) {
 		}
 	}
 
-	username, err := notifier.GetBotUsername(token)
+	username, err := channel.GetBotUsername(token)
 	if err != nil {
 		return nil, fmt.Errorf("invalid bot token: %w", err)
 	}
@@ -235,7 +235,7 @@ func detectChatID(token, username string) (int64, error) {
 	fmt.Println("     (Regular messages won't work unless you disable privacy mode in @BotFather)")
 	fmt.Println("\n  Waiting for message...")
 
-	chatID, title, err := notifier.PollForGroup(token)
+	chatID, title, err := channel.PollForGroup(token)
 	if err != nil {
 		return 0, err
 	}
@@ -270,7 +270,7 @@ func setupSlack() (*config.SlackConfig, error) {
 		}
 	}
 
-	username, err := notifier.ValidateSlackToken(botToken)
+	username, err := channel.ValidateSlackToken(botToken)
 	if err != nil {
 		return nil, fmt.Errorf("invalid bot token: %w", err)
 	}
@@ -307,7 +307,7 @@ func setupSlack() (*config.SlackConfig, error) {
 
 	var channelID string
 	if method == "auto" {
-		channels, err := notifier.ListBotChannels(botToken)
+		channels, err := channel.ListBotChannels(botToken)
 		if err != nil {
 			return nil, fmt.Errorf("listing channels: %w", err)
 		}

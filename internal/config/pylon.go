@@ -264,6 +264,15 @@ func (p *PylonConfig) ResolveProvider(global *GlobalConfig) string {
 	return ""
 }
 
+// ResolveChannel returns the effective channel config for this pylon.
+// Per-pylon channel takes priority; falls back to global defaults.
+func (p *PylonConfig) ResolveChannel(global *GlobalConfig) (string, *TelegramConfig, *SlackConfig) {
+	if p.Channel != nil && p.Channel.Type != "" {
+		return p.Channel.Type, p.Channel.Telegram, p.Channel.Slack
+	}
+	return global.Defaults.Channel.Type, global.Defaults.Channel.Telegram, global.Defaults.Channel.Slack
+}
+
 // ProviderEnvVar maps a provider name to its API key environment variable.
 func ProviderEnvVar(provider string) string {
 	switch provider {

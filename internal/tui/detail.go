@@ -270,12 +270,12 @@ func (m detailModel) renderConfig(width int) string {
 		s += row("Agent", agent)
 	}
 
-	// Notifier
-	notifyType := "default"
+	// Channel
+	channelType := "default"
 	if pyl.Channel != nil && pyl.Channel.Type != "" {
-		notifyType = pyl.Channel.Type
+		channelType = pyl.Channel.Type
 	}
-	s += row("Channel", notifyType)
+	s += row("Channel", channelType)
 
 	// Auto-run (inverted from Approval)
 	if pyl.Channel != nil && pyl.Channel.Approval {

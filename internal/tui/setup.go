@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/pylonto/pylon/internal/config"
-	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/channel"
 )
 
 // slackAppManifest is the Slack app manifest YAML for users to copy.
@@ -53,7 +53,7 @@ func newSetupWizard() wizardModel {
 				},
 			)
 		}},
-		{Key: "notifier", Create: func() Step {
+		{Key: "channel", Create: func() Step {
 			return NewSelectStep(
 				"Default channel",
 				"Where should pylons communicate?",
@@ -98,16 +98,16 @@ func newSetupWizard() wizardModel {
 
 func setupOnStepDone(key, value string, values map[string]string) []StepDef {
 	switch key {
-	case "notifier":
-		return notifierSteps(value)
+	case "channel":
+		return channelSteps(value)
 	case "agent":
 		return agentSteps(value)
 	}
 	return nil
 }
 
-func notifierSteps(notifierType string) []StepDef {
-	switch notifierType {
+func channelSteps(channelType string) []StepDef {
+	switch channelType {
 	case "telegram":
 		return telegramSteps()
 	case "slack":
@@ -121,13 +121,13 @@ func telegramSteps() []StepDef {
 	envToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
 	steps := []StepDef{
-		{Key: "notifier.tg_token", Create: func() Step {
+		{Key: "channel.tg_token", Create: func() Step {
 			if envToken != "" {
 				return NewAsyncStep(
 					"Telegram bot token",
 					"Using TELEGRAM_BOT_TOKEN from environment",
 					func() (string, error) {
-						username, err := notifier.GetBotUsername(envToken)
+						username, err := channel.GetBotUsername(envToken)
 						if err != nil {
 							return "", fmt.Errorf("invalid token: %w", err)
 						}
@@ -143,7 +143,7 @@ func telegramSteps() []StepDef {
 				false,
 			)
 		}},
-		{Key: "notifier.tg_verify", Create: func() Step {
+		{Key: "channel.tg_verify", Create: func() Step {
 			return NewAsyncStep(
 				"Verifying bot token",
 				"Connecting to Telegram",
@@ -154,7 +154,7 @@ func telegramSteps() []StepDef {
 				},
 			)
 		}},
-		{Key: "notifier.tg_chat_method", Create: func() Step {
+		{Key: "channel.tg_chat_method", Create: func() Step {
 			return NewSelectStep(
 				"Chat ID detection",
 				"How should we find your group chat?",
@@ -174,34 +174,34 @@ func slackSteps() []StepDef {
 	envAppToken := os.Getenv("SLACK_APP_TOKEN")
 
 	steps := []StepDef{
-		{Key: "notifier.slack_manifest", Create: func() Step {
+		{Key: "channel.slack_manifest", Create: func() Step {
 			return NewCopyBlockStep(
 				"Create a Slack App",
 				"Go to https://api.slack.com/apps > Create New App > From a manifest\nPaste this YAML manifest:",
 				slackAppManifest,
 			)
 		}},
-		{Key: "notifier.slack_install", Create: func() Step {
+		{Key: "channel.slack_install", Create: func() Step {
 			return NewInfoStep(
 				"Install the app",
 				"",
 				"Install the app to your workspace from the app settings page.",
 			)
 		}},
-		{Key: "notifier.slack_socket", Create: func() Step {
+		{Key: "channel.slack_socket", Create: func() Step {
 			return NewInfoStep(
 				"Enable Socket Mode",
 				"",
 				"Settings > Socket Mode > toggle on.\nGenerate an App-Level Token with connections:write scope.",
 			)
 		}},
-		{Key: "notifier.slack_bot_token", Create: func() Step {
+		{Key: "channel.slack_bot_token", Create: func() Step {
 			if envBotToken != "" {
 				return NewAsyncStep(
 					"Slack bot token",
 					"Using SLACK_BOT_TOKEN from environment",
 					func() (string, error) {
-						username, err := notifier.ValidateSlackToken(envBotToken)
+						username, err := channel.ValidateSlackToken(envBotToken)
 						if err != nil {
 							return "", fmt.Errorf("invalid bot token: %w", err)
 						}
@@ -217,7 +217,7 @@ func slackSteps() []StepDef {
 				false,
 			)
 		}},
-		{Key: "notifier.slack_verify_bot", Create: func() Step {
+		{Key: "channel.slack_verify_bot", Create: func() Step {
 			return NewAsyncStep(
 				"Verifying bot token",
 				"Connecting to Slack",
@@ -226,7 +226,7 @@ func slackSteps() []StepDef {
 				},
 			)
 		}},
-		{Key: "notifier.slack_app_token", Create: func() Step {
+		{Key: "channel.slack_app_token", Create: func() Step {
 			if envAppToken != "" {
 				return NewAsyncStep(
 					"Slack app token",
@@ -244,7 +244,7 @@ func slackSteps() []StepDef {
 				false,
 			)
 		}},
-		{Key: "notifier.slack_channel", Create: func() Step {
+		{Key: "channel.slack_channel", Create: func() Step {
 			return NewTextInputStep(
 				"Slack channel ID",
 				"The channel where pylon will post. Find it in channel details.",
@@ -311,13 +311,13 @@ func setupOnComplete(values map[string]string) error {
 		cfg.Server.PublicURL = strings.TrimRight(url, "/")
 	}
 
-	// Notifier
-	notifierType := values["notifier"]
-	cfg.Defaults.Channel.Type = notifierType
+	// Channel
+	channelType := values["channel"]
+	cfg.Defaults.Channel.Type = channelType
 
-	switch notifierType {
+	switch channelType {
 	case "telegram":
-		token := values["notifier.tg_token"]
+		token := values["channel.tg_token"]
 		if envToken := os.Getenv("TELEGRAM_BOT_TOKEN"); envToken != "" {
 			token = envToken
 		}
@@ -329,15 +329,15 @@ func setupOnComplete(values map[string]string) error {
 		}
 
 	case "slack":
-		botToken := values["notifier.slack_bot_token"]
+		botToken := values["channel.slack_bot_token"]
 		if envToken := os.Getenv("SLACK_BOT_TOKEN"); envToken != "" {
 			botToken = envToken
 		}
-		appToken := values["notifier.slack_app_token"]
+		appToken := values["channel.slack_app_token"]
 		if envToken := os.Getenv("SLACK_APP_TOKEN"); envToken != "" {
 			appToken = envToken
 		}
-		channelID := values["notifier.slack_channel"]
+		channelID := values["channel.slack_channel"]
 
 		if botToken != "" {
 			config.SaveEnvVar("SLACK_BOT_TOKEN", botToken)

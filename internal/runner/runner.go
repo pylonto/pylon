@@ -18,7 +18,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/pylonto/pylon/internal/config"
-	"github.com/pylonto/pylon/internal/notifier"
+	"github.com/pylonto/pylon/internal/channel"
 )
 
 // RunParams holds everything needed to run an agent job.
@@ -38,7 +38,7 @@ type RunParams struct {
 	Ref           string
 	WorkspaceType string // "git-clone", "git-worktree", "local", "none"
 	LocalPath     string // for type "local"
-	Notifier      notifier.Notifier
+	Channel       channel.Channel
 	TopicID       string
 }
 
@@ -51,17 +51,17 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 	}
 
 	// Typing indicator while agent works.
-	if p.Notifier != nil && p.TopicID != "" {
+	if p.Channel != nil && p.TopicID != "" {
 		stop := make(chan struct{})
 		defer close(stop)
 		go func() {
-			p.Notifier.SendTyping(p.TopicID)
+			p.Channel.SendTyping(p.TopicID)
 			ticker := time.NewTicker(4 * time.Second)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
-					p.Notifier.SendTyping(p.TopicID)
+					p.Channel.SendTyping(p.TopicID)
 				case <-stop:
 					return
 				}
@@ -128,7 +128,7 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 
 	mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: workDir, Target: "/workspace"})
 
-	if p.Notifier != nil && p.TopicID != "" {
+	if p.Channel != nil && p.TopicID != "" {
 		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
 		switch p.AgentType {
 		case "opencode":
@@ -189,12 +189,12 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		jobErr = fmt.Errorf("job timed out")
 	}
 
-	if jobErr != nil && p.Notifier != nil && p.TopicID != "" {
+	if jobErr != nil && p.Channel != nil && p.TopicID != "" {
 		msg := "Agent failed: " + jobErr.Error()
 		if ctx.Err() == context.DeadlineExceeded {
 			msg = fmt.Sprintf("Agent timed out after %s", p.Timeout)
 		}
-		p.Notifier.SendMessage(p.TopicID, msg)
+		p.Channel.SendMessage(p.TopicID, msg)
 	}
 	return jobErr
 }
