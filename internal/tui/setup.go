@@ -313,7 +313,7 @@ func setupOnComplete(values map[string]string) error {
 
 	// Notifier
 	notifierType := values["notifier"]
-	cfg.Defaults.Notifier.Type = notifierType
+	cfg.Defaults.Channel.Type = notifierType
 
 	switch notifierType {
 	case "telegram":
@@ -323,7 +323,7 @@ func setupOnComplete(values map[string]string) error {
 		}
 		if token != "" {
 			config.SaveEnvVar("TELEGRAM_BOT_TOKEN", token)
-			cfg.Defaults.Notifier.Telegram = &config.TelegramConfig{
+			cfg.Defaults.Channel.Telegram = &config.TelegramConfig{
 				BotToken: "${TELEGRAM_BOT_TOKEN}",
 			}
 		}
@@ -346,7 +346,7 @@ func setupOnComplete(values map[string]string) error {
 			config.SaveEnvVar("SLACK_APP_TOKEN", appToken)
 		}
 
-		cfg.Defaults.Notifier.Slack = &config.SlackConfig{
+		cfg.Defaults.Channel.Slack = &config.SlackConfig{
 			BotToken:  "${SLACK_BOT_TOKEN}",
 			AppToken:  "${SLACK_APP_TOKEN}",
 			ChannelID: channelID,

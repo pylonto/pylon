@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,11 +55,11 @@ type ServerConfig struct {
 }
 
 type DefaultsConfig struct {
-	Notifier NotifierDefaults `yaml:"notifier"`
+	Channel ChannelDefaults `yaml:"channel"`
 	Agent    AgentDefaults    `yaml:"agent"`
 }
 
-type NotifierDefaults struct {
+type ChannelDefaults struct {
 	Type     string          `yaml:"type"`
 	Telegram *TelegramConfig `yaml:"telegram,omitempty"`
 	Slack    *SlackConfig    `yaml:"slack,omitempty"`
@@ -116,12 +117,26 @@ func PylonsDir() string {
 	return filepath.Join(Dir(), "pylons")
 }
 
-var validNotifierTypes = map[string]bool{
+var validChannelTypes = map[string]bool{
 	"telegram": true, "slack": true, "webhook": true, "stdout": true, "": true,
 }
 
 var validAgentTypes = map[string]bool{
 	"claude": true, "opencode": true, "": true,
+}
+
+// envUnset returns an error message if value looks like a ${VAR} reference
+// that expanded to empty, or "" if the value is fine.
+func envUnset(field, value string) string {
+	expanded := os.ExpandEnv(value)
+	if expanded != "" {
+		return ""
+	}
+	// Extract the variable name from the raw value for a helpful message.
+	name := strings.TrimPrefix(value, "${")
+	name = strings.TrimSuffix(name, "}")
+	return fmt.Sprintf("%s references ${%s} but it is not set -- add %s=<value> to %s",
+		field, name, name, EnvPath())
 }
 
 // validateChannelConfig checks that the channel type matches its config section
@@ -131,32 +146,47 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 	switch typ {
 	case "telegram":
 		if sl != nil && tg == nil {
-			return fmt.Errorf("channel type is %q but config has a slack section -- replace with a telegram section" + hint, typ)
+			return fmt.Errorf("channel type is %q but config has a slack section -- replace with a telegram section"+hint, typ)
 		}
 		if tg == nil {
-			return fmt.Errorf("channel type is %q but telegram config is missing. Add:\n\n  telegram:\n    bot_token: ${TELEGRAM_BOT_TOKEN}\n    chat_id: 123456\n\n" + hint, typ)
+			return fmt.Errorf("channel type is %q but telegram config is missing. Add:\n\n  telegram:\n    bot_token: ${TELEGRAM_BOT_TOKEN}\n    chat_id: 123456\n\n"+hint, typ)
 		}
 		if tg.BotToken == "" {
-			return fmt.Errorf("telegram.bot_token is required" + hint)
+			return errors.New("telegram.bot_token is required" + hint)
+		}
+		if strings.HasPrefix(tg.BotToken, "${") {
+			if msg := envUnset("telegram.bot_token", tg.BotToken); msg != "" {
+				return errors.New(msg)
+			}
 		}
 		if tg.ChatID == 0 {
-			return fmt.Errorf("telegram.chat_id is required" + hint)
+			return errors.New("telegram.chat_id is required" + hint)
 		}
 	case "slack":
 		if tg != nil && sl == nil {
-			return fmt.Errorf("channel type is %q but config has a telegram section -- replace with a slack section" + hint, typ)
+			return fmt.Errorf("channel type is %q but config has a telegram section -- replace with a slack section"+hint, typ)
 		}
 		if sl == nil {
-			return fmt.Errorf("channel type is %q but slack config is missing. Add:\n\n  slack:\n    bot_token: ${SLACK_BOT_TOKEN}\n    app_token: ${SLACK_APP_TOKEN}\n    channel_id: C1234567890\n\n" + hint, typ)
+			return fmt.Errorf("channel type is %q but slack config is missing. Add:\n\n  slack:\n    bot_token: ${SLACK_BOT_TOKEN}\n    app_token: ${SLACK_APP_TOKEN}\n    channel_id: C1234567890\n\n"+hint, typ)
 		}
 		if sl.BotToken == "" {
-			return fmt.Errorf("slack.bot_token is required" + hint)
+			return errors.New("slack.bot_token is required" + hint)
+		}
+		if strings.HasPrefix(sl.BotToken, "${") {
+			if msg := envUnset("slack.bot_token", sl.BotToken); msg != "" {
+				return errors.New(msg)
+			}
 		}
 		if sl.AppToken == "" {
-			return fmt.Errorf("slack.app_token is required" + hint)
+			return errors.New("slack.app_token is required" + hint)
+		}
+		if strings.HasPrefix(sl.AppToken, "${") {
+			if msg := envUnset("slack.app_token", sl.AppToken); msg != "" {
+				return errors.New(msg)
+			}
 		}
 		if sl.ChannelID == "" {
-			return fmt.Errorf("slack.channel_id is required" + hint)
+			return errors.New("slack.channel_id is required" + hint)
 		}
 	}
 	return nil
@@ -165,10 +195,10 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 // Validate checks the global config for invalid values.
 func (c *GlobalConfig) Validate() error {
 	path := GlobalPath()
-	if !validNotifierTypes[c.Defaults.Notifier.Type] {
-		return fmt.Errorf("unsupported channel type %q (supported: telegram, slack, webhook, stdout) -- update %s", c.Defaults.Notifier.Type, path)
+	if !validChannelTypes[c.Defaults.Channel.Type] {
+		return fmt.Errorf("unsupported channel type %q (supported: telegram, slack, webhook, stdout) -- update %s", c.Defaults.Channel.Type, path)
 	}
-	if err := validateChannelConfig(c.Defaults.Notifier.Type, c.Defaults.Notifier.Telegram, c.Defaults.Notifier.Slack, path); err != nil {
+	if err := validateChannelConfig(c.Defaults.Channel.Type, c.Defaults.Channel.Telegram, c.Defaults.Channel.Slack, path); err != nil {
 		return err
 	}
 	if !validAgentTypes[c.Defaults.Agent.Type] {

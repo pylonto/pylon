@@ -23,6 +23,7 @@ type detailModel struct {
 	showFullPrompt bool
 	showJobs       bool // toggle jobs section visibility
 	confirmKill    bool // when true, waiting for y/n to confirm kill
+	confirmDismiss bool // when true, waiting for y/n to confirm dismiss
 	copyFlash      copyFlashModel
 	err            error
 }
@@ -116,19 +117,32 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		}
 		return m, m.Init()
 
+	case jobDismissedMsg:
+		m.confirmDismiss = false
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		return m, m.Init()
+
 	case tea.KeyMsg:
-		// Kill confirmation mode intercepts all keys
-		if m.confirmKill {
+		// Confirmation mode intercepts all keys
+		if m.confirmKill || m.confirmDismiss {
 			switch msg.String() {
 			case "y":
 				j := m.selectedJob()
 				if j != nil {
-					m.confirmKill = false
-					return m, findContainerCmd(j.ID, "kill")
+					if m.confirmKill {
+						m.confirmKill = false
+						return m, findContainerCmd(j.ID, "kill")
+					}
+					m.confirmDismiss = false
+					return m, dismissJobCmd(m.name, j.ID)
 				}
 				m.confirmKill = false
+				m.confirmDismiss = false
 			default:
 				m.confirmKill = false
+				m.confirmDismiss = false
 			}
 			return m, nil
 		}
@@ -157,8 +171,12 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 				return m, findContainerCmd(j.ID, "logs")
 			}
 		case "x":
-			if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
-				m.confirmKill = true
+			if j := m.selectedJob(); j != nil && !isTerminalStatus(j.Status) {
+				if isRunningStatus(j.Status) {
+					m.confirmKill = true
+				} else {
+					m.confirmDismiss = true
+				}
 			}
 		}
 	}
@@ -199,9 +217,9 @@ func (m detailModel) renderConfig(width int) string {
 	global := m.global
 
 	s := ""
-	s += lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render(pyl.Name) + "\n"
+	s += "  " + lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render(pyl.Name) + "\n"
 	if pyl.Description != "" {
-		s += subtextStyle.Render(pyl.Description) + "\n"
+		s += "  " + subtextStyle.Render(pyl.Description) + "\n"
 	}
 	s += "\n"
 
@@ -350,6 +368,9 @@ func (m detailModel) renderJobs(width int) string {
 	if m.confirmKill {
 		out += "\n  " + statusFailed.Render("Kill this job?") + " " + mutedStyle.Render("y/n")
 	}
+	if m.confirmDismiss {
+		out += "\n  " + statusFailed.Render("Dismiss this job?") + " " + mutedStyle.Render("y/n")
+	}
 
 	return out
 }
@@ -374,6 +395,8 @@ func renderJobStatus(status string) string {
 		return statusActive.Render("completed")
 	case "failed", "timeout":
 		return statusFailed.Render(status)
+	case "dismissed":
+		return mutedStyle.Render("dismissed")
 	case "running", "active":
 		return statusActive.Render("running")
 	case "awaiting_approval":
@@ -410,6 +433,10 @@ func (m detailModel) selectedJob() *store.Job {
 
 func isRunningStatus(status string) bool {
 	return status == "running" || status == "active"
+}
+
+func isTerminalStatus(status string) bool {
+	return status == "completed" || status == "failed" || status == "timeout" || status == "dismissed"
 }
 
 // jobKilledMsg is sent after a kill attempt.
@@ -452,6 +479,22 @@ func killContainerCmd(containerID string) tea.Cmd {
 			return jobKilledMsg{err: err}
 		}
 		return jobKilledMsg{}
+	}
+}
+
+// jobDismissedMsg is sent after a dismiss attempt.
+type jobDismissedMsg struct{ err error }
+
+// dismissJobCmd marks a job as dismissed in the database.
+func dismissJobCmd(pylonName, jobID string) tea.Cmd {
+	return func() tea.Msg {
+		s, err := store.Open(config.PylonDBPath(pylonName))
+		if err != nil {
+			return jobDismissedMsg{err: err}
+		}
+		defer s.Close()
+		s.UpdateStatus(jobID, "dismissed")
+		return jobDismissedMsg{}
 	}
 }
 
@@ -500,9 +543,13 @@ func (m detailModel) footerBindings() []keyBinding {
 	}
 	bindings = append(bindings, keyBinding{"e", "edit"})
 	if m.showJobs {
-		if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
-			bindings = append(bindings, keyBinding{"l", "logs"})
-			bindings = append(bindings, keyBinding{"x", "kill"})
+		if j := m.selectedJob(); j != nil {
+			if isRunningStatus(j.Status) {
+				bindings = append(bindings, keyBinding{"l", "logs"})
+				bindings = append(bindings, keyBinding{"x", "kill"})
+			} else if !isTerminalStatus(j.Status) {
+				bindings = append(bindings, keyBinding{"x", "dismiss"})
+			}
 		}
 	}
 	return bindings

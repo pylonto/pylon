@@ -5,11 +5,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -22,6 +20,7 @@ type pylonRow struct {
 	status      string
 	lastJob     string
 	description string
+	disabled    bool
 }
 
 // focusArea tracks which pane has keyboard focus.
@@ -82,7 +81,7 @@ func loadPylonsCmd() tea.Cmd {
 
 		var rows []pylonRow
 		for _, name := range names {
-			pyl, err := config.LoadPylon(name)
+			pyl, err := config.LoadPylonRaw(name)
 			if err != nil {
 				rows = append(rows, pylonRow{name: name, status: "?"})
 				continue
@@ -92,6 +91,7 @@ func loadPylonsCmd() tea.Cmd {
 				name:        name,
 				trigger:     pyl.Trigger.Type,
 				description: pyl.Description,
+				disabled:    pyl.Disabled,
 			}
 
 			switch pyl.Trigger.Type {
@@ -170,6 +170,10 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	case pylonEditDoneMsg:
 		// Reload after editing
 		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
+
+	case pylonToggledMsg:
+		// Reload after toggling enabled/disabled
+		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
 	}
 
 	// Non-key messages (detailLoadedMsg, containerFoundMsg, etc.)
@@ -223,10 +227,33 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 			if name != "" {
 				return m, m.openEditorForPylon(name)
 			}
+		case "x":
+			name := m.selectedPylon()
+			if name != "" {
+				return m, togglePylonCmd(name)
+			}
 		}
 	}
 
 	return m, nil
+}
+
+// pylonToggledMsg is sent after toggling a pylon's disabled state.
+type pylonToggledMsg struct{ err error }
+
+// togglePylonCmd loads a pylon config (without validation), flips its Disabled field, and saves it.
+func togglePylonCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		pyl, err := config.LoadPylonRaw(name)
+		if err != nil {
+			return pylonToggledMsg{err: err}
+		}
+		pyl.Disabled = !pyl.Disabled
+		if err := config.SavePylon(pyl); err != nil {
+			return pylonToggledMsg{err: err}
+		}
+		return pylonToggledMsg{}
+	}
 }
 
 // pylonEditDoneMsg is sent when the editor closes.
@@ -252,9 +279,6 @@ func (m *homeModel) loadDetailForCursor() tea.Cmd {
 	return m.detail.Init()
 }
 
-// sidebarWidth is the width of the pylon name sidebar.
-const sidebarWidth = 16
-
 func (m homeModel) View(width, height int) string {
 	if m.err != nil {
 		return statusFailed.Render(fmt.Sprintf("Error: %v", m.err))
@@ -263,60 +287,11 @@ func (m homeModel) View(width, height int) string {
 	if len(m.rows) == 0 {
 		msg := mutedStyle.Render("No pylons constructed yet.\n\n") +
 			subtextStyle.Render("Press ") + keyStyle.Render("c") + subtextStyle.Render(" to construct,\n") +
-			subtextStyle.Render("or ") + keyStyle.Render("s") + subtextStyle.Render(" to run setup.")
+			subtextStyle.Render("or ") + keyStyle.Render("g") + subtextStyle.Render(" for global setup.")
 		return "\n" + msg + "\n"
 	}
 
-	// Sidebar (pylon names)
-	sidebar := m.renderSidebar(height)
-	sidebarStyled := lipgloss.NewStyle().
-		Width(sidebarWidth).
-		Render(sidebar)
-
-	// Separator
-	sep := renderGoldSeparator(height)
-
-	// Detail pane
-	detailWidth := width - sidebarWidth - 1
-	if detailWidth < 30 {
-		detailWidth = 30
-	}
-	detailContent := m.detail.View(detailWidth, height)
-	detailStyled := lipgloss.NewStyle().
-		Width(detailWidth).
-		Render(detailContent)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, sidebarStyled, sep, detailStyled)
-}
-
-// renderSidebar renders the pylon name list.
-func (m homeModel) renderSidebar(height int) string {
-	var b strings.Builder
-
-	b.WriteString(tableHeaderStyle.Render(" Pylons") + "\n")
-
-	for i, r := range m.rows {
-		name := r.name
-		maxLen := sidebarWidth - 3
-		if len(name) > maxLen {
-			name = name[:maxLen-1] + "~"
-		}
-
-		cursor := " "
-		style := tableRowStyle
-		if i == m.cursor {
-			if m.focus == focusList {
-				cursor = cursorStyle.Render("◆")
-			} else {
-				cursor = cursorStyle.Render("◇")
-			}
-			style = selectedRowStyle
-		}
-
-		b.WriteString(style.Render(cursor+" "+name) + "\n")
-	}
-
-	return b.String()
+	return m.detail.View(width, height)
 }
 
 // selectedPylon returns the name of the currently selected pylon.
@@ -358,10 +333,18 @@ func timeAgo(t time.Time) string {
 
 // footerBindings returns the keybind hints for the home view.
 func (m homeModel) footerBindings() []keyBinding {
-	bindings := []keyBinding{
-		{"s", "setup"},
-		{"c", "construct"},
+	var bindings []keyBinding
+
+	if m.daemonRunning {
+		bindings = append(bindings, keyBinding{"d", "stop daemon"})
+	} else {
+		bindings = append(bindings, keyBinding{"d", "start daemon"})
 	}
+	bindings = append(bindings,
+		keyBinding{"g", "global setup"},
+		keyBinding{"c", "construct"},
+		keyBinding{"?", "doctor"},
+	)
 
 	if m.focus == focusDetail {
 		bindings = append(bindings, keyBinding{"h", "back"})
@@ -369,21 +352,14 @@ func (m homeModel) footerBindings() []keyBinding {
 	} else if len(m.rows) > 0 {
 		bindings = append(bindings, keyBinding{"l", "detail"})
 		bindings = append(bindings, keyBinding{"e", "edit"})
+		if m.cursor < len(m.rows) && m.rows[m.cursor].disabled {
+			bindings = append(bindings, keyBinding{"x", "enable"})
+		} else {
+			bindings = append(bindings, keyBinding{"x", "disable"})
+		}
 	}
 
 	bindings = append(bindings, keyBinding{"q", "quit"})
 	return bindings
 }
 
-// renderGoldSeparator renders a vertical gold bar.
-func renderGoldSeparator(height int) string {
-	style := lipgloss.NewStyle().Foreground(colorGoldDim)
-	var b strings.Builder
-	for i := 0; i < height; i++ {
-		b.WriteString(style.Render("│"))
-		if i < height-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
-}

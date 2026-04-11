@@ -14,6 +14,7 @@ import (
 type PylonConfig struct {
 	Name        string    `yaml:"name"`
 	Description string    `yaml:"description,omitempty"`
+	Disabled    bool      `yaml:"disabled,omitempty"`
 	Created     time.Time `yaml:"created"`
 
 	Trigger   TriggerConfig   `yaml:"trigger"`
@@ -120,7 +121,7 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 	if !validWorkspaceTypes[p.Workspace.Type] {
 		return fmt.Errorf("unsupported workspace type %q (supported: git-clone, git-worktree, local, none) -- update %s or press e to edit", p.Workspace.Type, path)
 	}
-	if p.Channel != nil && p.Channel.Type != "" && !validNotifierTypes[p.Channel.Type] {
+	if p.Channel != nil && p.Channel.Type != "" && !validChannelTypes[p.Channel.Type] {
 		return fmt.Errorf("unsupported channel type %q (supported: telegram, slack, webhook, stdout) -- update %s or press e to edit", p.Channel.Type, path)
 	}
 	if p.Channel != nil {
@@ -134,8 +135,21 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 	return nil
 }
 
-// LoadPylon loads a single pylon config by name.
+// LoadPylon loads a single pylon config by name and validates it.
 func LoadPylon(name string) (*PylonConfig, error) {
+	cfg, err := LoadPylonRaw(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := cfg.Validate(PylonPath(name)); err != nil {
+		return nil, fmt.Errorf("pylon %q: %w", name, err)
+	}
+	return cfg, nil
+}
+
+// LoadPylonRaw loads a pylon config without running validation.
+// Use this when you need to read or modify the config regardless of its validity.
+func LoadPylonRaw(name string) (*PylonConfig, error) {
 	data, err := os.ReadFile(PylonPath(name))
 	if err != nil {
 		return nil, fmt.Errorf("reading pylon config %q: %w", name, err)
@@ -143,9 +157,6 @@ func LoadPylon(name string) (*PylonConfig, error) {
 	var cfg PylonConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing pylon config %q: %w", name, err)
-	}
-	if err := cfg.Validate(PylonPath(name)); err != nil {
-		return nil, fmt.Errorf("pylon %q: %w", name, err)
 	}
 	return &cfg, nil
 }

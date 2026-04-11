@@ -75,6 +75,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 			log.Printf("[pylon] skipping %q: %v", name, err)
 			continue
 		}
+		if pyl.Disabled {
+			log.Printf("[pylon] skipping %q: disabled", name)
+			continue
+		}
 		pylons[name] = pyl
 	}
 
@@ -107,10 +111,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var globalNotifier notifier.Notifier
-	switch global.Defaults.Notifier.Type {
+	switch global.Defaults.Channel.Type {
 	case "telegram":
-		if global.Defaults.Notifier.Telegram != nil {
-			tg := global.Defaults.Notifier.Telegram
+		if global.Defaults.Channel.Telegram != nil {
+			tg := global.Defaults.Channel.Telegram
 			token := os.ExpandEnv(tg.BotToken)
 			if token != "" {
 				globalNotifier = notifier.NewTelegramNotifier(ctx, token, tg.ChatID, tg.AllowedUsers)
@@ -120,8 +124,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 			}
 		}
 	case "slack":
-		if global.Defaults.Notifier.Slack != nil {
-			sl := global.Defaults.Notifier.Slack
+		if global.Defaults.Channel.Slack != nil {
+			sl := global.Defaults.Channel.Slack
 			botToken := os.ExpandEnv(sl.BotToken)
 			appToken := os.ExpandEnv(sl.AppToken)
 			if botToken != "" && appToken != "" {

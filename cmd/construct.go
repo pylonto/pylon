@@ -169,8 +169,8 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 
 	// Notifier
 	notifierLabel := "none"
-	if global.Defaults.Notifier.Type != "" {
-		notifierLabel = global.Defaults.Notifier.Type
+	if global.Defaults.Channel.Type != "" {
+		notifierLabel = global.Defaults.Channel.Type
 	}
 
 	var notifyChoice string

@@ -32,30 +32,13 @@ var serviceInstallCmd = &cobra.Command{
 			binPath = "/usr/local/bin/pylon"
 		}
 
-		unit := fmt.Sprintf(`[Unit]
-Description=Pylon Agent Daemon
-After=network.target docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-User=%s
-ExecStart=%s start
-Restart=on-failure
-RestartSec=5
-Environment=HOME=%s
-
-[Install]
-WantedBy=multi-user.target
-`, u.Username, binPath, u.HomeDir)
-
-		unitPath := "/etc/systemd/system/pylon.service"
-
 		// Try user-level first if no root
 		if os.Geteuid() != 0 {
+			unit := fmt.Sprintf("[Unit]\nDescription=Pylon Agent Daemon\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=%s start\nRestart=on-failure\nRestartSec=5\nEnvironment=HOME=%s\n\n[Install]\nWantedBy=default.target\n",
+				binPath, u.HomeDir)
 			userDir := filepath.Join(u.HomeDir, ".config", "systemd", "user")
 			os.MkdirAll(userDir, 0755)
-			unitPath = filepath.Join(userDir, "pylon.service")
+			unitPath := filepath.Join(userDir, "pylon.service")
 			if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
 				return fmt.Errorf("writing unit file: %w", err)
 			}
@@ -66,6 +49,9 @@ WantedBy=multi-user.target
 			return nil
 		}
 
+		unit := fmt.Sprintf("[Unit]\nDescription=Pylon Agent Daemon\nAfter=network-online.target\n\n[Service]\nType=simple\nUser=%s\nExecStart=%s start\nRestart=on-failure\nRestartSec=5\nEnvironment=HOME=%s\n\n[Install]\nWantedBy=multi-user.target\n",
+			u.Username, binPath, u.HomeDir)
+		unitPath := "/etc/systemd/system/pylon.service"
 		if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
 			return fmt.Errorf("writing unit file: %w", err)
 		}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/config"
@@ -68,35 +69,46 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	// Telegram
-	if global != nil && global.Defaults.Notifier.Type == "telegram" && global.Defaults.Notifier.Telegram != nil {
-		token := os.ExpandEnv(global.Defaults.Notifier.Telegram.BotToken)
-		if token == "" || token == global.Defaults.Notifier.Telegram.BotToken {
+	if global != nil && global.Defaults.Channel.Type == "telegram" && global.Defaults.Channel.Telegram != nil {
+		token := os.ExpandEnv(global.Defaults.Channel.Telegram.BotToken)
+		if token == "" || token == global.Defaults.Channel.Telegram.BotToken {
 			fmt.Println("Telegram bot ........ FAIL  TELEGRAM_BOT_TOKEN not set")
 			fmt.Println("  export TELEGRAM_BOT_TOKEN=<your token>")
 			issues++
 		} else if username, err := notifier.GetBotUsername(token); err == nil {
 			fmt.Printf("Telegram bot ........ ok    connected (@%s)\n", username)
-			chatID := global.Defaults.Notifier.Telegram.ChatID
-			if err := notifier.CheckChatAccess(token, chatID); err == nil {
+			chatID := global.Defaults.Channel.Telegram.ChatID
+			if chatID == 0 {
+				fmt.Println("Telegram chat ....... FAIL  chat_id not configured")
+				if fixGlobalChatID(token, username, global) {
+					fmt.Printf("Telegram chat ....... ok    chat %d saved\n", global.Defaults.Channel.Telegram.ChatID)
+				} else {
+					issues++
+				}
+			} else if err := notifier.CheckChatAccess(token, chatID); err == nil {
 				fmt.Printf("Telegram chat ....... ok    chat %d accessible\n", chatID)
 			} else {
 				fmt.Printf("Telegram chat ....... FAIL  chat %d: %v\n", chatID, err)
-				fmt.Println("  Make sure the bot is an admin in the group with topic management permissions")
-				issues++
+				if fixGlobalChatID(token, username, global) {
+					fmt.Printf("Telegram chat ....... ok    chat %d saved\n", global.Defaults.Channel.Telegram.ChatID)
+				} else {
+					fmt.Println("  Make sure the bot is an admin in the group with topic management permissions")
+					issues++
+				}
 			}
 		} else {
 			fmt.Println("Telegram bot ........ FAIL  could not connect (invalid token?)")
 			issues++
 		}
-	} else if global != nil && global.Defaults.Notifier.Type == "slack" && global.Defaults.Notifier.Slack != nil {
-		botToken := os.ExpandEnv(global.Defaults.Notifier.Slack.BotToken)
-		if botToken == "" || botToken == global.Defaults.Notifier.Slack.BotToken {
+	} else if global != nil && global.Defaults.Channel.Type == "slack" && global.Defaults.Channel.Slack != nil {
+		botToken := os.ExpandEnv(global.Defaults.Channel.Slack.BotToken)
+		if botToken == "" || botToken == global.Defaults.Channel.Slack.BotToken {
 			fmt.Println("Slack bot ........... FAIL  SLACK_BOT_TOKEN not set")
 			fmt.Println("  export SLACK_BOT_TOKEN=<your token>")
 			issues++
 		} else if username, err := notifier.ValidateSlackToken(botToken); err == nil {
 			fmt.Printf("Slack bot ........... ok    connected (@%s)\n", username)
-			channelID := global.Defaults.Notifier.Slack.ChannelID
+			channelID := global.Defaults.Channel.Slack.ChannelID
 			if name, err := notifier.CheckSlackAccess(botToken, channelID); err == nil {
 				fmt.Printf("Slack channel ....... ok    #%s accessible\n", name)
 			} else {
@@ -108,8 +120,47 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			fmt.Println("Slack bot ........... FAIL  could not connect (invalid token?)")
 			issues++
 		}
-	} else {
-		fmt.Println("Notifier ............ --    not configured")
+	} else if global != nil {
+		fmt.Println("Channel ............. --    not configured")
+		var fix string
+		if err := huh.NewSelect[string]().
+			Title("Configure a default channel now?").
+			Options(
+				huh.NewOption("Telegram", "telegram"),
+				huh.NewOption("Slack", "slack"),
+				huh.NewOption("Skip", "skip"),
+			).
+			Value(&fix).
+			Run(); err == nil && fix != "skip" {
+			switch fix {
+			case "telegram":
+				if tg, err := setupTelegram(); err == nil {
+					global.Defaults.Channel = config.ChannelDefaults{Type: "telegram", Telegram: tg}
+					if err := config.SaveGlobal(global); err != nil {
+						fmt.Printf("  Could not save config: %v\n", err)
+						issues++
+					} else {
+						fmt.Println("Channel ............. ok    telegram saved")
+					}
+				} else {
+					fmt.Printf("  Telegram setup failed: %v\n", err)
+					issues++
+				}
+			case "slack":
+				if sl, err := setupSlack(); err == nil {
+					global.Defaults.Channel = config.ChannelDefaults{Type: "slack", Slack: sl}
+					if err := config.SaveGlobal(global); err != nil {
+						fmt.Printf("  Could not save config: %v\n", err)
+						issues++
+					} else {
+						fmt.Println("Channel ............. ok    slack saved")
+					}
+				} else {
+					fmt.Printf("  Slack setup failed: %v\n", err)
+					issues++
+				}
+			}
+		}
 	}
 
 	// Git auth
@@ -194,41 +245,73 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Println("Pylons .............. 0 constructed")
 	}
 
-	// Webhook reachability per pylon
+	// Per-pylon checks
 	if global != nil && len(names) > 0 {
 		client := &http.Client{Timeout: 5 * time.Second}
 		for _, name := range names {
 			pyl, err := config.LoadPylon(name)
-			if err != nil || pyl.Trigger.Type != "webhook" {
-				continue
-			}
-			url := pyl.ResolvePublicURL(global)
-			// Use GET so pylon returns 405 without triggering a real job
-			resp, err := client.Get(url)
 			if err != nil {
-				fmt.Printf("  %s webhook ... FAIL  %s unreachable\n", name, url)
-				proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
-				issues++
 				continue
 			}
-			resp.Body.Close()
-			// Pylon returns 202 for valid webhooks; anything else means
-			// the request went somewhere else or pylon isn't running
-			if resp.StatusCode == http.StatusAccepted {
-				fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
-			} else if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
-				// 405/400/401 from pylon means it received the request (just rejected our test)
-				fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
-			} else {
-				fmt.Printf("  %s webhook ... WARN  %s returned %d (may not be routed to pylon)\n", name, url, resp.StatusCode)
-				proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
-				recommendations++
+
+			// Webhook reachability
+			if pyl.Trigger.Type == "webhook" {
+				url := pyl.ResolvePublicURL(global)
+				resp, err := client.Get(url)
+				if err != nil {
+					fmt.Printf("  %s webhook ... FAIL  %s unreachable\n", name, url)
+					proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
+					issues++
+				} else {
+					resp.Body.Close()
+					if resp.StatusCode == http.StatusAccepted ||
+						resp.StatusCode == http.StatusMethodNotAllowed ||
+						resp.StatusCode == http.StatusBadRequest ||
+						resp.StatusCode == http.StatusUnauthorized {
+						fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
+					} else {
+						fmt.Printf("  %s webhook ... WARN  %s returned %d (may not be routed to pylon)\n", name, url, resp.StatusCode)
+						proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
+						recommendations++
+					}
+				}
+			}
+
+			// Per-pylon channel check
+			if pyl.Channel != nil && pyl.Channel.Type == "telegram" && pyl.Channel.Telegram != nil {
+				tg := pyl.Channel.Telegram
+				token := os.ExpandEnv(tg.BotToken)
+				if token == "" || token == tg.BotToken {
+					fmt.Printf("  %s channel ... FAIL  bot token not set\n", name)
+					issues++
+				} else if username, err := notifier.GetBotUsername(token); err == nil {
+					if tg.ChatID == 0 || tg.ChatID == -1 {
+						fmt.Printf("  %s channel ... FAIL  chat_id not configured\n", name)
+						if fixPylonChatID(token, username, name, pyl) {
+							fmt.Printf("  %s channel ... ok    chat %d saved\n", name, pyl.Channel.Telegram.ChatID)
+						} else {
+							issues++
+						}
+					} else if err := notifier.CheckChatAccess(token, tg.ChatID); err == nil {
+						fmt.Printf("  %s channel ... ok    chat %d accessible\n", name, tg.ChatID)
+					} else {
+						fmt.Printf("  %s channel ... FAIL  chat %d: %v\n", name, tg.ChatID, err)
+						if fixPylonChatID(token, username, name, pyl) {
+							fmt.Printf("  %s channel ... ok    chat %d saved\n", name, pyl.Channel.Telegram.ChatID)
+						} else {
+							issues++
+						}
+					}
+				} else {
+					fmt.Printf("  %s channel ... FAIL  bot token invalid\n", name)
+					issues++
+				}
 			}
 		}
 	}
 
 	// systemd
-	if _, err := exec.Command("systemctl", "is-active", "pylon").Output(); err == nil {
+	if _, err := exec.Command("systemctl", "--user", "is-active", "pylon").Output(); err == nil {
 		fmt.Println("systemd service ..... ok    active")
 	} else {
 		fmt.Println("systemd service ..... --    not installed (run `pylon service install`)")
@@ -245,4 +328,55 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 	return nil
+}
+
+// offerDetectChatID prompts the user and auto-detects a Telegram chat ID.
+// Returns the detected chat ID, or 0 if skipped/failed.
+func offerDetectChatID(token, username string) int64 {
+	var fix string
+	err := huh.NewSelect[string]().
+		Title("Fix it now?").
+		Options(
+			huh.NewOption("Auto-detect (add bot to group, send a message)", "auto"),
+			huh.NewOption("Skip", "skip"),
+		).
+		Value(&fix).
+		Run()
+	if err != nil || fix != "auto" {
+		return 0
+	}
+	chatID, err := detectChatID(token, username)
+	if err != nil {
+		fmt.Printf("  Detection failed: %v\n", err)
+		return 0
+	}
+	return chatID
+}
+
+// fixGlobalChatID auto-detects a chat ID and saves it to the global config.
+func fixGlobalChatID(token, username string, global *config.GlobalConfig) bool {
+	chatID := offerDetectChatID(token, username)
+	if chatID == 0 {
+		return false
+	}
+	global.Defaults.Channel.Telegram.ChatID = chatID
+	if err := config.SaveGlobal(global); err != nil {
+		fmt.Printf("  Could not save: %v\n", err)
+		return false
+	}
+	return true
+}
+
+// fixPylonChatID auto-detects a chat ID and saves it to a pylon config.
+func fixPylonChatID(token, username, name string, pyl *config.PylonConfig) bool {
+	chatID := offerDetectChatID(token, username)
+	if chatID == 0 {
+		return false
+	}
+	pyl.Channel.Telegram.ChatID = chatID
+	if err := config.SavePylon(pyl); err != nil {
+		fmt.Printf("  Could not save: %v\n", err)
+		return false
+	}
+	return true
 }

@@ -72,20 +72,20 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "telegram", Telegram: tg}
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: "telegram", Telegram: tg}
 	case "slack":
 		sl, err := setupSlack()
 		if err != nil {
 			return err
 		}
-		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "slack", Slack: sl}
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: "slack", Slack: sl}
 	case "stdout":
-		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "stdout"}
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: "stdout"}
 	case "webhook":
-		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "webhook"}
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: "webhook"}
 	default:
 		comingSoon(notifierChoice)
-		cfg.Defaults.Notifier = config.NotifierDefaults{Type: "stdout"}
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: "stdout"}
 	}
 
 	fmt.Println()

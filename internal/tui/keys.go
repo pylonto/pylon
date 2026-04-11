@@ -10,6 +10,7 @@ const (
 	keyS        = "s"
 	keyC        = "c"
 	keyD        = "d"
+	keyG        = "g"
 	keyY        = "y"
 	keyP        = "p"
 	keyE        = "e"
@@ -20,6 +21,7 @@ const (
 	keyCtrlC    = "ctrl+c"
 	keyTab      = "tab"
 	keyShiftTab = "shift+tab"
+	keyQuestion = "?"
 )
 
 // isQuit returns true for quit key combos.
