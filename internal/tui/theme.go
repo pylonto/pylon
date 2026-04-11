@@ -24,6 +24,32 @@ var (
 	colorGoldDim   = lipgloss.Color("#7d6348") // dimmed gold for separators
 )
 
+// shimmerPalette is a warm gold gradient for the shimmer sweep effect.
+var shimmerPalette = []string{
+	"#6c7086", // muted
+	"#7d6348", // dim gold
+	"#b8860b", // dark goldenrod
+	"#daa520", // goldenrod
+	"#fab387", // peach/gold
+	"#f9e2af", // bright yellow
+	"#fab387", // peach/gold
+	"#daa520", // goldenrod
+	"#b8860b", // dark goldenrod
+	"#7d6348", // dim gold
+}
+
+// renderShimmer renders text with a sweeping color gradient.
+func renderShimmer(text string, offset int) string {
+	runes := []rune(text)
+	var result string
+	for i, r := range runes {
+		idx := (i + offset) % len(shimmerPalette)
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(shimmerPalette[idx]))
+		result += style.Render(string(r))
+	}
+	return result
+}
+
 // Title bar spans the full terminal width.
 var titleBarStyle = lipgloss.NewStyle().
 	Background(colorAccent).

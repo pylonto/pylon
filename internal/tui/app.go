@@ -284,10 +284,9 @@ func (m AppModel) renderLeftPanel() string {
 	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Pylon Nexus")
 	ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
 	b.WriteString(" " + spinner + " " + title + "\n")
+	b.WriteString("   " + ver + "\n")
 	if m.latestVersion != "" {
-		b.WriteString("   " + ver + " " + lipgloss.NewStyle().Foreground(colorWarning).Render(m.latestVersion+" available") + "\n")
-	} else {
-		b.WriteString("   " + ver + "\n")
+		b.WriteString("   " + renderShimmer(m.latestVersion+" [u]", m.glyph.frame) + "\n")
 	}
 
 	// Daemon status
