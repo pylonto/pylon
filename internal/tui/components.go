@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	cron "github.com/lnquy/cron"
 )
 
 // Step is the interface all wizard step components implement.
@@ -277,7 +278,7 @@ func (s *confirmStep) View(width int) string {
 
 	activeStyle := lipgloss.NewStyle().
 		Background(colorHighlight).
-		Foreground(colorGold).
+		Foreground(colorAccent).
 		Bold(true)
 	inactiveStyle := lipgloss.NewStyle().
 		Foreground(colorMuted)
@@ -463,5 +464,77 @@ func (s *infoStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 
 func (s *infoStep) View(width int) string {
 	return subtextStyle.Render(s.content) + "\n\n" + mutedStyle.Render("  [enter] continue")
+}
+
+// --- CronInputStep ---
+
+type cronInputStep struct {
+	title       string
+	description string
+	input       textinput.Model
+	done        bool
+}
+
+func NewCronInputStep(title, description, placeholder, defaultValue string) Step {
+	ti := textinput.New()
+	ti.Placeholder = placeholder
+	ti.Width = 50
+	if defaultValue != "" {
+		ti.SetValue(defaultValue)
+	}
+	ti.Focus()
+	return &cronInputStep{
+		title:       title,
+		description: description,
+		input:       ti,
+	}
+}
+
+func (s *cronInputStep) Title() string       { return s.title }
+func (s *cronInputStep) Description() string { return s.description }
+func (s *cronInputStep) Value() string       { return s.input.Value() }
+func (s *cronInputStep) IsDone() bool        { return s.done }
+func (s *cronInputStep) Init() tea.Cmd       { return textinput.Blink }
+
+func (s *cronInputStep) Update(msg tea.Msg) (Step, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		if key.String() == keyEnter {
+			s.done = true
+			return s, nil
+		}
+	}
+	var cmd tea.Cmd
+	s.input, cmd = s.input.Update(msg)
+	return s, cmd
+}
+
+func (s *cronInputStep) View(width int) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorAccent).
+		Padding(0, 1).
+		Width(min(width-4, 60))
+	view := style.Render(s.input.View())
+
+	// Show live human-readable description
+	val := strings.TrimSpace(s.input.Value())
+	if val != "" {
+		if desc := describeCronExpr(val); desc != val {
+			view += "\n" + mutedStyle.Render(desc)
+		}
+	}
+	return view
+}
+
+func describeCronExpr(expr string) string {
+	d, err := cron.NewDescriptor()
+	if err != nil {
+		return expr
+	}
+	desc, err := d.ToDescription(expr, cron.Locale_en)
+	if err != nil {
+		return expr
+	}
+	return desc
 }
 

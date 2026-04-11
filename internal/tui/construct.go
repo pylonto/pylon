@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,15 +52,16 @@ func newConstructWizard(name string) wizardModel {
 			)
 		}},
 		{Key: "channel_choice", Create: func() Step {
-			opts := []selectOption{
-				{"Use default", "default"},
-			}
-			// Could add per-pylon channel options here
-			opts = append(opts, selectOption{"stdout (console only)", "stdout"})
 			return NewSelectStep(
 				"Channel",
 				"Where should this pylon communicate?",
-				opts,
+				[]selectOption{
+					{"Use default", "default"},
+					{"Telegram", "telegram"},
+					{"Slack", "slack"},
+					{"Webhook (outbound HTTP)", "webhook"},
+					{"stdout (console only)", "stdout"},
+				},
 			)
 		}},
 		{Key: "agent_choice", Create: func() Step {
@@ -105,6 +107,8 @@ func constructOnStepDone(key, value string, values map[string]string) []StepDef 
 		return triggerSteps(value)
 	case "workspace":
 		return workspaceSteps(value)
+	case "channel_choice":
+		return constructChannelSteps(value)
 	case "approval":
 		if value == "no" {
 			return []StepDef{
@@ -147,12 +151,11 @@ func triggerSteps(triggerType string) []StepDef {
 	case "cron":
 		return []StepDef{
 			{Key: "trigger.cron", Create: func() Step {
-				return NewTextInputStep(
+				return NewCronInputStep(
 					"Cron schedule",
 					"e.g. 0 9 * * 1-5 (weekdays at 9am)",
 					"0 9 * * 1-5",
 					"0 9 * * 1-5",
-					false,
 				)
 			}},
 		}
@@ -190,6 +193,63 @@ func workspaceSteps(wsType string) []StepDef {
 					"Local path",
 					"Absolute path to mount into the agent container.",
 					"/home/user/project",
+					"",
+					false,
+				)
+			}},
+		}
+	}
+	return nil
+}
+
+func constructChannelSteps(channelType string) []StepDef {
+	switch channelType {
+	case "telegram":
+		return []StepDef{
+			{Key: "channel_choice.tg_token", Create: func() Step {
+				return NewTextInputStep(
+					"Telegram bot token",
+					"Use ${ENV_VAR} syntax for environment variables.",
+					"${TELEGRAM_BOT_TOKEN}",
+					"${TELEGRAM_BOT_TOKEN}",
+					false,
+				)
+			}},
+			{Key: "channel_choice.tg_chat_id", Create: func() Step {
+				return NewTextInputStep(
+					"Telegram chat ID",
+					"Numeric chat ID where the bot will post.",
+					"123456789",
+					"",
+					false,
+				)
+			}},
+		}
+	case "slack":
+		return []StepDef{
+			{Key: "channel_choice.slack_bot_token", Create: func() Step {
+				return NewTextInputStep(
+					"Slack bot token",
+					"Use ${ENV_VAR} syntax for environment variables.",
+					"${SLACK_BOT_TOKEN}",
+					"${SLACK_BOT_TOKEN}",
+					false,
+				)
+			}},
+			{Key: "channel_choice.slack_app_token", Create: func() Step {
+				return NewTextInputStep(
+					"Slack app token",
+					"Required for Socket Mode. Use ${ENV_VAR} syntax.",
+					"${SLACK_APP_TOKEN}",
+					"${SLACK_APP_TOKEN}",
+					false,
+				)
+			}},
+			{Key: "channel_choice.slack_channel_id", Create: func() Step {
+				return NewTextInputStep(
+					"Slack channel ID",
+					"The channel where the bot will post (e.g. C1234567890).",
+					"C1234567890",
 					"",
 					false,
 				)
@@ -257,6 +317,20 @@ func constructOnComplete(values map[string]string) error {
 	if channelChoice != "default" {
 		pyl.Channel = &config.PylonChannel{
 			Type: channelChoice,
+		}
+		switch channelChoice {
+		case "telegram":
+			chatID, _ := strconv.ParseInt(values["channel_choice.tg_chat_id"], 10, 64)
+			pyl.Channel.Telegram = &config.TelegramConfig{
+				BotToken: values["channel_choice.tg_token"],
+				ChatID:   chatID,
+			}
+		case "slack":
+			pyl.Channel.Slack = &config.SlackConfig{
+				BotToken:  values["channel_choice.slack_bot_token"],
+				AppToken:  values["channel_choice.slack_app_token"],
+				ChannelID: values["channel_choice.slack_channel_id"],
+			}
 		}
 	}
 

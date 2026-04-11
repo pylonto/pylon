@@ -33,14 +33,15 @@ const (
 
 // homeModel is the dashboard view showing all pylons.
 type homeModel struct {
-	rows          []pylonRow
-	cursor        int
-	daemonRunning bool
-	focus         focusArea
-	detail        detailModel
-	detailLoaded  bool // true once the first pylon detail has been loaded
-	width, height int
-	err           error
+	rows           []pylonRow
+	cursor         int
+	daemonRunning  bool
+	confirmDelete  bool // true when showing delete confirmation
+	focus          focusArea
+	detail         detailModel
+	detailLoaded   bool // true once the first pylon detail has been loaded
+	width, height  int
+	err            error
 }
 
 func newHomeModel() homeModel {
@@ -174,6 +175,17 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	case pylonToggledMsg:
 		// Reload after toggling enabled/disabled
 		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
+
+	case pylonDeletedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		// Adjust cursor if it was on the last item
+		if m.cursor > 0 && m.cursor >= len(m.rows)-1 {
+			m.cursor--
+		}
+		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
 	}
 
 	// Non-key messages (detailLoadedMsg, containerFoundMsg, etc.)
@@ -209,6 +221,21 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		return m, nil
 	}
 
+	// Delete confirmation intercepts all keys when active
+	if key, ok := msg.(tea.KeyMsg); ok && m.confirmDelete {
+		switch key.String() {
+		case keyY:
+			m.confirmDelete = false
+			name := m.selectedPylon()
+			if name != "" {
+				return m, deletePylonCmd(name)
+			}
+		default:
+			m.confirmDelete = false
+		}
+		return m, nil
+	}
+
 	// List navigation (focusList)
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
@@ -238,6 +265,11 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 			if name != "" {
 				return m, togglePylonCmd(name)
 			}
+		case "D":
+			name := m.selectedPylon()
+			if name != "" {
+				m.confirmDelete = true
+			}
 		}
 	}
 
@@ -246,6 +278,16 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 
 // pylonToggledMsg is sent after toggling a pylon's disabled state.
 type pylonToggledMsg struct{ err error }
+
+// pylonDeletedMsg is sent after deleting a pylon.
+type pylonDeletedMsg struct{ err error }
+
+func deletePylonCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		err := config.DeletePylon(name)
+		return pylonDeletedMsg{err: err}
+	}
+}
 
 // togglePylonCmd loads a pylon config (without validation), flips its Disabled field, and saves it.
 func togglePylonCmd(name string) tea.Cmd {
@@ -363,6 +405,7 @@ func (m homeModel) footerBindings() []keyBinding {
 		} else {
 			bindings = append(bindings, keyBinding{"x", "disable"})
 		}
+		bindings = append(bindings, keyBinding{"D", "destroy"})
 	}
 
 	bindings = append(bindings, keyBinding{"q", "quit"})

@@ -198,13 +198,26 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Back from wizard
-		if m.activeView != viewHome {
-			if msg.String() == keyEsc {
+		// Cancel confirmation intercepts all keys when active
+		if m.activeView != viewHome && m.wizard.confirmCancel {
+			switch msg.String() {
+			case keyY, keyEsc:
+				m.wizard.confirmCancel = false
 				m.popView()
 				if m.activeView == viewHome {
 					return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 				}
+				return m, nil
+			default:
+				m.wizard.confirmCancel = false
+				return m, nil
+			}
+		}
+
+		// Back from wizard -- first press shows confirmation
+		if m.activeView != viewHome {
+			if msg.String() == keyEsc {
+				m.wizard.confirmCancel = true
 				return m, nil
 			}
 		}
@@ -340,6 +353,9 @@ func (m AppModel) renderLeftPanel() string {
 			// Align: cursor at col 1 (same as glyph), name at col 3 (same as info text)
 			padded := fmt.Sprintf("%-*s", maxLen, name)
 			b.WriteString(" " + cursor + " " + style.Render(padded) + " " + dot + "\n")
+		}
+		if m.home.confirmDelete {
+			b.WriteString("\n   " + statusFailed.Render("Delete pylon?") + " " + mutedStyle.Render("y/n") + "\n")
 		}
 	}
 

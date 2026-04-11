@@ -406,7 +406,7 @@ func (m detailModel) renderConfig(width int) string {
 	if pyl.Agent != nil && pyl.Agent.Prompt != "" {
 		if m.showFullPrompt {
 			s += row("Prompt", mutedStyle.Render("[p] collapse"))
-			s += "  " + subtextStyle.Render(pyl.Agent.Prompt) + "\n"
+			s += indentBlock(subtextStyle.Render(pyl.Agent.Prompt), "  ") + "\n"
 		} else {
 			// Flatten to single line
 			prompt := strings.ReplaceAll(pyl.Agent.Prompt, "\n", " ")

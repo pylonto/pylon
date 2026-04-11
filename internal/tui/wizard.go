@@ -30,6 +30,9 @@ type wizardModel struct {
 	values  map[string]string
 	err     error
 
+	// confirmCancel is true when the user pressed ESC and is being asked to confirm.
+	confirmCancel bool
+
 	// onStepDone is called after each step completes. It receives the current
 	// values map and can return new steps to insert after the current position.
 	// This enables dynamic step insertion based on user choices.
@@ -139,12 +142,18 @@ func (m wizardModel) View(width, height int) string {
 		}
 		desc := m.active.Description()
 		if desc != "" {
-			b.WriteString("  " + subtextStyle.Render(desc) + "\n")
+			b.WriteString(indentBlock(subtextStyle.Render(desc), "  ") + "\n")
 		}
 		b.WriteString("\n")
 
 		// Step content
-		b.WriteString("  " + m.active.View(width-4) + "\n")
+		b.WriteString(indentBlock(m.active.View(width-4), "  ") + "\n")
+	}
+
+	// Cancel confirmation
+	if m.confirmCancel {
+		b.WriteString("\n  " + lipgloss.NewStyle().Foreground(colorWarning).Bold(true).Render("Discard progress?") +
+			"  " + mutedStyle.Render("y to confirm, any key to continue") + "\n")
 	}
 
 	// Error display
@@ -156,6 +165,12 @@ func (m wizardModel) View(width, height int) string {
 }
 
 func (m wizardModel) footerBindings() []keyBinding {
+	if m.confirmCancel {
+		return []keyBinding{
+			{"y/esc", "discard"},
+			{"any", "continue"},
+		}
+	}
 	bindings := []keyBinding{
 		{"enter", "next"},
 	}
@@ -164,6 +179,17 @@ func (m wizardModel) footerBindings() []keyBinding {
 	}
 	bindings = append(bindings, keyBinding{"esc", "cancel"})
 	return bindings
+}
+
+// indentBlock prepends prefix to every non-empty line in s.
+func indentBlock(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = prefix + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderProgress draws a progress bar.
