@@ -74,5 +74,15 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	rebuild.Stdout = os.Stdout
 	rebuild.Stderr = os.Stderr
 	rebuild.Run() // best-effort
+
+	// Restart daemon if running so it picks up the new binary.
+	if err := exec.Command("systemctl", "--user", "is-active", "pylon").Run(); err == nil {
+		fmt.Println("Restarting daemon...")
+		if err := exec.Command("systemctl", "--user", "restart", "pylon").Run(); err != nil {
+			fmt.Printf("Warning: could not restart daemon: %v\n", err)
+		} else {
+			fmt.Println("Daemon restarted.")
+		}
+	}
 	return nil
 }

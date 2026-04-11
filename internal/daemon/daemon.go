@@ -232,6 +232,7 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 
 	go func() {
 		defer d.Limiter.Release()
+		defer runner.CleanupWorkspace(jobID)
 		var apiKey string
 		var extraEnv map[string]string
 		if pyl.Agent != nil {
