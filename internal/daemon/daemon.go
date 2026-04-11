@@ -299,9 +299,15 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 		})
 		if err != nil {
 			log.Printf("[pylon] [%s] failed: %v", jobID[:8], err)
-			d.Store.SetFailed(jobID, err.Error())
+			// Only mark failed if the callback hasn't already set a terminal status
+			if j, ok := d.Store.Get(jobID); ok && j.Status == "running" {
+				d.Store.SetFailed(jobID, err.Error())
+			}
 		}
-		d.Store.UpdateStatus(jobID, "active")
+		// Transition to active (ready for follow-ups) unless already completed/failed by callback
+		if j, ok := d.Store.Get(jobID); ok && j.Status == "running" {
+			d.Store.UpdateStatus(jobID, "active")
+		}
 	}()
 }
 
@@ -350,7 +356,7 @@ func (d *Daemon) registerApprovalHandler() {
 					}
 					msg = b.String()
 				}
-				source.SendMessage(topicID, msg)
+				source.ReplyMessage(topicID, msg, incomingMsgID)
 				return
 			}
 
@@ -394,27 +400,30 @@ func (d *Daemon) registerApprovalHandler() {
 
 			job, ok := d.Store.GetByTopic(topicID)
 			if !ok {
+				log.Printf("[channel] no job found for topic %s, ignoring message", topicID)
 				return
 			}
 			pyl, exists := d.pylonConfig(job.PylonName)
 			if !exists {
+				log.Printf("[channel] pylon %q not found for job %s, ignoring message", job.PylonName, job.ID[:8])
 				return
 			}
 			n := d.channelFor(job.PylonName)
 
 			if cmd == "done" || strings.HasPrefix(text, "/done@") {
 				runner.CleanupWorkspace(job.ID)
-				n.SendMessage(topicID, "Job closed.")
+				n.ReplyMessage(topicID, "Job closed.", incomingMsgID)
 				n.CloseTopic(topicID)
 				d.Store.Delete(job.ID)
 				return
 			}
 
 			if job.Status == "running" {
-				n.SendMessage(topicID, "Agent is still working, please wait.")
+				n.ReplyMessage(topicID, "Agent is still working, please wait.", incomingMsgID)
 				return
 			}
-			if job.Status == "active" {
+			if job.Status == "active" || job.Status == "completed" || job.Status == "failed" {
+				log.Printf("[pylon] [%s] follow-up from topic %s (was %s)", job.ID[:8], topicID, job.Status)
 				d.Store.UpdateStatus(job.ID, "running")
 				d.runJob(job.PylonName, pyl, job.ID, job.Body, job.CallbackURL, job.TopicID, text, job.SessionID)
 			}
