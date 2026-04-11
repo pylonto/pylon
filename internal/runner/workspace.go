@@ -89,6 +89,12 @@ func setupWorktree(ctx context.Context, p RunParams) (string, error) {
 		cmd.Run() // best-effort; if offline, use stale
 	}
 
+	// Clean up any stale worktree from a previous run with the same job ID
+	os.RemoveAll(workDir)
+	pruneCmd := exec.CommandContext(ctx, "git", "worktree", "prune")
+	pruneCmd.Dir = bareDir
+	pruneCmd.Run() // best-effort
+
 	log.Printf("[pylon] [%s] creating worktree for %s", p.JobID[:8], p.Ref)
 	cmd := exec.CommandContext(ctx, "git", "worktree", "add", "--detach", workDir, p.Ref)
 	cmd.Dir = bareDir

@@ -479,6 +479,9 @@ func (m detailModel) renderJobs(width int) string {
 			status + spaces(statusPad) +
 			fmt.Sprintf("  %-*s  %s", colTriggered, triggered, duration)
 		rows += style.Render(line) + "\n"
+		if i == m.cursor && m.focused && j.Error != "" {
+			rows += "    " + statusFailed.Render(j.Error) + "\n"
+		}
 	}
 
 	out := header + "\n" + rows
