@@ -52,11 +52,15 @@ func newConstructWizard(name string) wizardModel {
 			)
 		}},
 		{Key: "channel_choice", Create: func() Step {
+			channelDefault := "Use default"
+			if g, err := config.LoadGlobal(); err == nil && g.Defaults.Channel.Type != "" {
+				channelDefault += " (" + g.Defaults.Channel.Type + ")"
+			}
 			return NewSelectStep(
 				"Channel",
 				"Where should this pylon communicate?",
 				[]selectOption{
-					{"Use default", "default"},
+					{channelDefault, "default"},
 					{"Telegram", "telegram"},
 					{"Slack", "slack"},
 					{"Webhook (outbound HTTP)", "webhook"},
@@ -65,11 +69,15 @@ func newConstructWizard(name string) wizardModel {
 			)
 		}},
 		{Key: "agent_choice", Create: func() Step {
+			agentDefault := "Use default"
+			if g, err := config.LoadGlobal(); err == nil && g.Defaults.Agent.Type != "" {
+				agentDefault += " (" + g.Defaults.Agent.Type + ")"
+			}
 			return NewSelectStep(
 				"Agent",
 				"Which AI agent for this pylon?",
 				[]selectOption{
-					{"Use default", "default"},
+					{agentDefault, "default"},
 					{"Claude Code", "claude"},
 					{"OpenCode", "opencode"},
 				},
@@ -218,7 +226,7 @@ func constructChannelSteps(channelType string) []StepDef {
 			{Key: "channel_choice.tg_chat_id", Create: func() Step {
 				return NewTextInputStep(
 					"Telegram chat ID",
-					"Numeric chat ID where the bot will post.",
+					"Numeric chat ID where the bot will post. Set to 0 to auto-detect on first message.",
 					"123456789",
 					"",
 					false,

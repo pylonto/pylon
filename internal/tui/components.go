@@ -141,8 +141,8 @@ func (s *selectStep) View(width int) string {
 		cursor := "  "
 		style := lipgloss.NewStyle().Foreground(colorText)
 		if i == s.cursor {
-			cursor = lipgloss.NewStyle().Foreground(colorAccent).Render("> ")
-			style = style.Foreground(colorAccent).Bold(true)
+			cursor = lipgloss.NewStyle().Foreground(colorGold).Render("> ")
+			style = style.Foreground(colorGold).Bold(true)
 		}
 		b.WriteString(cursor + style.Render(opt.Label) + "\n")
 	}
@@ -278,7 +278,7 @@ func (s *confirmStep) View(width int) string {
 
 	activeStyle := lipgloss.NewStyle().
 		Background(colorHighlight).
-		Foreground(colorAccent).
+		Foreground(colorGold).
 		Bold(true)
 	inactiveStyle := lipgloss.NewStyle().
 		Foreground(colorMuted)

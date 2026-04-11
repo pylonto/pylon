@@ -24,18 +24,17 @@ var (
 	colorGoldDim   = lipgloss.Color("#7d6348") // dimmed gold for separators
 )
 
-// shimmerPalette is a warm gold gradient for the shimmer sweep effect.
+// shimmerPalette is a subtle warm gold gradient for the shimmer sweep effect.
+// All entries share the same warm hue so the cycle wraps smoothly.
 var shimmerPalette = []string{
-	"#6c7086", // muted
-	"#7d6348", // dim gold
-	"#b8860b", // dark goldenrod
-	"#daa520", // goldenrod
-	"#fab387", // peach/gold
-	"#f9e2af", // bright yellow
-	"#fab387", // peach/gold
-	"#daa520", // goldenrod
-	"#b8860b", // dark goldenrod
-	"#7d6348", // dim gold
+	"#7d6348", // dim gold (trough)
+	"#8c7353",
+	"#9b835e",
+	"#ab9369",
+	"#b9a374", // warm gold (peak)
+	"#ab9369",
+	"#9b835e",
+	"#8c7353",
 }
 
 // renderShimmer renders text with a sweeping color gradient.
