@@ -70,8 +70,9 @@ type Daemon struct {
 	Limiter   *AgentLimiter
 	Mux       *http.ServeMux
 
-	hooksMu   sync.Mutex
-	hookLog   map[string][]string // jobID -> recent tool-use descriptions
+	pylonsMu sync.RWMutex
+	hooksMu  sync.Mutex
+	hookLog  map[string][]string // jobID -> recent tool-use descriptions
 }
 
 // New creates a Daemon from global config and loaded pylons.
@@ -88,6 +89,14 @@ func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st 
 	}
 	d.registerRoutes()
 	return d
+}
+
+// pylonConfig returns the config for a pylon (thread-safe).
+func (d *Daemon) pylonConfig(name string) (*config.PylonConfig, bool) {
+	d.pylonsMu.RLock()
+	defer d.pylonsMu.RUnlock()
+	pyl, ok := d.Pylons[name]
+	return pyl, ok
 }
 
 // channelFor returns the per-pylon channel if configured, otherwise the global one.
@@ -119,6 +128,9 @@ func (d *Daemon) registerRoutes() {
 
 func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 	log.Printf("[pylon] registered %q on POST %s", name, pyl.Trigger.Path)
+	// Capture only the trigger config for signature verification (immutable).
+	// All other config is read fresh via d.pylonConfig() on each request.
+	trigger := pyl.Trigger
 	d.Mux.HandleFunc(pyl.Trigger.Path, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -131,11 +143,17 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		}
 		defer r.Body.Close()
 
-		if pyl.Trigger.Secret != "" {
-			if !verifySignature(pyl.Trigger, r.Header, rawBody) {
+		if trigger.Secret != "" {
+			if !verifySignature(trigger, r.Header, rawBody) {
 				http.Error(w, "invalid signature", http.StatusUnauthorized)
 				return
 			}
+		}
+
+		pyl, ok := d.pylonConfig(name)
+		if !ok {
+			http.Error(w, "pylon not found", http.StatusNotFound)
+			return
 		}
 
 		var body map[string]interface{}
@@ -151,8 +169,14 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		n := d.channelFor(name)
 		needsApproval := n != nil && pyl.Channel != nil && pyl.Channel.Approval
 
+		// Resolve topic name from template or fall back to default
+		topicName := fmt.Sprintf("%s -- %s", name, jobID[:8])
+		if pyl.Channel != nil && pyl.Channel.Topic != "" {
+			topicName = runner.ResolveTemplate(pyl.Channel.Topic, body)
+		}
+
 		if needsApproval {
-			topicID, _ := n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
+			topicID, _ := n.CreateTopic(topicName)
 			msg := runner.ResolveTemplate(pyl.Channel.Message, body)
 			msgID, err := n.SendApproval(topicID, msg, jobID)
 			if err != nil {
@@ -168,7 +192,7 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		} else {
 			var topicID string
 			if n != nil && pyl.Channel != nil && pyl.Channel.Message != "" {
-				topicID, _ = n.CreateTopic(fmt.Sprintf("%s -- %s", name, jobID[:8]))
+				topicID, _ = n.CreateTopic(topicName)
 				n.SendMessage(topicID, runner.ResolveTemplate(pyl.Channel.Message, body))
 			}
 			d.runJob(name, pyl, jobID, body, callbackURL, topicID, "", "")
@@ -372,7 +396,7 @@ func (d *Daemon) registerApprovalHandler() {
 			if !ok {
 				return
 			}
-			pyl, exists := d.Pylons[job.PylonName]
+			pyl, exists := d.pylonConfig(job.PylonName)
 			if !exists {
 				return
 			}
@@ -419,6 +443,62 @@ func (d *Daemon) allChannels() []channel.Channel {
 		}
 	}
 	return all
+}
+
+// WatchConfigs polls pylon config files for changes and hot-reloads them.
+// Call this in a goroutine. It stops when ctx is cancelled.
+func (d *Daemon) WatchConfigs(ctx context.Context) {
+	modTimes := make(map[string]time.Time)
+
+	// Seed initial mod times
+	d.pylonsMu.RLock()
+	for name := range d.Pylons {
+		path := config.PylonPath(name)
+		if fi, err := os.Stat(path); err == nil {
+			modTimes[name] = fi.ModTime()
+		}
+	}
+	d.pylonsMu.RUnlock()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.pylonsMu.RLock()
+			names := make([]string, 0, len(d.Pylons))
+			for name := range d.Pylons {
+				names = append(names, name)
+			}
+			d.pylonsMu.RUnlock()
+
+			for _, name := range names {
+				path := config.PylonPath(name)
+				fi, err := os.Stat(path)
+				if err != nil {
+					continue
+				}
+				if fi.ModTime().Equal(modTimes[name]) {
+					continue
+				}
+				modTimes[name] = fi.ModTime()
+
+				pyl, err := config.LoadPylon(name)
+				if err != nil {
+					log.Printf("[pylon] config reload failed for %q: %v", name, err)
+					continue
+				}
+
+				d.pylonsMu.Lock()
+				d.Pylons[name] = pyl
+				d.pylonsMu.Unlock()
+				log.Printf("[pylon] config reloaded: %q", name)
+			}
+		}
+	}
 }
 
 func (d *Daemon) registerCallbackRoute() {
@@ -526,7 +606,7 @@ func (d *Daemon) registerExecRoute() {
 			return
 		}
 
-		pyl, exists := d.Pylons[job.PylonName]
+		pyl, exists := d.pylonConfig(job.PylonName)
 		if !exists {
 			http.Error(w, `{"error":"pylon not found"}`, http.StatusNotFound)
 			return

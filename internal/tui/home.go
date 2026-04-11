@@ -165,7 +165,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd(), m.loadDetailForCursor())
+		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd(), m.detail.refreshJobs())
 
 	case pylonEditDoneMsg:
 		// Reload after editing
@@ -189,6 +189,12 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	// When detail pane has focus, delegate key presses there
 	if m.focus == focusDetail {
 		if key, ok := msg.(tea.KeyMsg); ok {
+			// Let the detail model handle esc/h when it has an active overlay
+			if m.detail.alertBuilder {
+				var cmd tea.Cmd
+				m.detail, cmd = m.detail.Update(msg)
+				return m, cmd
+			}
 			switch key.String() {
 			case "h", keyEsc:
 				m.focus = focusList

@@ -108,6 +108,15 @@ func constructOnStepDone(key, value string, values map[string]string) []StepDef 
 	case "approval":
 		if value == "no" {
 			return []StepDef{
+				{Key: "approval.topic", Create: func() Step {
+					return NewTextInputStep(
+						"Topic name template",
+						"The group/thread subject line. Use {{ .body.X }} for webhook fields.",
+						"{{ .body.issue.title }}",
+						"{{ .body.issue.title }}",
+						false,
+					)
+				}},
 				{Key: "approval.message", Create: func() Step {
 					return NewEditorStep(
 						"Notification message template",
@@ -257,6 +266,7 @@ func constructOnComplete(values map[string]string) error {
 			pyl.Channel = &config.PylonChannel{}
 		}
 		pyl.Channel.Approval = true
+		pyl.Channel.Topic = strings.TrimSpace(values["approval.topic"])
 		pyl.Channel.Message = strings.TrimSpace(values["approval.message"])
 	}
 

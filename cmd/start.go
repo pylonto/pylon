@@ -166,6 +166,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	server := &http.Server{Addr: addr, Handler: d.Mux}
 
+	// Hot-reload pylon configs on file change
+	go d.WatchConfigs(ctx)
+
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

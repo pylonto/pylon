@@ -8,6 +8,7 @@ trigger:
   # signature_header: X-Hub-Signature-256
 
 channel:
+  topic: "PR #{{ .body.number }}: {{ .body.pull_request.title }}"
   message: |
     PR #{{ .body.number }}: {{ .body.pull_request.title }}
   approval: false

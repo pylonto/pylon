@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +28,13 @@ type detailModel struct {
 	confirmDismiss bool // when true, waiting for y/n to confirm dismiss
 	copyFlash      copyFlashModel
 	err            error
+
+	// Alert template builder
+	alertBuilder  bool              // true when in builder mode
+	alertPaths    []string          // available {{ .body.X }} paths
+	alertValues   map[string]string // path -> sample value from last payload
+	alertCursor   int
+	alertChecked  map[int]bool
 }
 
 func newDetailModel(name string) detailModel {
@@ -37,6 +46,11 @@ type detailLoadedMsg struct {
 	global *config.GlobalConfig
 	jobs   []*store.Job
 	err    error
+}
+
+// jobsRefreshedMsg carries only updated job data (no config reload).
+type jobsRefreshedMsg struct {
+	jobs []*store.Job
 }
 
 func (m detailModel) Init() tea.Cmd {
@@ -74,6 +88,32 @@ func (m detailModel) Init() tea.Cmd {
 	}
 }
 
+// refreshJobs re-queries only the job list without reloading config.
+func (m detailModel) refreshJobs() tea.Cmd {
+	name := m.name
+	return func() tea.Msg {
+		var jobs []*store.Job
+		dbPath := config.PylonDBPath(name)
+		if _, statErr := os.Stat(dbPath); statErr == nil {
+			if s, openErr := store.Open(dbPath); openErr == nil {
+				jobs, _ = s.RecentJobs(name, 20)
+				_ = s.Close()
+			}
+		}
+		for _, j := range jobs {
+			if !isRunningStatus(j.Status) {
+				continue
+			}
+			out, cerr := exec.Command("docker", "ps", "-a", "--filter",
+				fmt.Sprintf("label=pylon.job=%s", j.ID), "--format", "{{.ID}}").Output()
+			if cerr != nil || strings.TrimSpace(string(out)) == "" {
+				j.Status = "stale"
+			}
+		}
+		return jobsRefreshedMsg{jobs: jobs}
+	}
+}
+
 func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case detailLoadedMsg:
@@ -81,6 +121,9 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		m.global = msg.global
 		m.jobs = msg.jobs
 		m.err = msg.err
+
+	case jobsRefreshedMsg:
+		m.jobs = msg.jobs
 
 	case detailEditorDoneMsg:
 		// Reload config after editing
@@ -147,6 +190,42 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			return m, nil
 		}
 
+		// Alert builder mode
+		if m.alertBuilder {
+			switch msg.String() {
+			case keyUp, keyK:
+				if m.alertCursor > 0 {
+					m.alertCursor--
+				}
+			case keyDown, keyJ:
+				if m.alertCursor < len(m.alertPaths)-1 {
+					m.alertCursor++
+				}
+			case " ":
+				m.alertChecked[m.alertCursor] = !m.alertChecked[m.alertCursor]
+			case keyEnter:
+				// Build template from selected fields and save
+				var lines []string
+				for i, p := range m.alertPaths {
+					if m.alertChecked[i] {
+						lines = append(lines, "{{ .body."+p+" }}")
+					}
+				}
+				if len(lines) > 0 && m.pylon != nil {
+					if m.pylon.Channel == nil {
+						m.pylon.Channel = &config.PylonChannel{}
+					}
+					m.pylon.Channel.Message = strings.Join(lines, "\n")
+					config.SavePylon(m.pylon)
+				}
+				m.alertBuilder = false
+				return m, m.Init()
+			case keyEsc:
+				m.alertBuilder = false
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case keyUp, keyK:
 			if m.showJobs && m.cursor > 0 {
@@ -166,6 +245,22 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			m.showJobs = !m.showJobs
 		case keyE:
 			return m, m.openEditor()
+		case "a":
+			if paths, values := m.loadPayloadPaths(); len(paths) > 0 {
+				m.alertBuilder = true
+				m.alertPaths = paths
+				m.alertValues = values
+				m.alertCursor = 0
+				m.alertChecked = make(map[int]bool)
+				// Pre-check fields that are already in the template
+				if m.pylon != nil && m.pylon.Channel != nil {
+					for i, p := range paths {
+						if strings.Contains(m.pylon.Channel.Message, ".body."+p) {
+							m.alertChecked[i] = true
+						}
+					}
+				}
+			}
 		case "l":
 			if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
 				return m, findContainerCmd(j.ID, "logs")
@@ -192,6 +287,9 @@ func (m detailModel) webhookURL() string {
 }
 
 func (m detailModel) View(width, height int) string {
+	if m.alertBuilder {
+		return m.renderAlertBuilder()
+	}
 	if m.err != nil {
 		return statusFailed.Render(fmt.Sprintf("  Error: %v", m.err))
 	}
@@ -277,6 +375,26 @@ func (m detailModel) renderConfig(width int) string {
 	}
 	s += row("Channel", channelType)
 
+	// Topic template
+	if pyl.Channel != nil && pyl.Channel.Topic != "" {
+		topic := strings.ReplaceAll(pyl.Channel.Topic, "\n", " ")
+		maxLen := 36
+		if len(topic) > maxLen {
+			topic = topic[:maxLen-3] + "..."
+		}
+		s += row("Topic", topic)
+	}
+
+	// Alert template
+	if pyl.Channel != nil && pyl.Channel.Message != "" {
+		msg := strings.ReplaceAll(pyl.Channel.Message, "\n", " ")
+		maxLen := 36
+		if len(msg) > maxLen {
+			msg = msg[:maxLen-3] + "..."
+		}
+		s += row("Alert", msg)
+	}
+
 	// Auto-run (inverted from Approval)
 	if pyl.Channel != nil && pyl.Channel.Approval {
 		s += row("Auto-run", "no")
@@ -329,7 +447,7 @@ func (m detailModel) renderJobs(width int) string {
 		status := renderJobStatus(j.Status)
 		triggered := "-"
 		if !j.CreatedAt.IsZero() {
-			triggered = timeAgo(j.CreatedAt)
+			triggered = j.CreatedAt.Local().Format("Jan 2 15:04")
 		}
 		duration := "-"
 		if j.CompletedAt != nil && !j.CompletedAt.IsZero() {
@@ -498,6 +616,149 @@ func dismissJobCmd(pylonName, jobID string) tea.Cmd {
 	}
 }
 
+// loadPayloadPaths extracts flattened field paths from the most recent job's trigger payload.
+func (m detailModel) loadPayloadPaths() ([]string, map[string]string) {
+	dbPath := config.PylonDBPath(m.name)
+	s, err := store.Open(dbPath)
+	if err != nil {
+		return nil, nil
+	}
+	defer s.Close()
+	jobs, _ := s.RecentJobs(m.name, 1)
+	if len(jobs) == 0 {
+		return nil, nil
+	}
+	var payload string
+	s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobs[0].ID).Scan(&payload)
+	if payload == "" {
+		return nil, nil
+	}
+	var body map[string]interface{}
+	if json.Unmarshal([]byte(payload), &body) != nil {
+		return nil, nil
+	}
+	var paths []string
+	values := make(map[string]string)
+	flattenPaths(body, "", &paths, values)
+	return paths, values
+}
+
+// flattenPaths recursively extracts dot-separated paths and sample values from a JSON object.
+// Skips internal/noisy fields (underscore-prefixed), arrays, and deep nesting.
+func flattenPaths(obj map[string]interface{}, prefix string, paths *[]string, values map[string]string) {
+	for k, v := range obj {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		path := k
+		if prefix != "" {
+			path = prefix + "." + k
+		}
+		switch val := v.(type) {
+		case map[string]interface{}:
+			if strings.Count(path, ".") < 3 {
+				flattenPaths(val, path, paths, values)
+			}
+		case string:
+			if val != "" && len(val) < 500 {
+				*paths = append(*paths, path)
+				values[path] = val
+			}
+		case float64:
+			*paths = append(*paths, path)
+			values[path] = fmt.Sprintf("%g", val)
+		case bool:
+			*paths = append(*paths, path)
+			values[path] = fmt.Sprintf("%v", val)
+		}
+	}
+	sort.Strings(*paths)
+}
+
+// renderAlertBuilder renders the template field picker with a scrolling window.
+func (m detailModel) renderAlertBuilder() string {
+	var b strings.Builder
+	b.WriteString("  " + lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Alert Template Builder") + "\n")
+	b.WriteString("  " + subtextStyle.Render("Select fields to include in the alert message") + "\n\n")
+
+	// Scrolling window: show ~15 items centered on cursor
+	visible := 15
+	start := m.alertCursor - visible/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + visible
+	if end > len(m.alertPaths) {
+		end = len(m.alertPaths)
+		start = end - visible
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	// Find max path width for alignment
+	maxPath := 0
+	for _, p := range m.alertPaths {
+		w := len("{{ .body." + p + " }}")
+		if w > maxPath {
+			maxPath = w
+		}
+	}
+
+	if start > 0 {
+		b.WriteString("  " + mutedStyle.Render(fmt.Sprintf("  ... %d more above", start)) + "\n")
+	} else {
+		b.WriteString("\n")
+	}
+
+	for i := start; i < end; i++ {
+		p := m.alertPaths[i]
+		check := "[ ] "
+		if m.alertChecked[i] {
+			check = lipgloss.NewStyle().Foreground(colorAccent).Render("[x] ")
+		}
+		cursor := "  "
+		style := lipgloss.NewStyle().Foreground(colorText)
+		if i == m.alertCursor {
+			cursor = lipgloss.NewStyle().Foreground(colorAccent).Render("> ")
+			style = style.Bold(true)
+		}
+		raw := "{{ .body." + p + " }}"
+		field := style.Render(raw) + spaces(maxPath-len(raw))
+		preview := ""
+		if val, ok := m.alertValues[p]; ok {
+			if len(val) > 40 {
+				val = val[:37] + "..."
+			}
+			preview = "  " + mutedStyle.Render(val)
+		}
+		b.WriteString("  " + cursor + check + field + preview + "\n")
+	}
+
+	if end < len(m.alertPaths) {
+		b.WriteString("  " + mutedStyle.Render(fmt.Sprintf("  ... %d more below", len(m.alertPaths)-end)) + "\n")
+	} else {
+		b.WriteString("\n")
+	}
+
+	// Preview
+	var selected []string
+	for i, p := range m.alertPaths {
+		if m.alertChecked[i] {
+			selected = append(selected, "{{ .body."+p+" }}")
+		}
+	}
+	if len(selected) > 0 {
+		b.WriteString("\n  " + mutedStyle.Render("Preview:") + "\n")
+		for _, s := range selected {
+			b.WriteString("  " + subtextStyle.Render(s) + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + mutedStyle.Render("space toggle  enter save  esc cancel"))
+	return b.String()
+}
+
 // detailEditorDoneMsg is sent when the editor closes so we can reload the config.
 type detailEditorDoneMsg struct {
 	err error
@@ -542,6 +803,7 @@ func (m detailModel) footerBindings() []keyBinding {
 		bindings = append(bindings, keyBinding{"t", "show jobs"})
 	}
 	bindings = append(bindings, keyBinding{"e", "edit"})
+	bindings = append(bindings, keyBinding{"a", "alert builder"})
 	if m.showJobs {
 		if j := m.selectedJob(); j != nil {
 			if isRunningStatus(j.Status) {

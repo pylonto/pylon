@@ -96,6 +96,9 @@ func migrate(db *sql.DB) error {
 // Close closes the database connection.
 func (s *Store) Close() error { return s.db.Close() }
 
+// DB returns the underlying database connection for direct queries.
+func (s *Store) DB() *sql.DB { return s.db }
+
 // Put adds or updates a job in memory and SQLite.
 func (s *Store) Put(j *Job) {
 	s.mu.Lock()

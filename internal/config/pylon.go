@@ -50,6 +50,7 @@ type PylonChannel struct {
 	Type     string          `yaml:"type,omitempty"`
 	Telegram *TelegramConfig `yaml:"telegram,omitempty"`
 	Slack    *SlackConfig    `yaml:"slack,omitempty"`
+	Topic    string          `yaml:"topic,omitempty"`
 	Message  string          `yaml:"message,omitempty"`
 	Approval bool            `yaml:"approval,omitempty"`
 }

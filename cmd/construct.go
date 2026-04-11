@@ -311,6 +311,17 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	pyl.Channel.Approval = approval
 
 	if approval {
+		topicTemplate := "{{ .body.issue.title }}"
+		if err := huh.NewInput().
+			Title("Topic name template:").
+			Description("The group/thread subject line. Use {{ .body.X }} for webhook fields.").
+			Value(&topicTemplate).Run(); err != nil {
+			return err
+		}
+		if topicTemplate != "" {
+			pyl.Channel.Topic = topicTemplate
+		}
+
 		msgTemplate := "{{ .body.issue.title }}\n{{ .body.error }}"
 		if err := huh.NewText().
 			Title("Notification message template:").
