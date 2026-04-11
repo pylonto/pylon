@@ -165,7 +165,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
+		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd(), m.loadDetailForCursor())
 
 	case pylonEditDoneMsg:
 		// Reload after editing

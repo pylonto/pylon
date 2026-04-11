@@ -101,7 +101,7 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		}
 		switch msg.action {
 		case "logs":
-			c := exec.Command("docker", "logs", "-f", msg.containerID)
+			c := exec.Command("docker", "logs", "-f", "--tail", "50", msg.containerID)
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {
 				return detailEditorDoneMsg{err: err}
 			})
