@@ -233,7 +233,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 			if name != "" {
 				return m, m.openEditorForPylon(name)
 			}
-		case "x":
+		case keyX:
 			name := m.selectedPylon()
 			if name != "" {
 				return m, togglePylonCmd(name)

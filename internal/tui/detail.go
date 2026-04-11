@@ -241,11 +241,11 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			}
 		case keyP:
 			m.showFullPrompt = !m.showFullPrompt
-		case "t":
+		case keyT:
 			m.showJobs = !m.showJobs
 		case keyE:
 			return m, m.openEditor()
-		case "a":
+		case keyA:
 			if paths, values := m.loadPayloadPaths(); len(paths) > 0 {
 				m.alertBuilder = true
 				m.alertPaths = paths
@@ -261,11 +261,11 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 					}
 				}
 			}
-		case "l":
+		case keyL:
 			if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
 				return m, findContainerCmd(j.ID, "logs")
 			}
-		case "x":
+		case keyX:
 			if j := m.selectedJob(); j != nil && !isTerminalStatus(j.Status) {
 				if isRunningStatus(j.Status) {
 					m.confirmKill = true

@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
@@ -39,7 +41,8 @@ const leftPanelWidth = 24
 
 // AppModel is the top-level bubbletea model.
 type AppModel struct {
-	version string
+	version       string
+	latestVersion string // set after checking GitHub
 
 	activeView viewID
 	viewStack  []viewID
@@ -63,7 +66,35 @@ func NewApp(version string) AppModel {
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return tea.Batch(m.home.Init(), glyphTickCmd())
+	return tea.Batch(m.home.Init(), glyphTickCmd(), checkUpdateCmd(m.version))
+}
+
+// updateAvailableMsg carries the latest version from GitHub.
+type updateAvailableMsg struct{ version string }
+
+// checkUpdateCmd checks GitHub for a newer release.
+func checkUpdateCmd(current string) tea.Cmd {
+	return func() tea.Msg {
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get("https://api.github.com/repos/pylonto/pylon/releases/latest")
+		if err != nil {
+			return nil
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return nil
+		}
+		var r struct {
+			TagName string `json:"tag_name"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&r) != nil || r.TagName == "" {
+			return nil
+		}
+		if r.TagName != current && current != "dev" {
+			return updateAvailableMsg{version: r.TagName}
+		}
+		return nil
+	}
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -71,6 +102,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case updateAvailableMsg:
+		m.latestVersion = msg.version
 		return m, nil
 
 	case glyphTickMsg:
@@ -88,6 +123,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Keep daemonStarting=true until health check confirms state change
 		return m, checkDaemonCmd()
+
+	case upgradeDoneMsg:
+		m.latestVersion = ""
+		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 
 	case doctorDoneMsg:
 		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
@@ -152,6 +191,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, startDaemonCmd()
 			case keyQuestion:
 				return m, runDoctorCmd()
+			case keyU:
+				if m.latestVersion != "" {
+					return m, runUpgradeCmd()
+				}
 			}
 		}
 
@@ -205,7 +248,11 @@ func (m AppModel) View() string {
 	switch m.activeView {
 	case viewHome:
 		rightContent = m.home.View(rightWidth, contentHeight)
-		footer = renderFooter(m.home.footerBindings(), m.width)
+		bindings := m.home.footerBindings()
+		if m.latestVersion != "" {
+			bindings = append(bindings, keyBinding{"u", "upgrade"})
+		}
+		footer = renderFooter(bindings, m.width)
 	case viewSetup, viewConstruct:
 		rightContent = m.wizard.View(rightWidth, contentHeight)
 		footer = renderFooter(m.wizard.footerBindings(), m.width)
@@ -237,7 +284,11 @@ func (m AppModel) renderLeftPanel() string {
 	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Pylon Nexus")
 	ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
 	b.WriteString(" " + spinner + " " + title + "\n")
-	b.WriteString("   " + ver + "\n")
+	if m.latestVersion != "" {
+		b.WriteString("   " + ver + " " + lipgloss.NewStyle().Foreground(colorWarning).Render(m.latestVersion+" available") + "\n")
+	} else {
+		b.WriteString("   " + ver + "\n")
+	}
 
 	// Daemon status
 	if m.confirmStop {
@@ -360,6 +411,17 @@ func stopDaemonCmd() tea.Cmd {
 		}
 		return daemonStartedMsg{}
 	}
+}
+
+// upgradeDoneMsg is sent when the upgrade subprocess exits.
+type upgradeDoneMsg struct{ err error }
+
+// runUpgradeCmd launches pylon upgrade as a subprocess.
+func runUpgradeCmd() tea.Cmd {
+	c := exec.Command("sh", "-c", os.Args[0]+" upgrade; printf '\\nPress enter to return to nexus...'; read _")
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return upgradeDoneMsg{err: err}
+	})
 }
 
 // doctorDoneMsg is sent when the doctor subprocess exits.
