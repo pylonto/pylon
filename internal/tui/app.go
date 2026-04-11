@@ -125,6 +125,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, checkDaemonCmd()
 
 	case upgradeDoneMsg:
+		if m.latestVersion != "" {
+			m.version = m.latestVersion
+		}
 		m.latestVersion = ""
 		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
 

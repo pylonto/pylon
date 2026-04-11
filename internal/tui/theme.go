@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"fmt"
+	"math"
+
 	catppuccin "github.com/catppuccin/go"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -24,26 +27,32 @@ var (
 	colorGoldDim   = lipgloss.Color("#7d6348") // dimmed gold for separators
 )
 
-// shimmerPalette is a subtle warm gold gradient for the shimmer sweep effect.
-// All entries share the same warm hue so the cycle wraps smoothly.
-var shimmerPalette = []string{
-	"#7d6348", // dim gold (trough)
-	"#8c7353",
-	"#9b835e",
-	"#ab9369",
-	"#b9a374", // warm gold (peak)
-	"#ab9369",
-	"#9b835e",
-	"#8c7353",
-}
-
-// renderShimmer renders text with a sweeping color gradient.
+// renderShimmer renders text with a single smooth bright spot that sweeps across.
 func renderShimmer(text string, offset int) string {
 	runes := []rune(text)
+	n := len(runes)
+	if n == 0 {
+		return ""
+	}
+
+	// The bright spot position sweeps across the text and beyond.
+	// Adding padding so the spot fully enters and exits.
+	span := float64(n + 6)
+	pos := math.Mod(float64(offset)*0.5, span) - 3
+
 	var result string
 	for i, r := range runes {
-		idx := (i + offset) % len(shimmerPalette)
-		style := lipgloss.NewStyle().Foreground(lipgloss.Color(shimmerPalette[idx]))
+		// Gaussian falloff from the bright spot
+		d := float64(i) - pos
+		t := math.Exp(-d * d / 8)
+
+		// Interpolate between dim gold and warm gold
+		ri := 0x7d + int(float64(0xb9-0x7d)*t)
+		gi := 0x63 + int(float64(0xa3-0x63)*t)
+		bi := 0x48 + int(float64(0x74-0x48)*t)
+		color := fmt.Sprintf("#%02x%02x%02x", ri, gi, bi)
+
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 		result += style.Render(string(r))
 	}
 	return result
