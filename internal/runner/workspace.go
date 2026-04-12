@@ -162,9 +162,16 @@ func WorkDir(jobID string) string {
 	return filepath.Join(JobsDir, jobID)
 }
 
-// CleanupWorkspace removes the workspace directory for a job.
+// LogPath returns the path to the persistent log file for a job.
+func LogPath(jobID string) string {
+	return filepath.Join(JobsDir, jobID+".log")
+}
+
+// CleanupWorkspace removes the workspace directory and log file for a job.
 // For local workspaces (symlinks), only the symlink is removed, not the target.
 func CleanupWorkspace(jobID string) {
+	os.Remove(LogPath(jobID)) // remove persistent log file
+
 	dir := WorkDir(jobID)
 	fi, err := os.Lstat(dir)
 	if err != nil {
@@ -271,10 +278,13 @@ func PruneOrphanedWorkspaces(activeJobIDs map[string]bool) int {
 	}
 	pruned := 0
 	for _, e := range entries {
-		if activeJobIDs[e.Name()] {
+		name := e.Name()
+		// Log files are named <jobID>.log -- derive the job ID.
+		jobID := strings.TrimSuffix(name, ".log")
+		if activeJobIDs[jobID] {
 			continue
 		}
-		p := filepath.Join(JobsDir, e.Name())
+		p := filepath.Join(JobsDir, name)
 		// Check for symlink (local workspace) -- remove link only
 		if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 			os.Remove(p)
@@ -282,6 +292,8 @@ func PruneOrphanedWorkspaces(activeJobIDs map[string]bool) int {
 			continue
 		}
 		if !e.IsDir() {
+			// Regular file (e.g. .log) -- remove it.
+			os.Remove(p)
 			continue
 		}
 		os.RemoveAll(p)

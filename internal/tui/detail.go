@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
 
@@ -369,7 +370,18 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		}
 		switch msg.action {
 		case "logs":
-			c := exec.Command("docker", "logs", "-f", "--tail", "50", msg.containerID)
+			if msg.containerID != "" {
+				c := exec.Command("docker", "logs", "-f", "--tail", "50", msg.containerID)
+				return m, tea.ExecProcess(c, func(err error) tea.Msg {
+					return detailEditorDoneMsg{err: err}
+				})
+			}
+			// Container gone -- show persistent log file.
+			pager := os.Getenv("PAGER")
+			if pager == "" {
+				pager = "less"
+			}
+			c := exec.Command(pager, msg.logFile)
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {
 				return detailEditorDoneMsg{err: err}
 			})
@@ -857,11 +869,13 @@ type jobKilledMsg struct {
 // containerFoundMsg carries the resolved container ID for a job.
 type containerFoundMsg struct {
 	containerID string
+	logFile     string // fallback log file path when container is gone
 	action      string // "logs" or "kill"
 	err         error
 }
 
 // findContainerCmd looks up the container ID for a job.
+// If the container is gone, it falls back to the persistent log file.
 func findContainerCmd(jobID, action string) tea.Cmd {
 	return func() tea.Msg {
 		out, err := exec.Command("docker", "ps", "-a", "--filter",
@@ -871,11 +885,16 @@ func findContainerCmd(jobID, action string) tea.Cmd {
 		}
 		containerID := strings.TrimSpace(string(out))
 		if containerID == "" {
+			// Container gone -- check for persistent log file.
+			logPath := runner.LogPath(jobID)
+			if _, err := os.Stat(logPath); err == nil {
+				return containerFoundMsg{logFile: logPath, action: action}
+			}
 			id := jobID
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			return containerFoundMsg{err: fmt.Errorf("container gone for job %s (status may be stale)", id)}
+			return containerFoundMsg{err: fmt.Errorf("no logs available for job %s", id)}
 		}
 		return containerFoundMsg{containerID: containerID, action: action}
 	}

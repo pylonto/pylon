@@ -169,7 +169,15 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 	if logReader, err := cli.ContainerLogs(ctx, containerID, container.LogsOptions{
 		ShowStdout: true, ShowStderr: true, Follow: true,
 	}); err == nil {
-		stdcopy.StdCopy(os.Stdout, os.Stderr, logReader)
+		// Tee logs to a persistent file so they survive container removal.
+		logFile, fileErr := os.OpenFile(LogPath(p.JobID), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if fileErr == nil {
+			fmt.Fprintf(logFile, "--- run %s ---\n", time.Now().Format("2006-01-02 15:04:05"))
+			stdcopy.StdCopy(io.MultiWriter(os.Stdout, logFile), io.MultiWriter(os.Stderr, logFile), logReader)
+			logFile.Close()
+		} else {
+			stdcopy.StdCopy(os.Stdout, os.Stderr, logReader)
+		}
 		logReader.Close()
 	}
 
