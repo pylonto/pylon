@@ -9,12 +9,15 @@ import (
 
 // pylonGlyph is a simple cycling spinner using crystal/energy unicode characters.
 type pylonGlyph struct {
-	frame int
+	frame       int
+	shimmerTick int // monotonic counter for shimmer animation (faster than glyph frames)
 }
 
 type glyphTickMsg struct{}
+type shimmerTickMsg struct{}
 
-const glyphInterval = 150 * time.Millisecond
+const glyphInterval   = 150 * time.Millisecond
+const shimmerInterval = 50 * time.Millisecond
 
 // Crystal-themed spinner frames: diamond forms and pulses.
 var glyphFrames = []string{
@@ -34,10 +37,20 @@ func glyphTickCmd() tea.Cmd {
 	})
 }
 
+func shimmerTickCmd() tea.Cmd {
+	return tea.Tick(shimmerInterval, func(time.Time) tea.Msg {
+		return shimmerTickMsg{}
+	})
+}
+
 func (g *pylonGlyph) Update(msg tea.Msg) tea.Cmd {
-	if _, ok := msg.(glyphTickMsg); ok {
+	switch msg.(type) {
+	case glyphTickMsg:
 		g.frame = (g.frame + 1) % len(glyphFrames)
 		return glyphTickCmd()
+	case shimmerTickMsg:
+		g.shimmerTick++
+		return shimmerTickCmd()
 	}
 	return nil
 }

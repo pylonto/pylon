@@ -27,7 +27,7 @@ var (
 	colorGoldDim   = lipgloss.Color("#7d6348") // dimmed gold for separators
 )
 
-// renderShimmer renders text with a single smooth bright spot that sweeps across.
+// renderShimmer renders text in gold with a lighter shimmer that sweeps across.
 func renderShimmer(text string, offset int) string {
 	runes := []rune(text)
 	n := len(runes)
@@ -38,18 +38,18 @@ func renderShimmer(text string, offset int) string {
 	// The bright spot position sweeps across the text and beyond.
 	// Adding padding so the spot fully enters and exits.
 	span := float64(n + 6)
-	pos := math.Mod(float64(offset)*0.5, span) - 3
+	pos := math.Mod(float64(offset)*0.3, span) - 3
 
 	var result string
 	for i, r := range runes {
 		// Gaussian falloff from the bright spot
 		d := float64(i) - pos
-		t := math.Exp(-d * d / 8)
+		t := math.Exp(-d * d / 18)
 
-		// Interpolate between dim gold and warm gold
-		ri := 0x7d + int(float64(0xb9-0x7d)*t)
-		gi := 0x63 + int(float64(0xa3-0x63)*t)
-		bi := 0x48 + int(float64(0x74-0x48)*t)
+		// Interpolate from gold (#fab387) to light gold (#ffd1af)
+		ri := 0xfa + int(float64(0xff-0xfa)*t)
+		gi := 0xb3 + int(float64(0xd1-0xb3)*t)
+		bi := 0x87 + int(float64(0xaf-0x87)*t)
 		color := fmt.Sprintf("#%02x%02x%02x", ri, gi, bi)
 
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))

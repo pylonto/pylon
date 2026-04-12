@@ -66,7 +66,7 @@ func NewApp(version string) AppModel {
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return tea.Batch(m.home.Init(), glyphTickCmd(), checkUpdateCmd(m.version))
+	return tea.Batch(m.home.Init(), glyphTickCmd(), shimmerTickCmd(), checkUpdateCmd(m.version))
 }
 
 // updateAvailableMsg carries the latest version from GitHub.
@@ -109,6 +109,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case glyphTickMsg:
+		return m, m.glyph.Update(msg)
+
+	case shimmerTickMsg:
 		return m, m.glyph.Update(msg)
 
 	case wizardCompleteMsg:
@@ -302,7 +305,7 @@ func (m AppModel) renderLeftPanel() string {
 	b.WriteString(" " + spinner + " " + title + "\n")
 	b.WriteString("   " + ver + "\n")
 	if m.latestVersion != "" {
-		b.WriteString("   " + renderShimmer(m.latestVersion+" [u]", m.glyph.frame) + "\n")
+		b.WriteString("   " + renderShimmer(m.latestVersion+" [u]", m.glyph.shimmerTick) + "\n")
 	}
 
 	// Daemon status
