@@ -121,6 +121,29 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		}
 		pyl.Trigger.Cron = schedule
 		fmt.Printf("  Schedule: %s (%s)\n", schedule, describeCron(schedule))
+
+		// Timezone selection
+		detectedTZ := config.DetectSystemTimezone()
+		timezone := detectedTZ
+		var tzOptions []huh.Option[string]
+		for _, tz := range config.TimezoneList() {
+			label := tz
+			if tz == detectedTZ {
+				label += " (detected)"
+			}
+			tzOptions = append(tzOptions, huh.NewOption(label, tz))
+		}
+		if err := huh.NewSelect[string]().
+			Title("Timezone:").
+			Description(fmt.Sprintf("Auto-detected: %s", detectedTZ)).
+			Options(tzOptions...).
+			Value(&timezone).
+			Height(15).
+			Run(); err != nil {
+			return err
+		}
+		pyl.Trigger.Timezone = timezone
+		fmt.Printf("  Timezone: %s\n", timezone)
 	default:
 		comingSoon(triggerType)
 		return nil
@@ -382,7 +405,7 @@ func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error
 			Timeout: "15m",
 		}
 	case "cron-audit":
-		pyl.Trigger = config.TriggerConfig{Type: "cron", Cron: "0 9 * * 1"}
+		pyl.Trigger = config.TriggerConfig{Type: "cron", Cron: "0 9 * * 1", Timezone: config.DetectSystemTimezone()}
 		pyl.Workspace = config.WorkspaceConfig{Type: "git-clone"}
 		pyl.Channel = &config.PylonChannel{Message: "Weekly codebase audit", Approval: false}
 		pyl.Agent = &config.PylonAgent{

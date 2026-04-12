@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pylonto/pylon/internal/cron"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +28,7 @@ type TriggerConfig struct {
 	Type            string `yaml:"type"`
 	Path            string `yaml:"path,omitempty"`
 	Cron            string `yaml:"cron,omitempty"`
+	Timezone        string `yaml:"timezone,omitempty"` // IANA timezone, e.g. "America/New_York"
 	Secret          string `yaml:"secret,omitempty"`
 	SignatureHeader string `yaml:"signature_header,omitempty"`
 	PublicURL       string `yaml:"public_url,omitempty"` // overrides global server.public_url
@@ -44,6 +46,22 @@ func (p *PylonConfig) ResolvePublicURL(global *GlobalConfig) string {
 	}
 	base = strings.TrimRight(base, "/")
 	return base + p.Trigger.Path
+}
+
+// ResolveTimezone returns the effective timezone for this pylon's cron schedule.
+// Per-pylon timezone takes priority, then global default, then UTC.
+func (p *PylonConfig) ResolveTimezone(global *GlobalConfig) *time.Location {
+	if p.Trigger.Timezone != "" {
+		if loc, err := time.LoadLocation(p.Trigger.Timezone); err == nil {
+			return loc
+		}
+	}
+	if global.Defaults.Timezone != "" {
+		if loc, err := time.LoadLocation(global.Defaults.Timezone); err == nil {
+			return loc
+		}
+	}
+	return time.UTC
 }
 
 type PylonChannel struct {
@@ -118,6 +136,19 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 	}
 	if !validTriggerTypes[p.Trigger.Type] {
 		return fmt.Errorf("unsupported trigger type %q (supported: webhook, cron) -- update %s or press e to edit", p.Trigger.Type, path)
+	}
+	if p.Trigger.Type == "cron" && p.Trigger.Cron == "" {
+		return fmt.Errorf("cron expression is required for trigger type %q -- update %s or press e to edit", p.Trigger.Type, path)
+	}
+	if p.Trigger.Cron != "" {
+		if err := cron.Validate(p.Trigger.Cron); err != nil {
+			return fmt.Errorf("invalid cron expression %q: %v -- update %s or press e to edit", p.Trigger.Cron, err, path)
+		}
+	}
+	if p.Trigger.Timezone != "" {
+		if _, err := time.LoadLocation(p.Trigger.Timezone); err != nil {
+			return fmt.Errorf("invalid timezone %q -- update %s or press e to edit", p.Trigger.Timezone, path)
+		}
 	}
 	if !validWorkspaceTypes[p.Workspace.Type] {
 		return fmt.Errorf("unsupported workspace type %q (supported: git-clone, git-worktree, local, none) -- update %s or press e to edit", p.Workspace.Type, path)

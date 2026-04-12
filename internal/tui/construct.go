@@ -221,6 +221,7 @@ func triggerSteps(triggerType string) []StepDef {
 			}},
 		}
 	case "cron":
+		detectedTZ := config.DetectSystemTimezone()
 		return []StepDef{
 			{Key: "trigger.cron", Create: func() Step {
 				return NewCronInputStep(
@@ -228,6 +229,14 @@ func triggerSteps(triggerType string) []StepDef {
 					"e.g. 0 9 * * 1-5 (weekdays at 9am)",
 					"0 9 * * 1-5",
 					"0 9 * * 1-5",
+				)
+			}},
+			{Key: "trigger.timezone", Create: func() Step {
+				return NewFilterSelectStep(
+					"Timezone",
+					"Schedule fires in this timezone. Auto-detected: "+detectedTZ,
+					TimezoneOptions(),
+					detectedTZ,
 				)
 			}},
 		}
@@ -361,6 +370,9 @@ func constructOnComplete(values map[string]string) error {
 		pyl.Trigger.Path = path
 	case "cron":
 		pyl.Trigger.Cron = values["trigger.cron"]
+		if tz := values["trigger.timezone"]; tz != "" {
+			pyl.Trigger.Timezone = tz
+		}
 	}
 
 	// Workspace

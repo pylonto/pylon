@@ -13,6 +13,7 @@ import (
 
 	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
+	pyloncron "github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/daemon"
 	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/runner"
@@ -156,7 +157,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 		trigger := pyl.Trigger.Type
 		path := pyl.Trigger.Path
 		if pyl.Trigger.Cron != "" {
-			path = pyl.Trigger.Cron + " (" + describeCron(pyl.Trigger.Cron) + ")"
+			loc := pyl.ResolveTimezone(global)
+			next := pyloncron.NextFire(pyl.Trigger.Cron, loc)
+			path = fmt.Sprintf("%s (%s) [%s] next: %s",
+				pyl.Trigger.Cron,
+				describeCron(pyl.Trigger.Cron),
+				loc.String(),
+				next.Format("Jan 02 15:04"),
+			)
 		}
 		fmt.Printf("  %-24s ok  %s %s\n", name, trigger, path)
 	}
@@ -168,6 +176,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Hot-reload pylon configs on file change
 	go d.WatchConfigs(ctx)
+
+	// Start cron scheduler for time-based triggers
+	go d.CronScheduler(ctx)
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)

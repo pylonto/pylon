@@ -55,8 +55,9 @@ type ServerConfig struct {
 }
 
 type DefaultsConfig struct {
-	Channel ChannelDefaults `yaml:"channel"`
-	Agent    AgentDefaults    `yaml:"agent"`
+	Channel  ChannelDefaults `yaml:"channel"`
+	Agent    AgentDefaults   `yaml:"agent"`
+	Timezone string          `yaml:"timezone,omitempty"` // global default IANA timezone for cron triggers
 }
 
 type ChannelDefaults struct {
@@ -201,6 +202,11 @@ func (c *GlobalConfig) Validate() error {
 	}
 	if !validAgentTypes[c.Defaults.Agent.Type] {
 		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode) -- update %s", c.Defaults.Agent.Type, path)
+	}
+	if c.Defaults.Timezone != "" {
+		if _, err := time.LoadLocation(c.Defaults.Timezone); err != nil {
+			return fmt.Errorf("invalid default timezone %q -- update %s", c.Defaults.Timezone, path)
+		}
 	}
 	return nil
 }

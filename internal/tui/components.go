@@ -3,12 +3,16 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	cron "github.com/lnquy/cron"
+
+	"github.com/pylonto/pylon/internal/config"
+	pyloncron "github.com/pylonto/pylon/internal/cron"
 )
 
 // Step is the interface all wizard step components implement.
@@ -499,7 +503,10 @@ func (s *cronInputStep) Init() tea.Cmd       { return textinput.Blink }
 func (s *cronInputStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		if key.String() == keyEnter {
-			s.done = true
+			val := strings.TrimSpace(s.input.Value())
+			if val != "" && pyloncron.Validate(val) == nil {
+				s.done = true
+			}
 			return s, nil
 		}
 	}
@@ -516,10 +523,12 @@ func (s *cronInputStep) View(width int) string {
 		Width(min(width-4, 60))
 	view := style.Render(s.input.View())
 
-	// Show live human-readable description
+	// Show live validation feedback
 	val := strings.TrimSpace(s.input.Value())
 	if val != "" {
-		if desc := describeCronExpr(val); desc != val {
+		if err := pyloncron.Validate(val); err != nil {
+			view += "\n" + statusFailed.Render("  invalid expression")
+		} else if desc := describeCronExpr(val); desc != val {
 			view += "\n" + mutedStyle.Render(desc)
 		}
 	}
@@ -536,5 +545,170 @@ func describeCronExpr(expr string) string {
 		return expr
 	}
 	return desc
+}
+
+// --- FilterSelectStep ---
+
+type filterSelectStep struct {
+	title       string
+	description string
+	options     []selectOption
+	filtered    []int // indices into options
+	filter      textinput.Model
+	cursor      int
+	done        bool
+	maxVisible  int
+	scrollOff   int
+}
+
+func NewFilterSelectStep(title, description string, options []selectOption, defaultValue string) Step {
+	ti := textinput.New()
+	ti.Placeholder = "Type to filter..."
+	ti.Width = 40
+	ti.Focus()
+
+	s := &filterSelectStep{
+		title:       title,
+		description: description,
+		options:     options,
+		filter:      ti,
+		maxVisible:  12,
+	}
+	s.applyFilter()
+
+	// Pre-select the default value.
+	if defaultValue != "" {
+		for i, idx := range s.filtered {
+			if s.options[idx].Value == defaultValue {
+				s.cursor = i
+				// Center the cursor in the visible window.
+				s.scrollOff = max(0, i-s.maxVisible/2)
+				break
+			}
+		}
+	}
+	return s
+}
+
+func (s *filterSelectStep) Title() string       { return s.title }
+func (s *filterSelectStep) Description() string { return s.description }
+func (s *filterSelectStep) IsDone() bool        { return s.done }
+
+func (s *filterSelectStep) Value() string {
+	if s.cursor < len(s.filtered) {
+		return s.options[s.filtered[s.cursor]].Value
+	}
+	return ""
+}
+
+func (s *filterSelectStep) Init() tea.Cmd { return textinput.Blink }
+
+func (s *filterSelectStep) Update(msg tea.Msg) (Step, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case keyUp, keyK:
+			if s.cursor > 0 {
+				s.cursor--
+				if s.cursor < s.scrollOff {
+					s.scrollOff = s.cursor
+				}
+			}
+			return s, nil
+		case keyDown, keyJ:
+			if s.cursor < len(s.filtered)-1 {
+				s.cursor++
+				if s.cursor >= s.scrollOff+s.maxVisible {
+					s.scrollOff = s.cursor - s.maxVisible + 1
+				}
+			}
+			return s, nil
+		case keyEnter:
+			if len(s.filtered) > 0 {
+				s.done = true
+			}
+			return s, nil
+		}
+	}
+
+	prevFilter := s.filter.Value()
+	var cmd tea.Cmd
+	s.filter, cmd = s.filter.Update(msg)
+
+	if s.filter.Value() != prevFilter {
+		s.applyFilter()
+		s.cursor = 0
+		s.scrollOff = 0
+	}
+	return s, cmd
+}
+
+func (s *filterSelectStep) applyFilter() {
+	query := strings.ToLower(strings.TrimSpace(s.filter.Value()))
+	s.filtered = s.filtered[:0]
+	for i, opt := range s.options {
+		if query == "" ||
+			strings.Contains(strings.ToLower(opt.Label), query) ||
+			strings.Contains(strings.ToLower(opt.Value), query) {
+			s.filtered = append(s.filtered, i)
+		}
+	}
+}
+
+func (s *filterSelectStep) View(width int) string {
+	filterStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorAccent).
+		Padding(0, 1).
+		Width(min(width-4, 60))
+	view := filterStyle.Render(s.filter.View()) + "\n"
+
+	if len(s.filtered) == 0 {
+		view += mutedStyle.Render("  No matches")
+		return view
+	}
+
+	end := min(s.scrollOff+s.maxVisible, len(s.filtered))
+	for i := s.scrollOff; i < end; i++ {
+		opt := s.options[s.filtered[i]]
+		cursor := "  "
+		style := lipgloss.NewStyle().Foreground(colorText)
+		if i == s.cursor {
+			cursor = lipgloss.NewStyle().Foreground(colorGold).Render("> ")
+			style = style.Foreground(colorGold).Bold(true)
+		}
+		view += cursor + style.Render(opt.Label) + "\n"
+	}
+
+	// Scroll indicators
+	if s.scrollOff > 0 {
+		view += mutedStyle.Render(fmt.Sprintf("  ... %d more above", s.scrollOff)) + "\n"
+	}
+	remaining := len(s.filtered) - end
+	if remaining > 0 {
+		view += mutedStyle.Render(fmt.Sprintf("  ... %d more below", remaining)) + "\n"
+	}
+
+	return view
+}
+
+// TimezoneOptions builds select options from the curated timezone list.
+func TimezoneOptions() []selectOption {
+	zones := config.TimezoneList()
+	opts := make([]selectOption, 0, len(zones))
+	for _, z := range zones {
+		loc, err := time.LoadLocation(z)
+		if err != nil {
+			continue
+		}
+		_, offset := time.Now().In(loc).Zone()
+		h := offset / 3600
+		m := (offset % 3600) / 60
+		if m < 0 {
+			m = -m
+		}
+		label := fmt.Sprintf("%-40s (UTC%+03d:%02d)", z, h, m)
+		opts = append(opts, selectOption{Label: label, Value: z})
+	}
+	return opts
 }
 

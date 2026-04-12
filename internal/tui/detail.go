@@ -9,10 +9,12 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pylonto/pylon/internal/config"
+	pyloncron "github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -634,6 +636,32 @@ func (m detailModel) renderConfig(width int) string {
 		}
 	}
 	s += row("Trigger", trigger)
+
+	// Timezone and next run for cron pylons
+	if pyl.Trigger.Type == "cron" && global != nil {
+		loc := pyl.ResolveTimezone(global)
+		s += row("Timezone", loc.String())
+		next := pyloncron.NextFire(pyl.Trigger.Cron, loc)
+		if !next.IsZero() {
+			until := time.Until(next)
+			var durStr string
+			if until < time.Minute {
+				durStr = "< 1m"
+			} else if until < time.Hour {
+				durStr = fmt.Sprintf("%dm", int(until.Minutes()))
+			} else if until < 24*time.Hour {
+				h := int(until.Hours())
+				m := int(until.Minutes()) % 60
+				durStr = fmt.Sprintf("%dh %dm", h, m)
+			} else {
+				d := int(until.Hours()) / 24
+				h := int(until.Hours()) % 24
+				durStr = fmt.Sprintf("%dd %dh", d, h)
+			}
+			nextStr := next.Format("Mon Jan 02 15:04") + "  " + mutedStyle.Render("(in "+durStr+")")
+			s += row("Next run", nextStr)
+		}
+	}
 
 	// Webhook URL
 	if pyl.Trigger.Type == "webhook" && global != nil {

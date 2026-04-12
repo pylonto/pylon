@@ -50,7 +50,7 @@ pylon test my-sentry                     # Send a test webhook
 
 ### Triggers
 
-- [ ] Cron (scheduled) -- trigger type exists in config but no scheduler runs it
+- [x] Cron (scheduled) -- with timezone support and auto-detect
 - [ ] Chat command (trigger from Telegram/Slack message)
 - [ ] API call trigger
 

@@ -4,6 +4,7 @@ created: "{{CREATED}}"
 trigger:
   type: cron
   cron: "0 9 * * 1"  # Every Monday at 9am
+  timezone: "America/New_York"  # IANA timezone (falls back to global default, then UTC)
 
 channel:
   message: "Weekly codebase audit"
