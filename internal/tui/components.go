@@ -332,7 +332,7 @@ func (s *copyBlockStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case keyY:
-			return s, copyToClipboard(s.content, "content")
+			return s, copyToClipboard(s.content, "Copied!")
 		case keyEnter:
 			s.done = true
 		}

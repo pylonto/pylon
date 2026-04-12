@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -9,13 +10,76 @@ import (
 	"github.com/pylonto/pylon/internal/config"
 )
 
+type pylonExample struct {
+	Name        string
+	Description string
+}
+
+var pylonExamples = []pylonExample{
+	// Monitoring / Incident
+	{"sentry-triage", "Triage Sentry errors for the payments service"},
+	{"incident-responder", "Investigate and summarize production incidents"},
+	{"alert-analyzer", "Analyze and categorize monitoring alerts"},
+
+	// Code / CI
+	{"pr-reviewer", "Review pull requests for bugs and style issues"},
+	{"test-fixer", "Investigate and fix failing CI tests"},
+	{"deploy-watcher", "Monitor deployments and flag regressions"},
+
+	// Security
+	{"vuln-scanner", "Scan dependencies for security vulnerabilities"},
+	{"cve-patcher", "Patch known CVEs in project dependencies"},
+
+	// Documentation / Reporting
+	{"changelog-writer", "Generate changelogs from merged pull requests"},
+	{"release-notes", "Draft release notes on new tag push"},
+
+	// Maintenance
+	{"dependency-updater", "Review and update stale dependencies"},
+	{"migration-checker", "Review database migrations for safety"},
+	{"log-analyzer", "Analyze application logs and surface anomalies"},
+
+	// Communication
+	{"slack-digest", "Summarize Slack channels into a daily digest"},
+	{"standup-bot", "Generate standup summaries from recent commits"},
+
+	// Productivity
+	{"gmail-summarizer", "Summarize unread emails into a morning briefing"},
+	{"meeting-prep", "Research attendees and topics before meetings"},
+	{"expense-tracker", "Categorize and flag expenses from receipts"},
+	{"competitor-watch", "Monitor competitor product changes and news"},
+	{"lead-qualifier", "Score and research inbound sales leads"},
+	{"support-responder", "Draft replies to customer support tickets"},
+	{"content-repurposer", "Turn blog posts into social media threads"},
+	{"job-screener", "Screen resumes against role requirements"},
+	{"invoice-processor", "Extract and validate invoice line items"},
+	{"feedback-sorter", "Categorize user feedback by theme and urgency"},
+
+	// Branded
+	{"linear-triage", "Triage and prioritize new Linear issues"},
+	{"datadog-investigator", "Investigate Datadog alert anomalies"},
+	{"pagerduty-responder", "Analyze PagerDuty incidents and suggest fixes"},
+	{"github-stalebot", "Review and close stale GitHub issues"},
+	{"bigquery-reporter", "Generate weekly reports from BigQuery data"},
+	{"stripe-reconciler", "Reconcile Stripe payments against invoices"},
+	{"notion-organizer", "Clean up and restructure Notion workspaces"},
+	{"apollo-enricher", "Enrich Apollo contacts with public data"},
+	{"vercel-previewer", "Review Vercel preview deployments for issues"},
+	{"ramp-categorizer", "Auto-categorize Ramp transactions"},
+	{"zendesk-responder", "Draft responses to Zendesk support tickets"},
+	{"grafana-summarizer", "Summarize Grafana dashboard trends daily"},
+	{"shopify-monitor", "Monitor Shopify store health and inventory"},
+}
+
 func newConstructWizard(name string) wizardModel {
+	ex := pylonExamples[rand.IntN(len(pylonExamples))]
+
 	steps := []StepDef{
 		{Key: "name", Create: func() Step {
 			return NewTextInputStep(
 				"Pylon name",
 				"A short, unique name for this pylon (used in paths and URLs).",
-				"sentry-triage",
+				ex.Name,
 				name,
 				false,
 			)
@@ -24,7 +88,7 @@ func newConstructWizard(name string) wizardModel {
 			return NewTextInputStep(
 				"Description (optional)",
 				"A short description of what this pylon does.",
-				"Sentry error triage for the nexus project",
+				ex.Description,
 				"",
 				false,
 			)

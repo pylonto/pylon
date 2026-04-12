@@ -249,14 +249,22 @@ func (t *Telegram) pollUpdates(ctx context.Context) {
 					actionFn(parts[1], parts[0])
 				}
 			}
-			if u.Message != nil && !u.Message.From.IsBot && u.Message.Text != "" &&
-				(u.Message.Chat.Type == "group" || u.Message.Chat.Type == "supergroup") {
+			if u.Message != nil && !u.Message.From.IsBot && u.Message.Text != "" {
+				isPrivate := u.Message.Chat.Type == "private"
+				isGroupMsg := u.Message.Chat.Type == "group" || u.Message.Chat.Type == "supergroup"
+				if !isPrivate && !isGroupMsg {
+					continue
+				}
 				if !t.isAllowed(u.Message.From.ID) {
 					continue
 				}
 				if messageFn != nil {
+					topicID := "0"
+					if isGroupMsg {
+						topicID = strconv.FormatInt(u.Message.MessageThreadID, 10)
+					}
 					messageFn(
-						strconv.FormatInt(u.Message.MessageThreadID, 10),
+						topicID,
 						u.Message.Text,
 						strconv.FormatInt(u.Message.MessageID, 10),
 					)
@@ -327,9 +335,9 @@ func CheckChatAccess(token string, chatID int64) error {
 	return nil
 }
 
-// PollForGroup polls Telegram updates until the bot receives a message in a group,
-// returning the chat ID and title. Used during setup to auto-detect the group.
-func PollForGroup(token string) (int64, string, error) {
+// PollForChat polls Telegram updates until the bot receives a message in a group
+// or a DM, returning the chat ID and title. Used during setup to auto-detect.
+func PollForChat(token string) (int64, string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	pollClient := &http.Client{Timeout: 45 * time.Second}
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates", token)
@@ -387,8 +395,15 @@ func PollForGroup(token string) (int64, string, error) {
 
 		for _, u := range result.Result {
 			offset = u.UpdateID + 1
-			if u.Message != nil && isGroup(u.Message.Chat.Type) {
-				return u.Message.Chat.ID, u.Message.Chat.Title, nil
+			if u.Message != nil {
+				ct := u.Message.Chat.Type
+				if isGroup(ct) || ct == "private" {
+					title := u.Message.Chat.Title
+					if ct == "private" {
+						title = "DM"
+					}
+					return u.Message.Chat.ID, title, nil
+				}
 			}
 			if u.MyChatMember != nil && isGroup(u.MyChatMember.Chat.Type) {
 				return u.MyChatMember.Chat.ID, u.MyChatMember.Chat.Title, nil

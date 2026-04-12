@@ -3,6 +3,8 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"sort"
@@ -26,8 +28,11 @@ type detailModel struct {
 	showJobs       bool // toggle jobs section visibility
 	confirmKill    bool // when true, waiting for y/n to confirm kill
 	confirmDismiss bool // when true, waiting for y/n to confirm dismiss
+	confirmRetry   bool // when true, waiting for y/n to confirm retry
+	confirmFire    bool // when true, waiting for y/n to confirm manual trigger
 	copyFlash      copyFlashModel
 	err            error
+	warning        string // non-blocking config validation warning
 
 	// Alert template builder
 	alertBuilder    bool                // true when in builder mode
@@ -254,10 +259,11 @@ func newDetailModel(name string) detailModel {
 }
 
 type detailLoadedMsg struct {
-	pylon  *config.PylonConfig
-	global *config.GlobalConfig
-	jobs   []*store.Job
-	err    error
+	pylon   *config.PylonConfig
+	global  *config.GlobalConfig
+	jobs    []*store.Job
+	err     error
+	warning string // validation warning (non-blocking)
 }
 
 // jobsRefreshedMsg carries only updated job data (no config reload).
@@ -268,11 +274,17 @@ type jobsRefreshedMsg struct {
 func (m detailModel) Init() tea.Cmd {
 	name := m.name
 	return func() tea.Msg {
-		pyl, err := config.LoadPylon(name)
+		pyl, err := config.LoadPylonRaw(name)
 		if err != nil {
 			return detailLoadedMsg{err: err}
 		}
 		global, _ := config.LoadGlobal()
+
+		// Validate separately -- config errors become non-blocking warnings.
+		var warning string
+		if verr := pyl.Validate(config.PylonPath(name)); verr != nil {
+			warning = verr.Error()
+		}
 
 		var jobs []*store.Job
 		dbPath := config.PylonDBPath(name)
@@ -296,7 +308,7 @@ func (m detailModel) Init() tea.Cmd {
 			}
 		}
 
-		return detailLoadedMsg{pylon: pyl, global: global, jobs: jobs}
+		return detailLoadedMsg{pylon: pyl, global: global, jobs: jobs, warning: warning}
 	}
 }
 
@@ -333,6 +345,7 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		m.global = msg.global
 		m.jobs = msg.jobs
 		m.err = msg.err
+		m.warning = msg.warning
 
 	case jobsRefreshedMsg:
 		m.jobs = msg.jobs
@@ -379,27 +392,62 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		}
 		return m, m.Init()
 
+	case jobRetriedMsg:
+		m.confirmRetry = false
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		return m, m.Init()
+
+	case pylonTriggeredMsg:
+		if msg.err != nil {
+			var cmd tea.Cmd
+			m.copyFlash, cmd = m.copyFlash.show("error: " + msg.err.Error())
+			return m, cmd
+		}
+		m.showJobs = true
+		var cmd tea.Cmd
+		m.copyFlash, cmd = m.copyFlash.show("triggered")
+		return m, tea.Batch(cmd, m.Init())
+
 	case tea.KeyMsg:
 		// Confirmation mode intercepts all keys
-		if m.confirmKill || m.confirmDismiss {
+		if m.confirmKill || m.confirmDismiss || m.confirmRetry || m.confirmFire {
 			switch msg.String() {
 			case "y":
+				if m.confirmFire {
+					m.confirmFire = false
+					return m, triggerPylonCmd(m.name, m.global)
+				}
 				j := m.selectedJob()
 				if j != nil {
 					if m.confirmKill {
 						m.confirmKill = false
 						return m, findContainerCmd(j.ID, "kill")
 					}
+					if m.confirmRetry {
+						m.confirmRetry = false
+						return m, retryJobCmd(m.name, j.ID, m.global)
+					}
 					m.confirmDismiss = false
 					return m, dismissJobCmd(m.name, j.ID)
 				}
 				m.confirmKill = false
 				m.confirmDismiss = false
+				m.confirmRetry = false
 			default:
 				m.confirmKill = false
 				m.confirmDismiss = false
+				m.confirmRetry = false
+				m.confirmFire = false
 			}
 			return m, nil
+		}
+
+		// Hard error: pressing enter reloads.
+		if m.err != nil {
+			m.err = nil
+			return m, m.Init()
 		}
 
 		// Alert builder mode
@@ -456,7 +504,7 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			}
 		case keyY:
 			if url := m.webhookURL(); url != "" {
-				return m, copyToClipboard(url, "webhook URL")
+				return m, copyToClipboard(url, "Copied webhook URL!")
 			}
 		case keyP:
 			m.showFullPrompt = !m.showFullPrompt
@@ -464,6 +512,10 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			m.showJobs = !m.showJobs
 		case keyE:
 			return m, m.openEditor()
+		case keyF:
+			if m.pylon != nil && m.pylon.Trigger.Type == "cron" {
+				m.confirmFire = true
+			}
 		case keyA:
 			if paths, values := m.loadPayloadPaths(); len(paths) > 0 {
 				groups, rootFields := buildAlertGroups(paths, values)
@@ -481,16 +533,20 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 				}
 			}
 		case keyL:
-			if j := m.selectedJob(); j != nil && isRunningStatus(j.Status) {
+			if j := m.selectedJob(); j != nil {
 				return m, findContainerCmd(j.ID, "logs")
 			}
 		case keyX:
-			if j := m.selectedJob(); j != nil && !isTerminalStatus(j.Status) {
+			if j := m.selectedJob(); j != nil {
 				if isRunningStatus(j.Status) {
 					m.confirmKill = true
 				} else {
 					m.confirmDismiss = true
 				}
+			}
+		case keyR:
+			if j := m.selectedJob(); j != nil && (j.Status == "failed" || j.Status == "timeout") {
+				m.confirmRetry = true
 			}
 		}
 	}
@@ -517,6 +573,14 @@ func (m detailModel) View(width, height int) string {
 	}
 
 	out := m.renderConfig(width)
+
+	if m.warning != "" {
+		out += "\n" + statusFailed.Render(fmt.Sprintf("  Warning: %s", m.warning))
+	}
+
+	if m.confirmFire {
+		out += "\n  " + lipgloss.NewStyle().Foreground(colorWarning).Render("Fire this pylon now?") + " " + mutedStyle.Render("y/n")
+	}
 
 	if m.showJobs {
 		out += "\n" + m.renderJobs(width)
@@ -553,6 +617,9 @@ func (m detailModel) renderConfig(width int) string {
 	}
 	if pyl.Trigger.Cron != "" {
 		trigger += " " + pyl.Trigger.Cron
+		if desc := describeCronExpr(pyl.Trigger.Cron); desc != pyl.Trigger.Cron {
+			trigger += "  " + mutedStyle.Render(desc)
+		}
 	}
 	s += row("Trigger", trigger)
 
@@ -711,6 +778,9 @@ func (m detailModel) renderJobs(width int) string {
 	if m.confirmDismiss {
 		out += "\n  " + statusFailed.Render("Dismiss this job?") + " " + mutedStyle.Render("y/n")
 	}
+	if m.confirmRetry {
+		out += "\n  " + lipgloss.NewStyle().Foreground(colorWarning).Render("Retry this job?") + " " + mutedStyle.Render("y/n")
+	}
 
 	return out
 }
@@ -835,6 +905,79 @@ func dismissJobCmd(pylonName, jobID string) tea.Cmd {
 		defer s.Close()
 		s.UpdateStatus(jobID, "dismissed")
 		return jobDismissedMsg{}
+	}
+}
+
+// jobRetriedMsg is sent after a retry attempt.
+type jobRetriedMsg struct{ err error }
+
+// retryJobCmd re-triggers a job by POSTing the original payload to the daemon webhook.
+func retryJobCmd(pylonName, jobID string, global *config.GlobalConfig) tea.Cmd {
+	return func() tea.Msg {
+		// Load the original trigger payload from the database.
+		s, err := store.Open(config.PylonDBPath(pylonName))
+		if err != nil {
+			return jobRetriedMsg{err: fmt.Errorf("open db: %w", err)}
+		}
+		defer s.Close()
+
+		var payload string
+		s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobID).Scan(&payload)
+		if payload == "" {
+			return jobRetriedMsg{err: fmt.Errorf("no trigger payload stored for this job")}
+		}
+
+		// Load the pylon config to get the webhook path.
+		pyl, err := config.LoadPylon(pylonName)
+		if err != nil || pyl.Trigger.Path == "" {
+			return jobRetriedMsg{err: fmt.Errorf("cannot resolve webhook path for %s", pylonName)}
+		}
+
+		port := 8090
+		if global != nil && global.Server.Port != 0 {
+			port = global.Server.Port
+		}
+		url := fmt.Sprintf("http://localhost:%d%s", port, pyl.Trigger.Path)
+
+		resp, err := http.Post(url, "application/json", strings.NewReader(payload))
+		if err != nil {
+			return jobRetriedMsg{err: fmt.Errorf("POST failed: %w", err)}
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusAccepted {
+			body, _ := io.ReadAll(resp.Body)
+			return jobRetriedMsg{err: fmt.Errorf("daemon returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
+		}
+
+		return jobRetriedMsg{}
+	}
+}
+
+// pylonTriggeredMsg is sent after a manual trigger attempt.
+type pylonTriggeredMsg struct{ err error }
+
+// triggerPylonCmd fires a pylon via the daemon's /trigger/ endpoint.
+func triggerPylonCmd(pylonName string, global *config.GlobalConfig) tea.Cmd {
+	return func() tea.Msg {
+		port := 8090
+		if global != nil && global.Server.Port != 0 {
+			port = global.Server.Port
+		}
+		url := fmt.Sprintf("http://localhost:%d/trigger/%s", port, pylonName)
+
+		resp, err := http.Post(url, "application/json", strings.NewReader("{}"))
+		if err != nil {
+			return pylonTriggeredMsg{err: fmt.Errorf("POST failed: %w", err)}
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusAccepted {
+			body, _ := io.ReadAll(resp.Body)
+			return pylonTriggeredMsg{err: fmt.Errorf("daemon returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
+		}
+
+		return pylonTriggeredMsg{}
 	}
 }
 
@@ -1032,9 +1175,19 @@ func (m detailModel) openEditor() tea.Cmd {
 
 func (m detailModel) footerBindings() []keyBinding {
 	var bindings []keyBinding
+
+	// Pylon actions
 	if m.pylon != nil && m.pylon.Trigger.Type == "webhook" {
 		bindings = append(bindings, keyBinding{"y", "copy url"})
 	}
+	if m.pylon != nil && m.pylon.Trigger.Type == "cron" {
+		bindings = append(bindings, keyBinding{"f", "fire"})
+	}
+	bindings = append(bindings, keyBinding{"e", "edit"})
+	bindings = append(bindings, keyBinding{"a", "message builder"})
+
+	// View toggles
+	bindings = append(bindings, separator)
 	if m.pylon != nil && m.pylon.Agent != nil && m.pylon.Agent.Prompt != "" {
 		if m.showFullPrompt {
 			bindings = append(bindings, keyBinding{"p", "collapse prompt"})
@@ -1047,15 +1200,21 @@ func (m detailModel) footerBindings() []keyBinding {
 	} else {
 		bindings = append(bindings, keyBinding{"t", "show jobs"})
 	}
-	bindings = append(bindings, keyBinding{"e", "edit"})
-	bindings = append(bindings, keyBinding{"a", "message builder"})
+
+	// Job actions (when a job is selected)
 	if m.showJobs {
 		if j := m.selectedJob(); j != nil {
+			bindings = append(bindings, separator)
 			if isRunningStatus(j.Status) {
 				bindings = append(bindings, keyBinding{"l", "logs"})
 				bindings = append(bindings, keyBinding{"x", "kill"})
-			} else if !isTerminalStatus(j.Status) {
+			} else {
+				// Terminal statuses: failed, timeout, completed, dismissed
+				bindings = append(bindings, keyBinding{"l", "logs"})
 				bindings = append(bindings, keyBinding{"x", "dismiss"})
+				if j.Status == "failed" || j.Status == "timeout" {
+					bindings = append(bindings, keyBinding{"r", "retry"})
+				}
 			}
 		}
 	}

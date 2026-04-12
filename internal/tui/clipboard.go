@@ -57,5 +57,5 @@ func (m copyFlashModel) View() string {
 	style := lipgloss.NewStyle().
 		Foreground(colorSuccess).
 		Bold(true)
-	return style.Render("Copied " + m.label + "!")
+	return style.Render(m.label)
 }

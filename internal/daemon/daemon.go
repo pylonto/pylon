@@ -120,6 +120,7 @@ func (d *Daemon) registerRoutes() {
 		registered[pyl.Trigger.Path] = name
 		d.registerWebhook(name, pyl)
 	}
+	d.registerTriggerRoute()
 	d.registerCallbackRoute()
 	d.registerHooksRoute()
 	d.registerExecRoute()
@@ -201,6 +202,52 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(map[string]string{"job_id": jobID, "status": "accepted"})
+	})
+}
+
+// registerTriggerRoute adds POST /trigger/{name} to manually fire any pylon.
+func (d *Daemon) registerTriggerRoute() {
+	d.Mux.HandleFunc("/trigger/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name := strings.TrimPrefix(r.URL.Path, "/trigger/")
+		if name == "" {
+			http.Error(w, "missing pylon name", http.StatusBadRequest)
+			return
+		}
+		pyl, ok := d.pylonConfig(name)
+		if !ok {
+			http.Error(w, "pylon not found", http.StatusNotFound)
+			return
+		}
+
+		jobID := uuid.New().String()
+		callbackURL := fmt.Sprintf("http://host.docker.internal:%d/callback/%s", d.Global.Server.Port, jobID)
+		log.Printf("[pylon] [%s] %q manually triggered", jobID[:8], name)
+
+		n := d.channelFor(name)
+		topicName := fmt.Sprintf("%s -- %s", name, jobID[:8])
+		if pyl.Channel != nil && pyl.Channel.Topic != "" {
+			topicName = runner.ResolveTemplate(pyl.Channel.Topic, nil)
+		}
+		var topicID string
+		if n != nil {
+			topicID, _ = n.CreateTopic(topicName)
+		}
+
+		d.Store.Put(&store.Job{
+			ID: jobID, PylonName: name, Status: "triggered",
+			TopicID: topicID, CallbackURL: callbackURL,
+			CreatedAt: time.Now(),
+		})
+
+		go d.runJob(name, pyl, jobID, map[string]interface{}{}, callbackURL, topicID, "", "")
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{"job_id": jobID, "status": "triggered"})
 	})
 }
 

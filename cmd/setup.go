@@ -228,14 +228,18 @@ func setupTelegram() (*config.TelegramConfig, error) {
 }
 
 func detectChatID(token, username string) (int64, error) {
-	fmt.Println("  1. Create a Telegram group (or use an existing one)")
-	fmt.Println("  2. Enable Topics: Group Settings > Topics > toggle on")
-	fmt.Printf("  3. Add the bot as admin: https://t.me/%s?startgroup=setup&admin=manage_topics\n", username)
-	fmt.Println("  4. Send a /command in the group (e.g. /hello)")
-	fmt.Println("     (Regular messages won't work unless you disable privacy mode in @BotFather)")
-	fmt.Println("\n  Waiting for message...")
+	fmt.Println("  Option A: Direct message")
+	fmt.Printf("    Send /start to https://t.me/%s\n", username)
+	fmt.Println()
+	fmt.Println("  Option B: Group chat")
+	fmt.Println("    1. Create a Telegram group (or use an existing one)")
+	fmt.Println("    2. Enable Topics: Group Settings > Topics > toggle on")
+	fmt.Printf("    3. Add the bot as admin: https://t.me/%s?startgroup=setup&admin=manage_topics\n", username)
+	fmt.Println("    4. Send a /command in the group (e.g. /hello)")
+	fmt.Println()
+	fmt.Println("  Waiting for message...")
 
-	chatID, title, err := channel.PollForGroup(token)
+	chatID, title, err := channel.PollForChat(token)
 	if err != nil {
 		return 0, err
 	}

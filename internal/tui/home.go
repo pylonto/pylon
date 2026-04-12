@@ -395,9 +395,11 @@ func (m homeModel) footerBindings() []keyBinding {
 	)
 
 	if m.focus == focusDetail {
+		bindings = append(bindings, separator)
 		bindings = append(bindings, keyBinding{"h", "back"})
 		bindings = append(bindings, m.detail.footerBindings()...)
 	} else if len(m.rows) > 0 {
+		bindings = append(bindings, separator)
 		bindings = append(bindings, keyBinding{"l", "detail"})
 		bindings = append(bindings, keyBinding{"e", "edit"})
 		if m.cursor < len(m.rows) && m.rows[m.cursor].disabled {
@@ -408,7 +410,7 @@ func (m homeModel) footerBindings() []keyBinding {
 		bindings = append(bindings, keyBinding{"D", "destroy"})
 	}
 
-	bindings = append(bindings, keyBinding{"q", "quit"})
+	bindings = append(bindings, separator, keyBinding{"q", "quit"})
 	return bindings
 }
 

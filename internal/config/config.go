@@ -159,9 +159,7 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 				return errors.New(msg)
 			}
 		}
-		if tg.ChatID == 0 {
-			return errors.New("telegram.chat_id is required" + hint)
-		}
+		// chat_id 0 is valid -- means auto-detect on first inbound message.
 	case "slack":
 		if tg != nil && sl == nil {
 			return fmt.Errorf("channel type is %q but config has a telegram section -- replace with a slack section"+hint, typ)

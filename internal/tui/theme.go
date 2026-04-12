@@ -127,18 +127,28 @@ func renderTitle(title, version string, width int) string {
 	return titleBarStyle.Width(width).Render(content)
 }
 
-// renderFooter renders keybind hints at the bottom.
+// separator is a sentinel keyBinding that renders as a visual group divider.
+var separator = keyBinding{key: "", desc: "|"}
+
+// renderFooter renders keybind hints at the bottom with group separators.
 func renderFooter(bindings []keyBinding, width int) string {
-	var parts []string
-	for _, b := range bindings {
-		parts = append(parts, keyStyle.Render(b.key)+" "+descStyle.Render(b.desc))
-	}
+	sepStyle := lipgloss.NewStyle().Foreground(colorMuted)
 	line := ""
-	for i, p := range parts {
-		if i > 0 {
+	prevWasSep := true // suppress leading separator
+	for _, b := range bindings {
+		if b.key == "" {
+			// Group separator
+			if !prevWasSep {
+				line += "  " + sepStyle.Render(b.desc) + "  "
+			}
+			prevWasSep = true
+			continue
+		}
+		if !prevWasSep {
 			line += "  "
 		}
-		line += p
+		line += keyStyle.Render(b.key) + " " + descStyle.Render(b.desc)
+		prevWasSep = false
 	}
 	return mutedStyle.Width(width).Render(line)
 }
