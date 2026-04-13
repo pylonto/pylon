@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/pylonto/pylon/internal/agentimage"
@@ -262,6 +263,19 @@ func slackSteps() []StepDef {
 func agentSteps(agentType string) []StepDef {
 	switch agentType {
 	case "claude":
+		if runtime.GOOS == "darwin" {
+			return []StepDef{
+				{Key: "agent.claude_auth", Create: func() Step {
+					return NewSelectStep(
+						"Claude Code authentication",
+						"OAuth is not supported on macOS. Credentials are stored in Keychain, which cannot be mounted into Docker containers.",
+						[]selectOption{
+							{"API Key (ANTHROPIC_API_KEY)", "api_key"},
+						},
+					)
+				}},
+			}
+		}
 		return []StepDef{
 			{Key: "agent.claude_auth", Create: func() Step {
 				return NewSelectStep(

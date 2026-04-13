@@ -1,15 +1,15 @@
 ---
 title: "Installation"
-description: "Download the Pylon binary for Linux amd64 or arm64, verify your Docker setup, configure shell completion, and keep Pylon up to date with pylon upgrade."
+description: "Download the Pylon binary for Linux or macOS (amd64 or arm64), verify your Docker setup, configure shell completion, and keep Pylon up to date with pylon upgrade."
 ---
 
-Pylon ships as a single self-contained binary for Linux. There is no package manager dependency or runtime to install beyond Docker. This page covers prerequisites, the install command, shell completion, and how to upgrade.
+Pylon ships as a single self-contained binary for Linux and macOS. There is no package manager dependency or runtime to install beyond Docker. This page covers prerequisites, the install command, shell completion, and how to upgrade.
 
 ## Prerequisites
 
 You need the following before installing Pylon:
 
-- **Linux** -- amd64 or arm64. Pylon releases binaries for both architectures. macOS is not yet supported (see [note below](#macos-not-yet-supported)).
+- **Linux or macOS** -- amd64 or arm64. See the [macOS note below](#macos) for a limitation with Claude OAuth.
 - **Docker** -- Pylon runs every AI agent inside an isolated Docker container. Install Docker Engine from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/), then verify it is running:
 
   ```bash
@@ -82,9 +82,11 @@ pylon upgrade
   If the binary is installed in a system directory, you may need to run `sudo pylon upgrade`.
 </Note>
 
-## macOS -- not yet supported
+## macOS
 
-macOS support is blocked on Keychain credential storage for Claude OAuth. The Claude Code agent uses `~/.claude/` for OAuth tokens, and securely persisting those credentials in a cross-platform way across Docker volume mounts requires Keychain integration that is not yet implemented. Follow [github.com/pylonto/pylon](https://github.com/pylonto/pylon) for updates.
+Pylon works on macOS with one limitation: OAuth authentication is not supported. On macOS, applications store credentials in the system Keychain, which cannot be mounted into Docker containers.
+
+Use API key authentication instead -- `pylon setup` will detect macOS and guide you automatically.
 
 ## Next steps
 

@@ -19,13 +19,9 @@ Pylon is built around five core concepts that you configure once and compose int
 
 Before installing Pylon, make sure you have:
 
-- **Linux** -- amd64 or arm64. macOS is not yet supported (blocked on Keychain credential storage for Claude OAuth).
+- **Linux or macOS** -- amd64 or arm64. On macOS, OAuth is not supported -- use API key auth instead (see [installation](/installation#macos)).
 - **Docker** -- Pylon runs every agent inside an isolated container. Install Docker from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/).
 - **A Telegram bot or Slack app** -- Pylon posts results and approval prompts to a chat channel. You'll configure this during `pylon setup`.
-
-<Note>
-  macOS is not yet supported. If Docker is not found during `pylon setup`, Pylon will print the install URL and continue -- but the daemon will not be able to run agents until Docker is available.
-</Note>
 
 ## How the daemon works
 

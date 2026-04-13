@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -380,16 +381,24 @@ settings:
 
 func setupClaude() (*config.ClaudeDefaults, error) {
 	var authChoice string
-	err := huh.NewSelect[string]().
-		Title("Default authentication for Claude Code:").
-		Options(
-			huh.NewOption("API Key (ANTHROPIC_API_KEY)", "api_key"),
-			huh.NewOption("OAuth (existing ~/.claude/ session)", "oauth"),
-		).
-		Value(&authChoice).
-		Run()
-	if err != nil {
-		return nil, err
+	if runtime.GOOS == "darwin" {
+		fmt.Println("  Note: OAuth is not supported on macOS. Credentials are stored in")
+		fmt.Println("  Keychain, which cannot be mounted into Docker containers.")
+		fmt.Println("  Use an API key instead.")
+		fmt.Println()
+		authChoice = "api_key"
+	} else {
+		err := huh.NewSelect[string]().
+			Title("Default authentication for Claude Code:").
+			Options(
+				huh.NewOption("API Key (ANTHROPIC_API_KEY)", "api_key"),
+				huh.NewOption("OAuth (existing ~/.claude/ session)", "oauth"),
+			).
+			Value(&authChoice).
+			Run()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	claude := &config.ClaudeDefaults{
