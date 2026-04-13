@@ -30,7 +30,7 @@ pylon test my-sentry                     # Send a test webhook
 
 ## Docs
 
-Full documentation at [pylon.to](https://pylon.to)
+Full documentation at [docs.pylon.to](https://docs.pylon.to)
 
 ## License
 
