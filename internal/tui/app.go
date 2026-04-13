@@ -301,11 +301,13 @@ func (m AppModel) renderLeftPanel() string {
 
 	spinner := m.glyph.View()
 	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Pylon Nexus")
-	ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
 	b.WriteString(" " + spinner + " " + title + "\n")
-	b.WriteString("   " + ver + "\n")
 	if m.latestVersion != "" {
-		b.WriteString("   " + renderShimmer(m.latestVersion+" [u]", m.glyph.shimmerTick) + "\n")
+		ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version + " > ")
+		b.WriteString("   " + ver + renderShimmer(m.latestVersion, m.glyph.shimmerTick) + "\n")
+	} else {
+		ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
+		b.WriteString("   " + ver + "\n")
 	}
 
 	// Daemon status
