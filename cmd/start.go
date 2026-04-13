@@ -13,7 +13,7 @@ import (
 
 	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
-	pyloncron "github.com/pylonto/pylon/internal/cron"
+	"github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/daemon"
 	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/runner"
@@ -158,7 +158,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		path := pyl.Trigger.Path
 		if pyl.Trigger.Cron != "" {
 			loc := pyl.ResolveTimezone(global)
-			next := pyloncron.NextFire(pyl.Trigger.Cron, loc)
+			next := cron.NextFire(pyl.Trigger.Cron, loc)
 			path = fmt.Sprintf("%s (%s) [%s] next: %s",
 				pyl.Trigger.Cron,
 				describeCron(pyl.Trigger.Cron),

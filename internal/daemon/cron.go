@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	pyloncron "github.com/pylonto/pylon/internal/cron"
+	"github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -64,7 +64,7 @@ func (d *Daemon) cronTick(lastFired map[string]time.Time) {
 	d.pylonsMu.RUnlock()
 
 	for _, cp := range pylons {
-		schedule, err := pyloncron.Schedule(cp.cron)
+		schedule, err := cron.Schedule(cp.cron)
 		if err != nil {
 			continue
 		}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
+	"github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/proxy"
 )
 
@@ -251,7 +252,22 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		for _, name := range names {
 			pyl, err := config.LoadPylon(name)
 			if err != nil {
+				fmt.Printf("  %s config .... FAIL  %v\n", name, err)
+				issues++
 				continue
+			}
+
+			// Cron schedule validation
+			if pyl.Trigger.Type == "cron" {
+				loc := pyl.ResolveTimezone(global)
+				next := cron.NextFire(pyl.Trigger.Cron, loc)
+				if next.IsZero() {
+					fmt.Printf("  %s cron ...... FAIL  %q did not produce a next fire time\n", name, pyl.Trigger.Cron)
+					issues++
+				} else {
+					fmt.Printf("  %s cron ...... ok    %s [%s] next: %s\n",
+						name, pyl.Trigger.Cron, loc, next.Format("Jan 02 15:04"))
+				}
 			}
 
 			// Webhook reachability

@@ -9,10 +9,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	cron "github.com/lnquy/cron"
+	crondesc "github.com/lnquy/cron"
 
 	"github.com/pylonto/pylon/internal/config"
-	pyloncron "github.com/pylonto/pylon/internal/cron"
+	"github.com/pylonto/pylon/internal/cron"
 )
 
 // Step is the interface all wizard step components implement.
@@ -504,7 +504,7 @@ func (s *cronInputStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		if key.String() == keyEnter {
 			val := strings.TrimSpace(s.input.Value())
-			if val != "" && pyloncron.Validate(val) == nil {
+			if val != "" && cron.Validate(val) == nil {
 				s.done = true
 			}
 			return s, nil
@@ -526,7 +526,7 @@ func (s *cronInputStep) View(width int) string {
 	// Show live validation feedback
 	val := strings.TrimSpace(s.input.Value())
 	if val != "" {
-		if err := pyloncron.Validate(val); err != nil {
+		if err := cron.Validate(val); err != nil {
 			view += "\n" + statusFailed.Render("  invalid expression")
 		} else if desc := describeCronExpr(val); desc != val {
 			view += "\n" + mutedStyle.Render(desc)
@@ -536,11 +536,11 @@ func (s *cronInputStep) View(width int) string {
 }
 
 func describeCronExpr(expr string) string {
-	d, err := cron.NewDescriptor()
+	d, err := crondesc.NewDescriptor()
 	if err != nil {
 		return expr
 	}
-	desc, err := d.ToDescription(expr, cron.Locale_en)
+	desc, err := d.ToDescription(expr, crondesc.Locale_en)
 	if err != nil {
 		return expr
 	}

@@ -14,7 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pylonto/pylon/internal/config"
-	pyloncron "github.com/pylonto/pylon/internal/cron"
+	"github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -641,7 +641,7 @@ func (m detailModel) renderConfig(width int) string {
 	if pyl.Trigger.Type == "cron" && global != nil {
 		loc := pyl.ResolveTimezone(global)
 		s += row("Timezone", loc.String())
-		next := pyloncron.NextFire(pyl.Trigger.Cron, loc)
+		next := cron.NextFire(pyl.Trigger.Cron, loc)
 		if !next.IsZero() {
 			until := time.Until(next)
 			var durStr string
