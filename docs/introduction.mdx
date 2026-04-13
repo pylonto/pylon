@@ -3,28 +3,28 @@ title: "Introduction"
 description: "Run event-driven AI coding agents on your own server. Pylon listens for webhook and cron events, sandboxes agents in Docker, and posts results to Telegram or Slack."
 ---
 
-Pylon is a self-hosted daemon that turns external events into AI agent runs. When a Sentry error fires, a GitHub pull request opens, or a cron schedule triggers, Pylon spins up a sandboxed AI coding agent inside Docker, gives it access to your codebase, and sends the result back to your chat channel — with an optional approval step so you stay in control of when the agent actually runs.
+Pylon is a self-hosted daemon that turns external events into AI agent runs. When a Sentry error fires, a GitHub pull request opens, or a cron schedule triggers, Pylon spins up a sandboxed AI coding agent inside Docker, gives it access to your codebase, and sends the result back to your chat channel -- with an optional approval step so you stay in control of when the agent actually runs.
 
 ## Key concepts
 
 Pylon is built around five core concepts that you configure once and compose into pipelines:
 
-- **Pylon** — a named pipeline that wires together a trigger, an agent, a workspace, and a channel. Each pylon has its own config file and job history. See [Pylons](/concepts/pylons).
-- **Trigger** — what starts a pylon run. Currently supports inbound webhooks (HTTP POST) and cron schedules. See [Triggers](/concepts/triggers).
-- **Agent** — the AI coding assistant that runs inside Docker. Pylon supports Claude Code and OpenCode today, with Codex and Aider planned. See [Agents](/concepts/agents).
-- **Channel** — where Pylon sends notifications and results. Telegram and Slack are supported; Discord, WhatsApp, and iMessage are in progress. See [Channels](/concepts/channels).
-- **Workspace** — how the agent accesses your code. Options include a fresh `git clone`, a `git worktree` (faster, reuses a local repo), or a mounted local directory. See [Workspaces](/concepts/workspaces).
+- **Pylon** -- a named pipeline that wires together a trigger, an agent, a workspace, and a channel. Each pylon has its own config file and job history. See [Pylons](/concepts/pylons).
+- **Trigger** -- what starts a pylon run. Currently supports inbound webhooks (HTTP POST) and cron schedules. See [Triggers](/concepts/triggers).
+- **Agent** -- the AI coding assistant that runs inside Docker. Pylon supports Claude Code and OpenCode today, with Codex and Aider planned. See [Agents](/concepts/agents).
+- **Channel** -- where Pylon sends notifications and results. Telegram and Slack are supported; Discord, WhatsApp, and iMessage are in progress. See [Channels](/concepts/channels).
+- **Workspace** -- how the agent accesses your code. Options include a fresh `git clone`, a `git worktree` (faster, reuses a local repo), or a mounted local directory. See [Workspaces](/concepts/workspaces).
 
 ## Requirements
 
 Before installing Pylon, make sure you have:
 
-- **Linux** — amd64 or arm64. macOS is not yet supported (blocked on Keychain credential storage for Claude OAuth).
-- **Docker** — Pylon runs every agent inside an isolated container. Install Docker from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/).
-- **A Telegram bot or Slack app** — Pylon posts results and approval prompts to a chat channel. You'll configure this during `pylon setup`.
+- **Linux** -- amd64 or arm64. macOS is not yet supported (blocked on Keychain credential storage for Claude OAuth).
+- **Docker** -- Pylon runs every agent inside an isolated container. Install Docker from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/).
+- **A Telegram bot or Slack app** -- Pylon posts results and approval prompts to a chat channel. You'll configure this during `pylon setup`.
 
 <Note>
-  macOS is not yet supported. If Docker is not found during `pylon setup`, Pylon will print the install URL and continue — but the daemon will not be able to run agents until Docker is available.
+  macOS is not yet supported. If Docker is not found during `pylon setup`, Pylon will print the install URL and continue -- but the daemon will not be able to run agents until Docker is available.
 </Note>
 
 ## How the daemon works

@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-description: "Install the daemon, connect your chat channel, build a pipeline from the Sentry template, and trigger your first AI agent run — all from the command line."
+description: "Install the daemon, connect your chat channel, build a pipeline from the Sentry template, and trigger your first AI agent run -- all from the command line."
 ---
 
 This guide takes you from a blank Linux machine to a running Pylon daemon with a working Sentry pipeline. You'll install the binary, run the interactive setup wizard, create your first pylon from a template, start the daemon, and send a test webhook to confirm the agent runs and posts to your channel.
@@ -33,11 +33,11 @@ This guide takes you from a blank Linux machine to a running Pylon daemon with a
 
     Setup walks you through three choices:
 
-    **Channel** — where Pylon sends notifications and agent results. Select **Telegram** or **Slack**. For Telegram, you'll provide a bot token from [@BotFather](https://t.me/BotFather) and a chat ID (setup can auto-detect the chat ID if you add the bot to a group and send a command). For Slack, you'll paste a bot token (`xoxb-…`) and an app-level token (`xapp-…`).
+    **Channel** -- where Pylon sends notifications and agent results. Select **Telegram** or **Slack**. For Telegram, you'll provide a bot token from [@BotFather](https://t.me/BotFather) and a chat ID (setup can auto-detect the chat ID if you add the bot to a group and send a command). For Slack, you'll paste a bot token (`xoxb-…`) and an app-level token (`xapp-…`).
 
-    **AI agent** — the coding assistant that runs inside Docker. Select **Claude Code** (uses your `~/.claude/` OAuth session or an `ANTHROPIC_API_KEY`) or **OpenCode** (supports built-in Zen mode with no key required, or a bring-your-own provider key).
+    **AI agent** -- the coding assistant that runs inside Docker. Select **Claude Code** (uses your `~/.claude/` OAuth session or an `ANTHROPIC_API_KEY`) or **OpenCode** (supports built-in Zen mode with no key required, or a bring-your-own provider key).
 
-    **Public URL** — optional base URL where external services like Sentry or GitHub can reach your daemon. Leave blank if you're running locally and will use a tunnel.
+    **Public URL** -- optional base URL where external services like Sentry or GitHub can reach your daemon. Leave blank if you're running locally and will use a tunnel.
 
     <Tip>
       If you have `TELEGRAM_BOT_TOKEN`, `SLACK_BOT_TOKEN`, or `SLACK_APP_TOKEN` set in your environment, setup reads them automatically and skips the token prompts.
@@ -58,7 +58,7 @@ This guide takes you from a blank Linux machine to a running Pylon daemon with a
     - **Trigger**: webhook at `/my-sentry`
     - **Workspace**: `git-clone` (clones your repo fresh for each job)
     - **Agent prompt**: investigates the error title, culprit, level, and Sentry URL
-    - **Approval**: enabled — you'll receive an **Investigate / Ignore** notification before the agent runs
+    - **Approval**: enabled -- you'll receive an **Investigate / Ignore** notification before the agent runs
 
     After construction, Pylon prints the webhook URL to point Sentry at and suggests `pylon edit my-sentry` to customize the prompt or add your repo URL.
 

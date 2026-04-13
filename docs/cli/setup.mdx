@@ -19,17 +19,17 @@ pylon setup
   </Step>
   <Step title="Default channel">
     Choose where Pylon sends notifications and approval requests:
-    - **Telegram** — requires a bot token from @BotFather and a group chat ID
-    - **Slack** — requires a bot token, app-level token, and channel ID
-    - **stdout** — prints to the console only (useful for testing)
-    - **Webhook** — generic HTTP POST (no built-in UI; configure endpoint manually)
+    - **Telegram** -- requires a bot token from @BotFather and a group chat ID
+    - **Slack** -- requires a bot token, app-level token, and channel ID
+    - **stdout** -- prints to the console only (useful for testing)
+    - **Webhook** -- generic HTTP POST (no built-in UI; configure endpoint manually)
 
     Discord, WhatsApp, and iMessage support is coming soon.
   </Step>
   <Step title="Default AI agent">
     Choose the AI agent that runs inside Docker containers:
-    - **Claude Code** — authenticate via OAuth (your existing `~/.claude/` session) or an `ANTHROPIC_API_KEY`
-    - **OpenCode** — use built-in Zen (no key needed) or bring your own API key (Anthropic, OpenAI, or Google)
+    - **Claude Code** -- authenticate via OAuth (your existing `~/.claude/` session) or an `ANTHROPIC_API_KEY`
+    - **OpenCode** -- use built-in Zen (no key needed) or bring your own API key (Anthropic, OpenAI, or Google)
   </Step>
   <Step title="Public URL (optional)">
     Enter the base URL where external services can reach Pylon (e.g. `https://my-server.example.com`). Leave blank if you only run locally or will configure this later.
@@ -87,7 +87,7 @@ Create the app at [api.slack.com/apps](https://api.slack.com/apps), enable Socke
 | File | Contents |
 |---|---|
 | `~/.pylon/config.yaml` | Channel type, agent type, server settings |
-| `~/.pylon/.env` | Secrets (bot tokens, API keys) — loaded automatically on `pylon start` |
+| `~/.pylon/.env` | Secrets (bot tokens, API keys) -- loaded automatically on `pylon start` |
 
 ## Next steps
 

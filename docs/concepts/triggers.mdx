@@ -39,7 +39,7 @@ trigger:
   signature_header: Sentry-Hook-Signature
 ```
 
-Store secrets in `~/.pylon/.env` and reference them with `${VAR_NAME}` — Pylon loads this file on startup.
+Store secrets in `~/.pylon/.env` and reference them with `${VAR_NAME}` -- Pylon loads this file on startup.
 
 ### Exposing the webhook publicly
 
@@ -112,7 +112,7 @@ Common examples:
 ```
 
 <Note>
-Cron pylons run the agent directly and post results to the configured channel. There is no approval flow for cron triggers — `approval: true` has no effect when `type: cron`.
+Cron pylons run the agent directly and post results to the configured channel. There is no approval flow for cron triggers -- `approval: true` has no effect when `type: cron`.
 </Note>
 
 ### Cron example
@@ -141,5 +141,5 @@ channel:
 
 The following trigger types are planned but not yet available:
 
-- **Chat command** — trigger a pylon from a Telegram or Slack message
-- **API call** — trigger a pylon via a direct API request with auth
+- **Chat command** -- trigger a pylon from a Telegram or Slack message
+- **API call** -- trigger a pylon via a direct API request with auth

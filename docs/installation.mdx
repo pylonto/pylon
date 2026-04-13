@@ -9,14 +9,14 @@ Pylon ships as a single self-contained binary for Linux. There is no package man
 
 You need the following before installing Pylon:
 
-- **Linux** — amd64 or arm64. Pylon releases binaries for both architectures. macOS is not yet supported (see [note below](#macos-not-yet-supported)).
-- **Docker** — Pylon runs every AI agent inside an isolated Docker container. Install Docker Engine from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/), then verify it is running:
+- **Linux** -- amd64 or arm64. Pylon releases binaries for both architectures. macOS is not yet supported (see [note below](#macos-not-yet-supported)).
+- **Docker** -- Pylon runs every AI agent inside an isolated Docker container. Install Docker Engine from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/), then verify it is running:
 
   ```bash
   docker version
   ```
 
-- **A Telegram bot or Slack app** — Pylon posts notifications and agent results to a chat channel. You'll configure this during `pylon setup`:
+- **A Telegram bot or Slack app** -- Pylon posts notifications and agent results to a chat channel. You'll configure this during `pylon setup`:
   - **Telegram**: create a bot via [@BotFather](https://t.me/BotFather) and have your bot token ready.
   - **Slack**: create a Slack app with Socket Mode enabled. `pylon setup` prints the exact app manifest to paste.
 
@@ -82,7 +82,7 @@ pylon upgrade
   If the binary is installed in a system directory, you may need to run `sudo pylon upgrade`.
 </Note>
 
-## macOS — not yet supported
+## macOS -- not yet supported
 
 macOS support is blocked on Keychain credential storage for Claude OAuth. The Claude Code agent uses `~/.claude/` for OAuth tokens, and securely persisting those credentials in a cross-platform way across Docker volume mounts requires Keychain integration that is not yet implemented. Follow [github.com/pylonto/pylon](https://github.com/pylonto/pylon) for updates.
 

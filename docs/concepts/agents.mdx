@@ -3,7 +3,7 @@ title: "Agents"
 description: "Agents are AI coding tools that run inside Docker containers. Learn how to configure Claude Code and OpenCode, set prompts, and control timeouts."
 ---
 
-When a pylon job fires, Pylon spins up a fresh Docker container for the configured agent, mounts the workspace, injects the prompt, and lets the agent work. Each job gets its own isolated container — the agent has no access to previous jobs or the host filesystem beyond the mounted workspace.
+When a pylon job fires, Pylon spins up a fresh Docker container for the configured agent, mounts the workspace, injects the prompt, and lets the agent work. Each job gets its own isolated container -- the agent has no access to previous jobs or the host filesystem beyond the mounted workspace.
 
 Pylon currently supports two agents: **Claude Code** and **OpenCode**. You configure an agent under the `agent` key in `pylon.yaml`. If you omit the `agent` block, Pylon falls back to the global defaults in `~/.pylon/config.yaml`.
 
@@ -70,7 +70,7 @@ OpenCode (`type: opencode`) is a multi-provider coding agent with a built-in fre
 
 <Tabs>
   <Tab title="Zen (no key needed)">
-    OpenCode's Zen mode uses a built-in model — no API key or `provider` setting required.
+    OpenCode's Zen mode uses a built-in model -- no API key or `provider` setting required.
 
     ```yaml
     agent:
@@ -126,7 +126,7 @@ Use `pylon test <name>` to send a sample payload and preview how the prompt rend
 The `timeout` field sets the maximum time the agent container is allowed to run. If the agent exceeds this limit, Pylon stops the container and records the job as timed out.
 
 - Default: `15m`
-- Format: Go duration string — `10m`, `30m`, `1h`, etc.
+- Format: Go duration string -- `10m`, `30m`, `1h`, etc.
 
 ```yaml
 agent:

@@ -9,7 +9,7 @@ Pylon supports four workspace modes: `git-clone`, `git-worktree`, `local`, and `
 
 ## git-clone
 
-A fresh clone of a remote repository, created once per job. This gives the strongest isolation — each job starts from a clean state with no leftover changes from previous runs.
+A fresh clone of a remote repository, created once per job. This gives the strongest isolation -- each job starts from a clean state with no leftover changes from previous runs.
 
 ```yaml
 workspace:
@@ -61,7 +61,7 @@ workspace:
 | `ref` | No | Branch, tag, or commit to check out in the worktree. |
 
 <Tip>
-Use `git-worktree` for faster cold starts on large repos. The local clone must already exist and be kept up to date — Pylon does not run `git fetch` automatically before creating the worktree.
+Use `git-worktree` for faster cold starts on large repos. The local clone must already exist and be kept up to date -- Pylon does not run `git fetch` automatically before creating the worktree.
 </Tip>
 
 ## local
@@ -87,7 +87,7 @@ The `local` workspace mounts the directory directly. The agent can read and modi
 
 ## none
 
-No codebase is provided to the agent. Use this for pylons where the agent's task doesn't require access to code — for example, drafting a report from a webhook payload or querying an external API.
+No codebase is provided to the agent. Use this for pylons where the agent's task doesn't require access to code -- for example, drafting a report from a webhook payload or querying an external API.
 
 ```yaml
 workspace:

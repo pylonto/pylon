@@ -3,7 +3,7 @@ title: "construct"
 description: "pylon construct <name> creates a pylon pipeline interactively or from a template. Saves config to ~/.pylon/pylons/<name>/pylon.yaml."
 ---
 
-`pylon construct` creates a new pylon — a named pipeline that ties together a trigger, workspace, AI agent, and notification channel. Run it once per pipeline you want to set up. The result is a YAML config file you can edit at any time with `pylon edit <name>`.
+`pylon construct` creates a new pylon -- a named pipeline that ties together a trigger, workspace, AI agent, and notification channel. Run it once per pipeline you want to set up. The result is a YAML config file you can edit at any time with `pylon edit <name>`.
 
 ## Usage
 
@@ -42,25 +42,25 @@ pylon construct my-pipeline --from blank
 
 When you run `pylon construct <name>` without `--from`, the wizard prompts for:
 
-**Trigger** — what starts the pipeline:
-- `webhook` — HTTP POST to a path (default `/<name>`); optionally set a public URL override
-- `cron` — a cron schedule expression (e.g. `0 9 * * 1-5`)
+**Trigger** -- what starts the pipeline:
+- `webhook` -- HTTP POST to a path (default `/<name>`); optionally set a public URL override
+- `cron` -- a cron schedule expression (e.g. `0 9 * * 1-5`)
 
-**Workspace** — how the agent accesses code:
-- `git-clone` — fresh clone per job; prompts for repo URL and branch
-- `git-worktree` — uses a local repo with `git worktree add`; prompts for repo and branch
-- `local` — mounts an existing directory; prompts for path
-- `none` — no codebase
+**Workspace** -- how the agent accesses code:
+- `git-clone` -- fresh clone per job; prompts for repo URL and branch
+- `git-worktree` -- uses a local repo with `git worktree add`; prompts for repo and branch
+- `local` -- mounts an existing directory; prompts for path
+- `none` -- no codebase
 
-**Channel** — where results are sent (use global default, or configure Telegram/Slack per-pylon)
+**Channel** -- where results are sent (use global default, or configure Telegram/Slack per-pylon)
 
-**Agent** — which AI agent runs (use global default, Claude Code, OpenCode, or a custom command)
+**Agent** -- which AI agent runs (use global default, Claude Code, OpenCode, or a custom command)
 
-**Host tools** — select which host CLI tools this agent can invoke (from your global tools list)
+**Host tools** -- select which host CLI tools this agent can invoke (from your global tools list)
 
-**Prompt** — the instruction template sent to the agent. Use `{{ .body.field }}` to inject webhook payload fields.
+**Prompt** -- the instruction template sent to the agent. Use `{{ .body.field }}` to inject webhook payload fields.
 
-**Approval** — whether you must approve before the agent runs. If enabled, also prompts for a topic template and notification message template.
+**Approval** -- whether you must approve before the agent runs. If enabled, also prompts for a topic template and notification message template.
 
 ## Output
 

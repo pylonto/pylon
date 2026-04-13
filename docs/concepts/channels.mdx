@@ -3,7 +3,7 @@ title: "Channels"
 description: "Channels define where Pylon posts agent results and approval requests. Supports Telegram, Slack, stdout, and generic webhooks."
 ---
 
-When a pylon job finishes, Pylon sends the agent's output to a channel. Channels also handle the approval flow — when `approval: true`, Pylon sends a notification with **Investigate** and **Ignore** buttons before the agent runs, and waits for a human to respond.
+When a pylon job finishes, Pylon sends the agent's output to a channel. Channels also handle the approval flow -- when `approval: true`, Pylon sends a notification with **Investigate** and **Ignore** buttons before the agent runs, and waits for a human to respond.
 
 You configure a channel under the `channel` key in `pylon.yaml`. If you omit the `channel` block, Pylon falls back to the global defaults in `~/.pylon/config.yaml` under `defaults.channel`.
 
@@ -22,8 +22,8 @@ You configure a channel under the `channel` key in `pylon.yaml`. If you omit the
 
 When `approval: true`, Pylon sends a notification with **Investigate** and **Ignore** buttons before starting the agent:
 
-- **Investigate** — Pylon runs the agent and posts the result back to the channel.
-- **Ignore** — Pylon discards the job with no agent run.
+- **Investigate** -- Pylon runs the agent and posts the result back to the channel.
+- **Ignore** -- Pylon discards the job with no agent run.
 
 This is most useful for high-volume triggers like Sentry, where you want to triage before spending agent time on every event.
 
@@ -65,7 +65,7 @@ To find your `chat_id`, add your bot to a group and send a message, then check `
 
 ## Slack
 
-Slack support uses Socket Mode, which means Pylon maintains a persistent WebSocket connection to Slack — no public inbound URL required.
+Slack support uses Socket Mode, which means Pylon maintains a persistent WebSocket connection to Slack -- no public inbound URL required.
 
 ```yaml
 channel:
@@ -121,7 +121,7 @@ Webhook channel configuration (endpoint URL, headers, etc.) is managed through t
 
 ## Per-pylon channel overrides
 
-The channel configured in `pylon.yaml` takes priority over the global default. You can mix and match — use Telegram as the global default and override specific pylons to post to Slack:
+The channel configured in `pylon.yaml` takes priority over the global default. You can mix and match -- use Telegram as the global default and override specific pylons to post to Slack:
 
 ```yaml
 # ~/.pylon/config.yaml

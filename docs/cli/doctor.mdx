@@ -3,7 +3,7 @@ title: "doctor"
 description: "pylon doctor checks all Pylon dependencies and configuration, reports issues and recommendations, and can interactively fix some problems."
 ---
 
-`pylon doctor` runs a full health check on your Pylon installation. It verifies Docker, your agent image, channel credentials, Git auth, port availability, and per-pylon webhook reachability — then prints a summary of issues and recommendations.
+`pylon doctor` runs a full health check on your Pylon installation. It verifies Docker, your agent image, channel credentials, Git auth, port availability, and per-pylon webhook reachability -- then prints a summary of issues and recommendations.
 
 ## Usage
 
@@ -38,7 +38,7 @@ Each line shows one of four statuses:
 | Indicator | Meaning |
 |---|---|
 | `ok` | Check passed |
-| `FAIL` | Blocking issue — fix before running `pylon start` |
+| `FAIL` | Blocking issue -- fix before running `pylon start` |
 | `WARN` | Non-blocking recommendation |
 | `--` | Not configured (optional feature) |
 
@@ -66,8 +66,8 @@ All checks passed. (1 recommendation)
 
 Doctor can fix some issues interactively:
 
-- **No channel configured** — prompts to set up Telegram or Slack on the spot
-- **Telegram chat ID missing or inaccessible** — offers to auto-detect it (add bot to group, send a message)
+- **No channel configured** -- prompts to set up Telegram or Slack on the spot
+- **Telegram chat ID missing or inaccessible** -- offers to auto-detect it (add bot to group, send a message)
 
 ## When to run doctor
 
