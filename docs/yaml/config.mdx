@@ -56,14 +56,14 @@ defaults:
     type: claude
     claude:
       # Docker image used for Claude Code agent containers.
-      image: "pylon/agent-claude"
+      image: "ghcr.io/pylonto/agent-claude"
       # Auth method. Options: oauth, api_key
       auth: oauth
       # Path to your local ~/.claude/ OAuth session, mounted read-only into the container.
       oauth_path: "/home/youruser/.claude"
     # Uncomment for OpenCode instead:
     # opencode:
-    #   image: "pylon/agent-opencode"
+    #   image: "ghcr.io/pylonto/agent-opencode"
     #   # "none" uses OpenCode Zen (no API key required). "api-key" reads from the provider env var.
     #   auth: "none"
     #   # LLM provider. Options: anthropic, openai, google
@@ -150,7 +150,7 @@ tools:
   Default agent runtime. Accepted values: `claude`, `opencode`.
 </ParamField>
 
-<ParamField path="defaults.agent.claude.image" type="string" default="pylon/agent-claude">
+<ParamField path="defaults.agent.claude.image" type="string" default="ghcr.io/pylonto/agent-claude">
   Docker image for Claude Code agent containers.
 </ParamField>
 
@@ -162,7 +162,7 @@ tools:
   Path to your local `~/.claude/` directory. Pylon mounts it read-only into each agent container. Required when `auth` is `oauth`.
 </ParamField>
 
-<ParamField path="defaults.agent.opencode.image" type="string" default="pylon/agent-opencode">
+<ParamField path="defaults.agent.opencode.image" type="string" default="ghcr.io/pylonto/agent-opencode">
   Docker image for OpenCode agent containers.
 </ParamField>
 

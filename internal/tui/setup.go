@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
 )
@@ -364,7 +365,7 @@ func setupOnComplete(values map[string]string) error {
 			auth = "oauth"
 		}
 		claude := &config.ClaudeDefaults{
-			Image: "pylon/agent-claude",
+			Image: agentimage.ImageName("claude"),
 			Auth:  auth,
 		}
 		if auth == "oauth" {
@@ -382,7 +383,7 @@ func setupOnComplete(values map[string]string) error {
 			auth = "none"
 		}
 		cfg.Defaults.Agent.OpenCode = &config.OpenCodeDefaults{
-			Image: "pylon/agent-opencode",
+			Image: agentimage.ImageName("opencode"),
 			Auth:  auth,
 		}
 	}

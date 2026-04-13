@@ -10,6 +10,13 @@ import (
 	"strings"
 )
 
+const Registry = "ghcr.io/pylonto"
+
+// ImageName returns the fully qualified image name for an agent type.
+func ImageName(agentType string) string {
+	return Registry + "/agent-" + agentType
+}
+
 var agentFS embed.FS
 
 // SetFS sets the embedded filesystem containing agent/ directories.
@@ -47,7 +54,7 @@ func Build(agentType string) error {
 		}
 	}
 
-	image := "pylon/agent-" + agentType
+	image := ImageName(agentType)
 	cmd := exec.Command("docker", "build", "-t", image, tmpDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -57,32 +64,58 @@ func Build(agentType string) error {
 	return nil
 }
 
-// Rebuild rebuilds agent images that already exist locally (i.e., ones
-// the user has previously chosen). Does not build images for agents
-// that were never selected.
+// pull attempts to docker pull the image. Returns true on success.
+func pull(image string) bool {
+	cmd := exec.Command("docker", "pull", image)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		_ = output
+		return false
+	}
+	return true
+}
+
+// imageExists checks whether a Docker image exists locally.
+func imageExists(image string) bool {
+	out, err := exec.Command("docker", "images", image, "-q").Output()
+	return err == nil && strings.TrimSpace(string(out)) != ""
+}
+
+// Rebuild pulls the latest agent images from the registry, falling back
+// to building from embedded Dockerfiles. Only updates images that already
+// exist locally (i.e., ones the user has previously chosen).
 func Rebuild() {
 	for _, agentType := range []string{"claude", "opencode"} {
-		image := "pylon/agent-" + agentType
-		out, err := exec.Command("docker", "images", image, "-q").Output()
-		if err != nil || strings.TrimSpace(string(out)) == "" {
+		image := ImageName(agentType)
+		if !imageExists(image) {
 			continue
 		}
-		fmt.Printf("Rebuilding %s...\n", image)
+		fmt.Printf("Updating %s...\n", image)
+		if pull(image) {
+			continue
+		}
+		fmt.Printf("  Pull failed, rebuilding from embedded Dockerfile...\n")
 		if err := Build(agentType); err != nil {
 			log.Printf("Warning: failed to rebuild %s: %v", image, err)
 		}
 	}
 }
 
-// Ensure builds the agent image if it doesn't exist locally.
+// Ensure makes sure the agent image is available locally. It first checks
+// for a local copy, then tries pulling from the registry, and falls back
+// to building from the embedded Dockerfile.
 func Ensure(agentType string) {
-	image := "pylon/agent-" + agentType
-	if out, err := exec.Command("docker", "images", image, "-q").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+	image := ImageName(agentType)
+	if imageExists(image) {
 		return
 	}
-	fmt.Printf("Building agent image %s...\n", image)
+	fmt.Printf("Pulling agent image %s...\n", image)
+	if pull(image) {
+		return
+	}
+	fmt.Printf("  Pull failed, building from embedded Dockerfile...\n")
 	if err := Build(agentType); err != nil {
 		fmt.Printf("  Warning: %v\n", err)
-		fmt.Printf("  Run manually: docker build -t %s agent/%s/\n", image, agentType)
+		fmt.Printf("  Run manually: docker pull %s\n", image)
 	}
 }

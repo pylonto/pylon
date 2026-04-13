@@ -125,7 +125,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	default:
 		comingSoon(agentChoice)
 		cfg.Defaults.Agent = config.AgentDefaults{Type: "claude", Claude: &config.ClaudeDefaults{
-			Image: "pylon/agent-claude", Auth: "oauth",
+			Image: agentimage.ImageName("claude"), Auth: "oauth",
 		}}
 	}
 
@@ -398,7 +398,7 @@ func setupClaude() (*config.ClaudeDefaults, error) {
 	}
 
 	claude := &config.ClaudeDefaults{
-		Image: "pylon/agent-claude",
+		Image: agentimage.ImageName("claude"),
 		Auth:  authChoice,
 	}
 
@@ -431,7 +431,7 @@ func setupOpenCode() (*config.OpenCodeDefaults, error) {
 	}
 
 	oc := &config.OpenCodeDefaults{
-		Image: "pylon/agent-opencode",
+		Image: agentimage.ImageName("opencode"),
 		Auth:  authChoice,
 	}
 

@@ -9,8 +9,8 @@ build: fmt
 	go build -ldflags "-X github.com/pylonto/pylon/cmd.Version=$(VERSION)" -o pylon .
 
 image:
-	docker build -t pylon/agent-claude agent/claude/
-	docker build -t pylon/agent-opencode agent/opencode/
+	docker build -t ghcr.io/pylonto/agent-claude agent/claude/
+	docker build -t ghcr.io/pylonto/agent-opencode agent/opencode/
 	docker build -t pylon/agent-mock agent/mock/
 
 run: build

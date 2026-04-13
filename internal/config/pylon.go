@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/cron"
 	"gopkg.in/yaml.v3"
 )
@@ -257,14 +258,14 @@ func (p *PylonConfig) ResolveAgentImage(global *GlobalConfig) string {
 		if global.Defaults.Agent.Claude != nil && global.Defaults.Agent.Claude.Image != "" {
 			return global.Defaults.Agent.Claude.Image
 		}
-		return "pylon/agent-claude"
+		return agentimage.ImageName("claude")
 	case "opencode":
 		if global.Defaults.Agent.OpenCode != nil && global.Defaults.Agent.OpenCode.Image != "" {
 			return global.Defaults.Agent.OpenCode.Image
 		}
-		return "pylon/agent-opencode"
+		return agentimage.ImageName("opencode")
 	default:
-		return "pylon/agent-" + p.ResolveAgentType(global)
+		return agentimage.ImageName(p.ResolveAgentType(global))
 	}
 }
 

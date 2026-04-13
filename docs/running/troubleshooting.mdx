@@ -18,7 +18,7 @@ Pylon Doctor
 
 Config .............. ok    /home/you/.pylon/config.yaml found
 Docker .............. ok    running (v27.3.1)
-Agent image ......... ok    pylon/agent-claude:latest built
+Agent image ......... ok    ghcr.io/pylonto/agent-claude:latest
 Telegram bot ........ ok    connected (@my_pylon_bot)
 Telegram chat ....... ok    chat -1001234567890 accessible
 Git (SSH) ........... ok    GitHub SSH key configured
@@ -35,7 +35,7 @@ All checks passed.
 
 - **Config** -- global config file exists at `~/.pylon/config.yaml`
 - **Docker** -- Docker daemon is running and accessible
-- **Agent image** -- the agent Docker image (e.g. `pylon/agent-claude`) is built
+- **Agent image** -- the agent Docker image (e.g. `ghcr.io/pylonto/agent-claude`) is available
 - **Telegram / Slack** -- bot token is valid and the configured chat or channel is accessible
 - **Git auth** -- SSH key or `gh` CLI authentication is present for private repo access
 - **Agent auth** -- OAuth session (`~/.claude`) or API key is configured for the agent type
@@ -113,7 +113,7 @@ pylon rebuild-images
 Verify which images are present:
 
 ```bash
-docker images pylon/agent-claude
+docker images ghcr.io/pylonto/agent-claude
 ```
 
 If the image exists but containers still fail, run `pylon doctor` to confirm Docker is healthy.

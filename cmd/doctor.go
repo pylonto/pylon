@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"github.com/pylonto/pylon/internal/agentimage"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/cron"
@@ -60,12 +61,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	if global != nil && global.Defaults.Agent.Type != "" {
 		agentType = global.Defaults.Agent.Type
 	}
-	agentImage := "pylon/agent-" + agentType
+	agentImage := agentimage.ImageName(agentType)
 	if out, err := exec.Command("docker", "images", agentImage, "--format", "{{.Tag}}").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
-		fmt.Printf("Agent image ......... ok    %s:%s built\n", agentImage, strings.TrimSpace(string(out)))
+		fmt.Printf("Agent image ......... ok    %s:%s\n", agentImage, strings.TrimSpace(string(out)))
 	} else {
-		fmt.Printf("Agent image ......... --    %s not built\n", agentImage)
-		fmt.Printf("  Run: docker build -t %s agent/%s/\n", agentImage, agentType)
+		fmt.Printf("Agent image ......... --    %s not found\n", agentImage)
+		fmt.Printf("  Run: docker pull %s\n", agentImage)
 		recommendations++
 	}
 
