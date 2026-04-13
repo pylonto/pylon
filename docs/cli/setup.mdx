@@ -1,0 +1,100 @@
+---
+title: "pylon setup — configure Pylon for the first time"
+sidebarTitle: "setup"
+description: "Run pylon setup to configure your default channel (Telegram or Slack), AI agent (Claude Code or OpenCode), and public URL. Saves to ~/.pylon/config.yaml."
+---
+
+`pylon setup` walks you through an interactive wizard that creates your global configuration. Run it once before creating any pipelines. It checks that Docker is installed, prompts for your notification channel and AI agent preferences, and writes credentials to `~/.pylon/.env`.
+
+## Usage
+
+```bash
+pylon setup
+```
+
+## What setup configures
+
+<Steps>
+  <Step title="Docker check">
+    Setup verifies Docker is installed and the daemon is running. If Docker is not found, it prints the install URL and continues.
+  </Step>
+  <Step title="Default channel">
+    Choose where Pylon sends notifications and approval requests:
+    - **Telegram** — requires a bot token from @BotFather and a group chat ID
+    - **Slack** — requires a bot token, app-level token, and channel ID
+    - **stdout** — prints to the console only (useful for testing)
+    - **Webhook** — generic HTTP POST (no built-in UI; configure endpoint manually)
+
+    Discord, WhatsApp, and iMessage support is coming soon.
+  </Step>
+  <Step title="Default AI agent">
+    Choose the AI agent that runs inside Docker containers:
+    - **Claude Code** — authenticate via OAuth (your existing `~/.claude/` session) or an `ANTHROPIC_API_KEY`
+    - **OpenCode** — use built-in Zen (no key needed) or bring your own API key (Anthropic, OpenAI, or Google)
+  </Step>
+  <Step title="Public URL (optional)">
+    Enter the base URL where external services can reach Pylon (e.g. `https://my-server.example.com`). Leave blank if you only run locally or will configure this later.
+  </Step>
+  <Step title="Agent image build">
+    Setup builds (or verifies) the Docker image for your chosen agent. This may take a few minutes on the first run.
+  </Step>
+</Steps>
+
+## Telegram setup
+
+When you select Telegram, setup guides you through:
+
+1. Creating a bot via [@BotFather](https://t.me/BotFather) (`/newbot`)
+2. Copying the bot token
+3. Detecting your group chat ID automatically (add the bot, send a `/command`, Pylon detects the ID) or entering it manually
+
+The bot token is saved to `~/.pylon/.env` as `TELEGRAM_BOT_TOKEN`. The config references it as `${TELEGRAM_BOT_TOKEN}`.
+
+## Slack setup
+
+When you select Slack, setup displays this app manifest to paste into the Slack API console:
+
+```yaml
+display_information:
+  name: Pylon
+  description: AI agent pipeline runner
+features:
+  bot_user:
+    display_name: Pylon
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - reactions:write
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+```
+
+Create the app at [api.slack.com/apps](https://api.slack.com/apps), enable Socket Mode, and paste in your bot token (`xoxb-...`) and app-level token (`xapp-...`).
+
+## Output files
+
+| File | Contents |
+|---|---|
+| `~/.pylon/config.yaml` | Channel type, agent type, server settings |
+| `~/.pylon/.env` | Secrets (bot tokens, API keys) — loaded automatically on `pylon start` |
+
+## Next steps
+
+After setup, create your first pipeline:
+
+```bash
+pylon construct my-sentry --from sentry
+pylon start
+```

@@ -1,0 +1,123 @@
+---
+title: "Run Pylon as a systemd service"
+description: "Install Pylon as a user or system-level systemd service so it starts automatically on boot, restarts on failure, and integrates with journald logging."
+---
+
+Running Pylon as a systemd service means it starts automatically when your machine boots, restarts if it crashes, and integrates with the standard `journalctl` log infrastructure. Pylon provides a `pylon service` subcommand that generates and installs the unit file for you.
+
+## Installing the service
+
+Run `pylon service install` to write the systemd unit file and enable the service:
+
+```bash
+pylon service install
+```
+
+Pylon checks whether you are running as root to decide which service type to install:
+
+- **Without root** — installs a user-level service at `~/.config/systemd/user/pylon.service` and enables it with `systemctl --user enable pylon`.
+- **With root (`sudo`)** — installs a system-level service at `/etc/systemd/system/pylon.service` and enables it with `systemctl enable pylon`.
+
+Both variants are enabled automatically so they start on login (user) or boot (system).
+
+### Generated unit file
+
+The installed unit file looks like this. The `ExecStart` path and `HOME` variable are filled in from your current environment:
+
+**User-level service** (`~/.config/systemd/user/pylon.service`):
+
+```ini
+[Unit]
+Description=Pylon Agent Daemon
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pylon start
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/home/youruser
+
+[Install]
+WantedBy=default.target
+```
+
+**System-level service** (`/etc/systemd/system/pylon.service`):
+
+```ini
+[Unit]
+Description=Pylon Agent Daemon
+After=network-online.target
+
+[Service]
+Type=simple
+User=youruser
+ExecStart=/usr/local/bin/pylon start
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/home/youruser
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Starting the service
+
+After installing, start the service:
+
+```bash
+# User-level service
+systemctl --user start pylon
+
+# System-level service (requires sudo or root)
+systemctl start pylon
+```
+
+## Checking status
+
+Check whether the service is running using either `pylon service status` or `systemctl` directly:
+
+```bash
+# Via Pylon (tries system first, falls back to user-level)
+pylon service status
+
+# User-level service
+systemctl --user status pylon
+
+# System-level service
+systemctl status pylon
+```
+
+## Following logs
+
+Pylon's output is captured by journald when running as a service. Use `journalctl` to follow logs in real time:
+
+```bash
+# User-level service
+journalctl --user -u pylon -f
+
+# System-level service
+journalctl -u pylon -f
+```
+
+<Tip>
+Add `-n 100` to also print the last 100 lines of historical logs when you start following: `journalctl --user -u pylon -f -n 100`.
+</Tip>
+
+## Uninstalling the service
+
+To remove the service, run:
+
+```bash
+pylon service uninstall
+```
+
+This stops the service, disables it, removes the unit file, and reloads the systemd daemon. Pylon checks both the user-level and system-level paths and removes whichever one exists.
+
+## Upgrading Pylon
+
+When you run `pylon upgrade` and the daemon is currently managed by systemd, Pylon detects this automatically and restarts the service after the upgrade completes. You do not need to manually stop and start the service around an upgrade.
+
+<Note>
+If you installed the service without root and later want to switch to a system-level service (or vice versa), run `pylon service uninstall` first, then re-run `pylon service install` with or without `sudo`.
+</Note>

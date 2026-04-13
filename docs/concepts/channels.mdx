@@ -1,0 +1,152 @@
+---
+title: "Channels: Telegram, Slack, and webhook notifications"
+description: "Channels define where Pylon posts agent results and approval requests. Supports Telegram, Slack, stdout, and generic webhooks."
+---
+
+When a pylon job finishes, Pylon sends the agent's output to a channel. Channels also handle the approval flow — when `approval: true`, Pylon sends a notification with **Investigate** and **Ignore** buttons before the agent runs, and waits for a human to respond.
+
+You configure a channel under the `channel` key in `pylon.yaml`. If you omit the `channel` block, Pylon falls back to the global defaults in `~/.pylon/config.yaml` under `defaults.channel`.
+
+## Channel fields
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | No | Channel backend: `telegram`, `slack`, `stdout`, or `webhook`. Falls back to global default. |
+| `approval` | No | When `true`, Pylon sends an approval notification before the agent runs. |
+| `topic` | No | Thread or group subject line, rendered as a template. |
+| `message` | No | Notification body, rendered as a template. Shown above approval buttons when `approval: true`. |
+| `telegram` | No | Telegram-specific config. Required when `type: telegram`. |
+| `slack` | No | Slack-specific config. Required when `type: slack`. |
+
+## Approval flow
+
+When `approval: true`, Pylon sends a notification with **Investigate** and **Ignore** buttons before starting the agent:
+
+- **Investigate** — Pylon runs the agent and posts the result back to the channel.
+- **Ignore** — Pylon discards the job with no agent run.
+
+This is most useful for high-volume triggers like Sentry, where you want to triage before spending agent time on every event.
+
+<Note>
+The approval flow is only supported for `webhook` triggers. When `type: cron`, `approval: true` is ignored and the agent runs immediately.
+</Note>
+
+## Telegram
+
+Telegram support requires a bot token and a chat ID. Pylon uses the Telegram Bot API to send messages and render approval buttons.
+
+```yaml
+channel:
+  type: telegram
+  approval: true
+  topic: "{{ .body.data.event.title }}"
+  message: |
+    {{ .body.data.event.title }}
+    {{ .body.data.event.culprit }}
+    {{ .body.data.event.web_url }}
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: 123456789
+    allowed_users:
+      - 987654321
+```
+
+### Telegram fields
+
+| Field | Required | Description |
+|---|---|---|
+| `bot_token` | Yes | Your Telegram bot token from BotFather. Supports `${ENV_VAR}`. |
+| `chat_id` | Yes | The chat or group ID where Pylon sends messages. |
+| `allowed_users` | No | List of Telegram user IDs permitted to press approval buttons. If omitted, any member of the chat can approve. |
+
+<Tip>
+To find your `chat_id`, add your bot to a group and send a message, then check `https://api.telegram.org/bot<token>/getUpdates`.
+</Tip>
+
+## Slack
+
+Slack support uses Socket Mode, which means Pylon maintains a persistent WebSocket connection to Slack — no public inbound URL required.
+
+```yaml
+channel:
+  type: slack
+  approval: true
+  topic: "PR #{{ .body.number }}: {{ .body.pull_request.title }}"
+  message: |
+    PR #{{ .body.number }}: {{ .body.pull_request.title }}
+  slack:
+    bot_token: "${SLACK_BOT_TOKEN}"
+    app_token: "${SLACK_APP_TOKEN}"
+    channel_id: "C1234567890"
+    allowed_users:
+      - "U0123456789"
+```
+
+### Slack fields
+
+| Field | Required | Description |
+|---|---|---|
+| `bot_token` | Yes | Your Slack bot token (starts with `xoxb-`). Supports `${ENV_VAR}`. |
+| `app_token` | Yes | Your Slack app-level token for Socket Mode (starts with `xapp-`). Supports `${ENV_VAR}`. |
+| `channel_id` | Yes | The Slack channel ID (e.g. `C1234567890`). Not the channel name. |
+| `allowed_users` | No | List of Slack user IDs permitted to press approval buttons. If omitted, any workspace member can approve. |
+
+<Warning>
+Your Slack app must have Socket Mode enabled and the `chat:write`, `channels:history`, and `reactions:write` bot scopes at minimum. Approval buttons also require the `interactivity` feature to be turned on.
+</Warning>
+
+## stdout
+
+The `stdout` channel prints agent output directly to the Pylon process console. Useful for local development and testing.
+
+```yaml
+channel:
+  type: stdout
+```
+
+No additional configuration is needed. Approval buttons are printed as text prompts in the terminal.
+
+## Webhook
+
+The `webhook` channel posts a JSON payload to any HTTP endpoint after the agent finishes.
+
+```yaml
+channel:
+  type: webhook
+```
+
+<Note>
+Webhook channel configuration (endpoint URL, headers, etc.) is managed through the global config. Per-pylon webhook channel customization is not yet supported.
+</Note>
+
+## Per-pylon channel overrides
+
+The channel configured in `pylon.yaml` takes priority over the global default. You can mix and match — use Telegram as the global default and override specific pylons to post to Slack:
+
+```yaml
+# ~/.pylon/config.yaml
+defaults:
+  channel:
+    type: telegram
+    telegram:
+      bot_token: "${TELEGRAM_BOT_TOKEN}"
+      chat_id: 123456789
+```
+
+```yaml
+# ~/.pylon/pylons/pr-review/pylon.yaml
+channel:
+  type: slack
+  slack:
+    bot_token: "${SLACK_BOT_TOKEN}"
+    app_token: "${SLACK_APP_TOKEN}"
+    channel_id: "C1234567890"
+```
+
+## Coming soon
+
+The following channels are planned but not yet available:
+
+- **Discord**
+- **WhatsApp**
+- **iMessage**

@@ -1,0 +1,93 @@
+---
+title: "pylon jobs, logs, attach, kill — manage agent runs"
+sidebarTitle: "jobs / logs / attach / kill"
+description: "List recent agent job runs, stream their logs, exec into a running container, or kill a stuck job. Job history is stored per-pylon in SQLite."
+---
+
+Every time Pylon runs an AI agent it creates a job — a record with a unique ID, status, and timestamps. These commands let you inspect what happened, debug failures, and manage running containers.
+
+## pylon jobs
+
+Lists recent jobs across all pipelines (or filtered to one).
+
+```bash
+pylon jobs              # all pipelines, up to 20 jobs each
+pylon jobs my-sentry    # only jobs for my-sentry
+```
+
+Example output:
+
+```
+ID         PYLON                    STATUS         TRIGGERED             DURATION
+a1b2c3d4   my-sentry                done           2 min ago             1m34s
+e5f6g7h8   my-sentry                failed         18 min ago            2m01s
+i9j0k1l2   pr-review                running        45 sec ago            --
+```
+
+Job statuses:
+
+| Status | Meaning |
+|---|---|
+| `queued` | Waiting for approval or a free container slot |
+| `pending` | Approved, about to start |
+| `running` | Agent container is active |
+| `done` | Completed successfully |
+| `failed` | Agent exited with an error or timed out |
+
+## pylon logs
+
+Streams Docker logs for a job's container.
+
+```bash
+pylon logs <job-id>
+```
+
+<ParamField path="job-id" type="string" required>
+  The job ID shown in `pylon jobs` output. You can use the short 8-character prefix.
+</ParamField>
+
+If the container no longer exists, Pylon prints the workspace directory path where any saved output may be found.
+
+## pylon attach
+
+Opens an interactive shell inside a running agent container.
+
+```bash
+pylon attach <job-id>
+```
+
+This runs `docker exec -it <container> /bin/sh`. Useful for inspecting the workspace, environment variables, or agent state mid-run.
+
+<Note>
+  The container must still be running. Use `pylon jobs` to check the status first.
+</Note>
+
+## pylon kill
+
+Forcibly stops a running agent container.
+
+```bash
+pylon kill <job-id>
+```
+
+Equivalent to `docker kill <container>`. Use this when an agent is stuck or has exceeded its expected runtime.
+
+## pylon retry
+
+Re-triggers a failed job.
+
+```bash
+pylon retry <job-id>
+```
+
+For webhook-triggered pipelines, retry is available by re-sending the original webhook or using `pylon test`. For cron-triggered pipelines, wait for the next scheduled run.
+
+## Job storage
+
+Each pipeline stores its job history in a SQLite database at:
+
+```
+~/.pylon/pylons/<name>/jobs.db
+```
+
+Jobs are kept indefinitely. To clear history, use `pylon destroy <name>` and recreate the pipeline.

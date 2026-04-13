@@ -1,0 +1,158 @@
+---
+title: "Agents: configure Claude Code and OpenCode for Pylon"
+description: "Agents are AI coding tools that run inside Docker containers. Learn how to configure Claude Code and OpenCode, set prompts, and control timeouts."
+---
+
+When a pylon job fires, Pylon spins up a fresh Docker container for the configured agent, mounts the workspace, injects the prompt, and lets the agent work. Each job gets its own isolated container — the agent has no access to previous jobs or the host filesystem beyond the mounted workspace.
+
+Pylon currently supports two agents: **Claude Code** and **OpenCode**. You configure an agent under the `agent` key in `pylon.yaml`. If you omit the `agent` block, Pylon falls back to the global defaults in `~/.pylon/config.yaml`.
+
+## Agent fields
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | No | Agent to use: `claude` or `opencode`. Defaults to global setting, or `claude` if not set. |
+| `auth` | No | Authentication method. See per-agent options below. |
+| `api_key` | No | API key reference, e.g. `${ANTHROPIC_API_KEY}`. Used when `auth` is `api_key` or `api-key`. |
+| `provider` | No | LLM provider for OpenCode: `anthropic`, `openai`, or `google`. |
+| `env` | No | Additional environment variables to inject into the container. |
+| `prompt` | Yes | The instruction sent to the agent. Supports `{{ .body.field }}` templating. |
+| `timeout` | No | Maximum time the agent container can run, e.g. `10m`, `30m`. Defaults to `15m`. |
+| `tools` | No | Host CLI tools the agent can call via the exec gateway. Overrides global `tools` if set. |
+
+## Claude Code
+
+Claude Code (`type: claude`) is Anthropic's agentic coding tool. It supports two auth methods:
+
+<Tabs>
+  <Tab title="OAuth (recommended)">
+    With OAuth auth, Pylon mounts your local `~/.claude/` directory into the container so Claude Code reuses your existing session. No API key is needed.
+
+    ```yaml
+    agent:
+      type: claude
+      auth: oauth
+      prompt: |
+        Investigate this Sentry error and suggest a fix.
+        Title: {{ .body.data.event.title }}
+        Culprit: {{ .body.data.event.culprit }}
+      timeout: 10m
+    ```
+
+    <Note>
+    OAuth auth requires that you have already authenticated Claude Code on the host machine by running `claude` at least once.
+    </Note>
+  </Tab>
+  <Tab title="API key">
+    With API key auth, Pylon passes your Anthropic API key to the container as `ANTHROPIC_API_KEY`.
+
+    ```yaml
+    agent:
+      type: claude
+      auth: api_key
+      api_key: "${ANTHROPIC_API_KEY}"
+      prompt: |
+        Review this pull request for bugs and security issues.
+      timeout: 15m
+    ```
+
+    Store the key in `~/.pylon/.env`:
+
+    ```bash
+    ANTHROPIC_API_KEY=sk-ant-...
+    ```
+  </Tab>
+</Tabs>
+
+## OpenCode
+
+OpenCode (`type: opencode`) is a multi-provider coding agent with a built-in free tier (Zen) that requires no API key.
+
+<Tabs>
+  <Tab title="Zen (no key needed)">
+    OpenCode's Zen mode uses a built-in model — no API key or `provider` setting required.
+
+    ```yaml
+    agent:
+      type: opencode
+      auth: none
+      prompt: |
+        Audit this codebase for outdated dependencies and code quality issues.
+      timeout: 30m
+    ```
+  </Tab>
+  <Tab title="API key (bring your own)">
+    To use your own provider with OpenCode, set `auth` to `api-key`, specify a `provider`, and supply the key.
+
+    ```yaml
+    agent:
+      type: opencode
+      auth: api-key
+      provider: anthropic
+      api_key: "${ANTHROPIC_API_KEY}"
+      prompt: |
+        Review this PR and suggest improvements.
+      timeout: 15m
+    ```
+
+    Supported providers: `anthropic`, `openai`, `google`.
+  </Tab>
+</Tabs>
+
+## Prompt templating
+
+The `prompt` field supports Go template syntax. Use `{{ .body.field }}` to inject values from the webhook payload into the prompt at runtime.
+
+```yaml
+agent:
+  prompt: |
+    Investigate this Sentry error and suggest a fix.
+
+    Title: {{ .body.data.event.title }}
+    Culprit: {{ .body.data.event.culprit }}
+    Level: {{ .body.data.event.level }}
+    Platform: {{ .body.data.event.platform }}
+    Sentry URL: {{ .body.data.event.web_url }}
+```
+
+For GitHub webhooks, you can reference fields like `{{ .body.pull_request.title }}`, `{{ .body.pull_request.head.ref }}`, or `{{ .body.repository.clone_url }}`.
+
+<Tip>
+Use `pylon test <name>` to send a sample payload and preview how the prompt renders before relying on it in production.
+</Tip>
+
+## Timeout
+
+The `timeout` field sets the maximum time the agent container is allowed to run. If the agent exceeds this limit, Pylon stops the container and records the job as timed out.
+
+- Default: `15m`
+- Format: Go duration string — `10m`, `30m`, `1h`, etc.
+
+```yaml
+agent:
+  timeout: 10m
+```
+
+You can also set a global default timeout in `~/.pylon/config.yaml` under `docker.default_timeout`. The per-pylon `timeout` takes priority.
+
+## Additional environment variables
+
+Use `env` to inject arbitrary environment variables into the agent container:
+
+```yaml
+agent:
+  type: claude
+  auth: oauth
+  env:
+    NODE_ENV: production
+    DATABASE_URL: "${DATABASE_URL}"
+  prompt: "Run the test suite and report failures."
+  timeout: 20m
+```
+
+## Coming soon
+
+The following agents are planned but not yet available:
+
+- **Codex** (OpenAI)
+- **Aider**

@@ -1,0 +1,55 @@
+---
+title: "Pylon: run AI coding agents on your own server"
+description: "Pylon listens for webhook and cron events, spins up sandboxed AI coding agents in Docker, and reports results to Telegram or Slack."
+---
+
+Pylon is a self-hosted daemon you run on your own server. When an event arrives—a Sentry alert, a GitHub pull request, a scheduled cron job—Pylon spins up a sandboxed AI agent in Docker, hands it your codebase, and sends the result back to your chat channel. You stay in control: approve before the agent runs, review the output, and keep your code on your own infrastructure.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Install Pylon and trigger your first AI agent run in minutes.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Download the binary and set up dependencies for Linux.
+  </Card>
+  <Card title="What is a Pylon?" icon="tower-observation" href="/concepts/pylons">
+    Learn the core building block: triggers, agents, channels, and workspaces.
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/setup">
+    Full reference for every Pylon command.
+  </Card>
+</CardGroup>
+
+## How Pylon works
+
+<Steps>
+  <Step title="Install Pylon">
+    Download the binary with a single `curl` command and run `pylon setup` to configure your channel and AI agent.
+  </Step>
+  <Step title="Construct a pipeline">
+    Use `pylon construct` to define what triggers your pipeline (webhook or cron), which AI agent handles it, and where results are sent.
+  </Step>
+  <Step title="Start the daemon">
+    Run `pylon start` to power up all your pipelines. Pylon listens on a configurable port and waits for events.
+  </Step>
+  <Step title="Receive results in chat">
+    When a trigger fires, Pylon can ask for your approval first, then runs the agent and posts the output directly to your Telegram or Slack channel.
+  </Step>
+</Steps>
+
+## Explore by use case
+
+<CardGroup cols={2}>
+  <Card title="Sentry error triage" icon="bug" href="/guides/sentry">
+    Automatically investigate errors and suggest fixes when Sentry fires a webhook.
+  </Card>
+  <Card title="GitHub PR review" icon="code-pull-request" href="/guides/github-pr">
+    Review pull requests for bugs and security issues on every opened PR.
+  </Card>
+  <Card title="Scheduled code audit" icon="calendar-check" href="/guides/cron-audit">
+    Run a weekly AI audit of your codebase on a cron schedule.
+  </Card>
+  <Card title="Custom pipeline" icon="wrench" href="/guides/custom-pipeline">
+    Build a pipeline from scratch with any trigger, agent, and prompt.
+  </Card>
+</CardGroup>

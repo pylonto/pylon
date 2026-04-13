@@ -1,0 +1,86 @@
+---
+title: "pylon construct — create a new pipeline"
+sidebarTitle: "construct"
+description: "pylon construct <name> creates a pylon pipeline interactively or from a template. Saves config to ~/.pylon/pylons/<name>/pylon.yaml."
+---
+
+`pylon construct` creates a new pylon — a named pipeline that ties together a trigger, workspace, AI agent, and notification channel. Run it once per pipeline you want to set up. The result is a YAML config file you can edit at any time with `pylon edit <name>`.
+
+## Usage
+
+```bash
+pylon construct <name>
+pylon construct <name> --from <template>
+```
+
+## Arguments and flags
+
+<ParamField path="name" type="string" required>
+  The pipeline identifier. Used as the default webhook path (`/<name>`) and as the directory name under `~/.pylon/pylons/`.
+</ParamField>
+
+<ParamField query="--from" type="string">
+  Create from a built-in template instead of the interactive wizard. Available templates:
+
+  | Template | Trigger | Use case |
+  |---|---|---|
+  | `sentry` | Webhook | Investigate Sentry error alerts |
+  | `github-pr` | Webhook | Review GitHub pull requests |
+  | `cron-audit` | Cron | Weekly codebase security audit |
+  | `blank` | Webhook | Empty starting point |
+</ParamField>
+
+## Template examples
+
+```bash
+pylon construct my-sentry --from sentry
+pylon construct pr-review --from github-pr
+pylon construct weekly-audit --from cron-audit
+pylon construct my-pipeline --from blank
+```
+
+## Interactive wizard
+
+When you run `pylon construct <name>` without `--from`, the wizard prompts for:
+
+**Trigger** — what starts the pipeline:
+- `webhook` — HTTP POST to a path (default `/<name>`); optionally set a public URL override
+- `cron` — a cron schedule expression (e.g. `0 9 * * 1-5`)
+
+**Workspace** — how the agent accesses code:
+- `git-clone` — fresh clone per job; prompts for repo URL and branch
+- `git-worktree` — uses a local repo with `git worktree add`; prompts for repo and branch
+- `local` — mounts an existing directory; prompts for path
+- `none` — no codebase
+
+**Channel** — where results are sent (use global default, or configure Telegram/Slack per-pylon)
+
+**Agent** — which AI agent runs (use global default, Claude Code, OpenCode, or a custom command)
+
+**Host tools** — select which host CLI tools this agent can invoke (from your global tools list)
+
+**Prompt** — the instruction template sent to the agent. Use `{{ .body.field }}` to inject webhook payload fields.
+
+**Approval** — whether you must approve before the agent runs. If enabled, also prompts for a topic template and notification message template.
+
+## Output
+
+After construction, Pylon prints:
+
+```
+Pylon constructed: my-sentry
+  Config: ~/.pylon/pylons/my-sentry/pylon.yaml
+  Webhook: https://your-server.com/my-sentry
+
+  Start it:  pylon start my-sentry
+  Test it:   pylon test my-sentry
+  Edit it:   pylon edit my-sentry
+```
+
+## Next steps
+
+```bash
+pylon start          # start the daemon
+pylon test my-sentry # send a test webhook
+pylon edit my-sentry # open config in $EDITOR
+```

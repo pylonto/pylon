@@ -1,0 +1,138 @@
+---
+title: "Review GitHub pull requests with an AI agent"
+description: "Automatically trigger an AI code review on every new pull request — catching bugs, security issues, and style problems before a human reviewer sees it."
+---
+
+Every time a contributor opens a pull request, Pylon receives the GitHub webhook event, clones the branch, and runs an AI agent that reviews the changes for bugs, security vulnerabilities, and code quality. Results are posted to your Telegram or Slack channel immediately — no approval gate, no manual trigger. This guide shows you how to set it up.
+
+## Prerequisites
+
+- Pylon installed and running (`pylon setup` complete)
+- A GitHub repository where you have admin access (to create webhooks)
+- Telegram or Slack configured as your global channel
+
+## Steps
+
+<Steps>
+  <Step title="Create the pipeline">
+    Scaffold the pipeline from the built-in `github-pr` template:
+
+    ```bash
+    pylon construct my-pr-review --from github-pr
+    ```
+
+    Pylon writes the config to `~/.pylon/pylons/my-pr-review/pylon.yaml`.
+  </Step>
+
+  <Step title="Review the generated config">
+
+```yaml
+name: "my-pr-review"
+created: "2025-01-01T00:00:00Z"
+
+trigger:
+  type: webhook
+  path: /my-pr-review
+  # secret: "${GITHUB_WEBHOOK_SECRET}"
+  # signature_header: X-Hub-Signature-256
+
+channel:
+  topic: "PR #{{ .body.number }}: {{ .body.pull_request.title }}"
+  message: |
+    PR #{{ .body.number }}: {{ .body.pull_request.title }}
+  approval: false
+
+workspace:
+  type: git-clone
+  repo: "{{ .body.repository.clone_url }}"
+  ref: "{{ .body.pull_request.head.ref }}"
+
+agent:
+  prompt: |
+    Review this pull request. Check for bugs, security issues, and
+    suggest improvements. Be concise and actionable.
+  timeout: 15m
+```
+
+Two things worth noting:
+
+Note that `approval: false` means the agent runs immediately with no human gate, and the `repo` and `ref` workspace fields use Go template expressions to pull the clone URL and branch name directly from the GitHub payload — you do not need to hard-code them.
+  </Step>
+
+  <Step title="Configure the GitHub webhook">
+    In your GitHub repository, go to **Settings → Webhooks → Add webhook**. Set the **Payload URL** to your Pylon endpoint (e.g. `https://your-server.com/my-pr-review`), set **Content type** to `application/json`, and under **Which events would you like to trigger this webhook?** choose **Let me select individual events** and enable **Pull requests**. Click **Add webhook**.
+
+    GitHub will now POST to Pylon whenever a pull request is opened, reopened, or synchronized.
+  </Step>
+
+  <Step title="Start the daemon">
+    ```bash
+    pylon start
+    ```
+  </Step>
+
+  <Step title="Test the pipeline">
+    ```bash
+    pylon test my-pr-review
+    ```
+
+    Pylon sends a synthetic pull request payload through the pipeline and confirms the agent runs to completion.
+  </Step>
+
+  <Step title="Open a real pull request">
+    Open a PR in your repository. Within seconds, Pylon clones the head branch and runs the agent. The review findings are posted to your configured channel.
+  </Step>
+
+</Steps>
+
+## Add webhook signature validation (recommended)
+
+Validate that payloads come from GitHub by enabling HMAC verification:
+
+```yaml
+trigger:
+  type: webhook
+  path: /my-pr-review
+  secret: "${GITHUB_WEBHOOK_SECRET}"
+  signature_header: X-Hub-Signature-256
+```
+
+Copy the **Secret** value from your GitHub webhook settings and set it as the `GITHUB_WEBHOOK_SECRET` environment variable on your Pylon server. GitHub signs every payload with this secret; Pylon will reject requests that don't match.
+
+## Require human approval
+
+If you prefer to approve reviews before the agent runs (for example, on a high-traffic repo), change `approval` to `true`:
+
+```yaml
+channel:
+  approval: true
+```
+
+You'll receive an **Investigate** / **Ignore** prompt in chat for each new PR.
+
+## Customize the review prompt
+
+Edit the pipeline to tailor what the agent checks:
+
+```bash
+pylon edit my-pr-review
+```
+
+For example, add project-specific concerns to `agent.prompt`:
+
+```yaml
+agent:
+  prompt: |
+    Review this pull request. Check for bugs, security issues, and
+    suggest improvements. Be concise and actionable.
+    Pay special attention to SQL injection risks and missing input validation.
+  timeout: 15m
+```
+
+## Use a test payload matching a real PR
+
+Pass a captured GitHub payload to simulate a specific PR during development:
+
+```bash
+pylon test my-pr-review --payload '{"number":42,"pull_request":{"title":"Fix login bug","head":{"ref":"fix/login"}},"repository":{"clone_url":"https://github.com/acme/app.git"}}'
+```

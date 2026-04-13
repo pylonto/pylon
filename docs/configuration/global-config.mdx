@@ -1,0 +1,188 @@
+---
+title: "Global config reference: ~/.pylon/config.yaml"
+description: "Configure Pylon's server port, Docker concurrency limits, default agent, and notification channel in the machine-level YAML file at ~/.pylon/config.yaml."
+---
+
+Pylon uses a single machine-level config file at `~/.pylon/config.yaml` to define how your daemon runs: which port it listens on, what Docker limits apply to agent containers, and which notification channel receives alerts by default. Running `pylon setup` creates this file for you and walks you through the core options. Secrets such as bot tokens and API keys belong in `~/.pylon/.env` (one `KEY=VALUE` pair per line); Pylon loads that file automatically on `pylon start` and never reads it into version control.
+
+## Secrets file
+
+Store sensitive values in `~/.pylon/.env`:
+
+```bash
+TELEGRAM_BOT_TOKEN=7123456789:AAF...
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Reference these values anywhere in `config.yaml` using `${VAR_NAME}` syntax. Pylon expands them at startup, so the file itself never contains raw secrets.
+
+## Annotated config.yaml
+
+```yaml
+# Config schema version. Currently always 1.
+version: 1
+
+server:
+  # Port the HTTP daemon listens on.
+  port: 8080
+  # Network interface to bind. Use 0.0.0.0 to accept connections on all interfaces.
+  host: "0.0.0.0"
+  # Base URL used when printing webhook URLs. Set this to your externally-reachable
+  # address so Pylon can tell you the full URL to register with third-party services.
+  public_url: "https://myserver.example.com"
+
+defaults:
+  channel:
+    # Notification backend. Options: telegram, slack, webhook, stdout
+    type: telegram
+    telegram:
+      bot_token: "${TELEGRAM_BOT_TOKEN}"
+      chat_id: -1001234567890
+      # Telegram user IDs allowed to click Approve/Ignore on jobs.
+      allowed_users:
+        - 987654321
+    # Uncomment for Slack instead:
+    # slack:
+    #   bot_token: "${SLACK_BOT_TOKEN}"
+    #   app_token: "${SLACK_APP_TOKEN}"
+    #   channel_id: "C0123456789"
+    #   allowed_users:
+    #     - "U0123456789"
+
+  agent:
+    # Agent runtime. Options: claude, opencode
+    type: claude
+    claude:
+      # Docker image used for Claude Code agent containers.
+      image: "pylon/agent-claude"
+      # Auth method. Options: oauth, api_key
+      auth: oauth
+      # Path to your local ~/.claude/ OAuth session, mounted read-only into the container.
+      oauth_path: "/home/youruser/.claude"
+    # Uncomment for OpenCode instead:
+    # opencode:
+    #   image: "pylon/agent-opencode"
+    #   # "none" uses OpenCode Zen (no API key required). "api-key" reads from the provider env var.
+    #   auth: "none"
+    #   # LLM provider. Options: anthropic, openai, google
+    #   provider: anthropic
+
+docker:
+  # Maximum number of agent containers that can run at the same time.
+  max_concurrent: 3
+  # Default timeout for any agent job that does not set its own timeout.
+  default_timeout: "15m"
+
+# Host CLI tools that agents can call via Pylon's exec gateway.
+# See the host tools page for details.
+tools:
+  - name: deploy
+    path: /usr/local/bin/deploy.sh
+    timeout: "60s"
+  - name: lint
+    path: /usr/local/bin/eslint
+```
+
+## Field reference
+
+### `version`
+
+<ParamField path="version" type="integer" required>
+  Config schema version. Set this to `1`. Pylon uses this to detect breaking changes in future releases.
+</ParamField>
+
+### `server`
+
+<ParamField path="server.port" type="integer" default="8080">
+  HTTP port the Pylon daemon listens on for incoming webhook requests.
+</ParamField>
+
+<ParamField path="server.host" type="string" default="0.0.0.0">
+  Network interface to bind. `0.0.0.0` accepts connections on all interfaces. Use `127.0.0.1` to restrict to localhost.
+</ParamField>
+
+<ParamField path="server.public_url" type="string">
+  Base URL Pylon uses when printing webhook registration URLs (for example, `https://myserver.example.com`). Individual pylons can override this with their own `trigger.public_url`. If unset, Pylon falls back to `http://<host>:<port>`.
+</ParamField>
+
+### `defaults.channel`
+
+<ParamField path="defaults.channel.type" type="string" required>
+  Default notification backend for all pylons. Accepted values: `telegram`, `slack`, `webhook`, `stdout`. Individual pylons can override this.
+</ParamField>
+
+<ParamField path="defaults.channel.telegram.bot_token" type="string">
+  Telegram bot token from [@BotFather](https://t.me/BotFather). Use `${TELEGRAM_BOT_TOKEN}` to pull from `.env`. Required when `type` is `telegram`.
+</ParamField>
+
+<ParamField path="defaults.channel.telegram.chat_id" type="integer">
+  Telegram chat or group ID. Use a negative number for groups and supergroups. Required when `type` is `telegram`.
+</ParamField>
+
+<ParamField path="defaults.channel.telegram.allowed_users" type="integer[]">
+  List of Telegram user IDs that may click the Approve or Ignore buttons on job notifications. If empty, approval buttons are not shown.
+</ParamField>
+
+<ParamField path="defaults.channel.slack.bot_token" type="string">
+  Slack bot token (starts with `xoxb-`). Required when `type` is `slack`.
+</ParamField>
+
+<ParamField path="defaults.channel.slack.app_token" type="string">
+  Slack app-level token (starts with `xapp-`). Used for Socket Mode. Required when `type` is `slack`.
+</ParamField>
+
+<ParamField path="defaults.channel.slack.channel_id" type="string">
+  Slack channel ID (starts with `C`). Required when `type` is `slack`.
+</ParamField>
+
+<ParamField path="defaults.channel.slack.allowed_users" type="string[]">
+  List of Slack user IDs that may approve or ignore jobs. If empty, approval actions are not shown.
+</ParamField>
+
+### `defaults.agent`
+
+<ParamField path="defaults.agent.type" type="string" default="claude">
+  Default agent runtime. Accepted values: `claude`, `opencode`.
+</ParamField>
+
+<ParamField path="defaults.agent.claude.image" type="string" default="pylon/agent-claude">
+  Docker image for Claude Code agent containers.
+</ParamField>
+
+<ParamField path="defaults.agent.claude.auth" type="string" default="oauth">
+  Authentication method for Claude. `oauth` mounts your local OAuth session; `api_key` reads `ANTHROPIC_API_KEY` from the environment.
+</ParamField>
+
+<ParamField path="defaults.agent.claude.oauth_path" type="string">
+  Path to your local `~/.claude/` directory. Pylon mounts it read-only into each agent container. Required when `auth` is `oauth`.
+</ParamField>
+
+<ParamField path="defaults.agent.opencode.image" type="string" default="pylon/agent-opencode">
+  Docker image for OpenCode agent containers.
+</ParamField>
+
+<ParamField path="defaults.agent.opencode.auth" type="string" default="none">
+  Authentication method for OpenCode. `none` uses OpenCode Zen (no API key required); `api-key` reads the relevant provider environment variable.
+</ParamField>
+
+<ParamField path="defaults.agent.opencode.provider" type="string">
+  LLM provider when `auth` is `api-key`. Accepted values: `anthropic`, `openai`, `google`. Pylon automatically maps each provider to its standard API key environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`).
+</ParamField>
+
+### `docker`
+
+<ParamField path="docker.max_concurrent" type="integer" default="3">
+  Maximum number of agent containers that can run simultaneously. Jobs that arrive when all slots are occupied are currently rejected.
+</ParamField>
+
+<ParamField path="docker.default_timeout" type="string" default="15m">
+  Default maximum run time for a single agent job. Accepts Go duration strings such as `10m`, `1h30m`. Individual pylons can override this with `agent.timeout`.
+</ParamField>
+
+### `tools`
+
+<ParamField path="tools" type="ToolConfig[]">
+  List of host CLI tools exposed to agent containers via Pylon's exec gateway. Each entry specifies a `name`, an absolute `path` to the executable, and an optional `timeout`. See the [host tools guide](/configuration/host-tools) for full details.
+</ParamField>

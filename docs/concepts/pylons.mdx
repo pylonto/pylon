@@ -1,0 +1,106 @@
+---
+title: "Pylons: Pylon's core named pipeline unit"
+description: "A pylon is a named pipeline that ties a trigger, workspace, agent, and channel together. Learn how pylons are configured and managed."
+---
+
+A pylon is the central building block in Pylon. Each pylon defines a complete pipeline: what event starts it (`trigger`), what code the agent works with (`workspace`), which AI agent runs (`agent`), and where results are sent (`channel`). When an event fires, Pylon loads the pylon config, spins up a sandboxed Docker container, runs the agent, and posts the output to your channel.
+
+## Config location
+
+Each pylon stores its config at `~/.pylon/pylons/<name>/pylon.yaml`. Pylon also keeps a job history database at `~/.pylon/pylons/<name>/jobs.db` — a SQLite file that records every job run by that pylon, including status, timestamps, and output.
+
+## Complete example
+
+The following is a real-world pylon that triages Sentry errors. When Sentry sends a webhook, Pylon asks you to approve before the agent investigates.
+
+```yaml
+name: sentry-triage
+description: Triage Sentry errors for the nexus project
+created: 2025-01-15T09:00:00Z
+
+trigger:
+  type: webhook
+  path: /sentry-triage
+  secret: "${SENTRY_CLIENT_SECRET}"
+  signature_header: Sentry-Hook-Signature
+
+workspace:
+  type: git-clone
+  repo: git@github.com:acme/nexus.git
+  ref: main
+
+channel:
+  topic: "{{ .body.data.event.title }}"
+  message: |
+    {{ .body.data.event.title }}
+    {{ .body.data.event.culprit }}
+    {{ .body.data.event.web_url }}
+  approval: true
+
+agent:
+  prompt: |
+    Investigate this Sentry error and suggest a fix.
+
+    Title: {{ .body.data.event.title }}
+    Culprit: {{ .body.data.event.culprit }}
+    Level: {{ .body.data.event.level }}
+    Platform: {{ .body.data.event.platform }}
+    Sentry URL: {{ .body.data.event.web_url }}
+  timeout: 10m
+```
+
+## Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | Unique identifier for the pylon. Must match the directory name. |
+| `description` | No | Human-readable description, shown in `pylon list`. |
+| `disabled` | No | Set to `true` to pause the pylon without deleting it. |
+| `created` | Yes | ISO 8601 timestamp set automatically when the pylon is constructed. |
+| `trigger` | Yes | Defines what event starts the pipeline. See [Triggers](/concepts/triggers). |
+| `workspace` | Yes | Defines how the agent accesses your codebase. See [Workspaces](/concepts/workspaces). |
+| `agent` | No | Configures the AI agent. Falls back to global defaults if omitted. See [Agents](/concepts/agents). |
+| `channel` | No | Where results are sent. Falls back to global defaults if omitted. See [Channels](/concepts/channels). |
+
+## Managing pylons
+
+Use these commands to work with your pylons:
+
+```bash
+# List all pylons and their status
+pylon list
+
+# Open a pylon's config in your $EDITOR
+pylon edit sentry-triage
+
+# Delete a pylon and all its job history
+pylon destroy sentry-triage
+```
+
+<Note>
+`pylon destroy` removes the entire `~/.pylon/pylons/<name>/` directory, including `jobs.db`. This is irreversible.
+</Note>
+
+## Creating pylons from templates
+
+Use `pylon construct` with the `--from` flag to start from a pre-built template instead of answering prompts:
+
+```bash
+pylon construct sentry-triage --from sentry
+pylon construct pr-review --from github-pr
+pylon construct weekly-audit --from cron-audit
+pylon construct my-pylon --from blank
+```
+
+After constructing, run `pylon edit <name>` to fill in repo URLs, secrets, and any other fields the template left blank.
+
+## Disabling a pylon
+
+To pause a pylon without destroying it, set `disabled: true` in the config:
+
+```yaml
+name: sentry-triage
+disabled: true
+```
+
+Pylon will skip disabled pylons when routing webhooks and scheduling cron jobs. Remove the field or set it to `false` to re-enable.

@@ -1,0 +1,119 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Pylon",
+  "projectDescription": "A self-hosted daemon that listens for webhook and cron events, spins up sandboxed AI coding agents in Docker containers, and reports results back to Telegram or Slack.",
+  "theme": "aspen",
+  "primaryColor": "#5B6EF5",
+  "lightColor": "#EEF0FE",
+  "darkColor": "#1A1D3A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Docs",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/pylons",
+              "concepts/triggers",
+              "concepts/agents",
+              "concepts/channels",
+              "concepts/workspaces"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/sentry",
+              "guides/github-pr",
+              "guides/cron-audit",
+              "guides/custom-pipeline"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/global-config",
+              "configuration/pylon-config",
+              "configuration/prompt-templates",
+              "configuration/host-tools"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/running",
+              "operations/jobs",
+              "operations/systemd",
+              "operations/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/setup",
+              "cli/construct",
+              "cli/start",
+              "cli/list-edit-destroy",
+              "cli/jobs",
+              "cli/doctor",
+              "cli/upgrade"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Event-driven pipelines (webhook and cron triggers)",
+    "Sandboxed AI agents running in Docker containers",
+    "Human-in-the-loop approval via Telegram or Slack before agent runs",
+    "Built-in support for Claude Code and OpenCode agents",
+    "Git workspace modes: fresh clone, worktree, or local path",
+    "Pipeline templates for Sentry triage, GitHub PR review, and cron audits",
+    "Go template-based prompt injection from webhook payloads",
+    "Per-pylon job history and logs",
+    "Host tool bridge for agents to call host CLIs",
+    "systemd service integration for always-on daemon"
+  ],
+  "publicApiSurface": [
+    "pylon setup",
+    "pylon construct <name> [--from template]",
+    "pylon start [name]",
+    "pylon stop",
+    "pylon restart",
+    "pylon list",
+    "pylon edit <name>",
+    "pylon test <name> [--payload JSON]",
+    "pylon destroy <name>",
+    "pylon jobs [pylon-name]",
+    "pylon logs <job-id>",
+    "pylon attach <job-id>",
+    "pylon kill <job-id>",
+    "pylon retry <job-id>",
+    "pylon doctor",
+    "pylon upgrade",
+    "pylon service install",
+    "pylon service uninstall",
+    "pylon service status",
+    "pylon completion [bash|zsh|fish]",
+    "pylon version",
+    "Webhook HTTP endpoint: POST /<pylon-path>",
+    "~/.pylon/config.yaml (global config)",
+    "~/.pylon/pylons/<name>/pylon.yaml (per-pylon config)",
+    "~/.pylon/.env (secrets store)"
+  ]
+}

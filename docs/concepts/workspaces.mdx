@@ -1,0 +1,106 @@
+---
+title: "Workspaces: git-clone, worktree, local, or none"
+description: "Workspaces define how Pylon provides a codebase to the agent. Choose from git-clone, git-worktree, local mount, or none."
+---
+
+Every pylon job needs to know what code the agent is working with. The `workspace` block in `pylon.yaml` defines this: where the code comes from, which branch to use, and how it gets mounted into the agent's Docker container.
+
+Pylon supports four workspace modes: `git-clone`, `git-worktree`, `local`, and `none`.
+
+## git-clone
+
+A fresh clone of a remote repository, created once per job. This gives the strongest isolation — each job starts from a clean state with no leftover changes from previous runs.
+
+```yaml
+workspace:
+  type: git-clone
+  repo: git@github.com:acme/nexus.git
+  ref: main
+```
+
+### Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | Yes | Must be `git-clone`. |
+| `repo` | Yes | Repository URL. Use SSH (`git@github.com:org/repo.git`) for private repos. |
+| `ref` | No | Branch, tag, or commit to check out. Defaults to the repo's default branch. |
+
+### Injecting branch from webhook payload
+
+For pylons triggered by pull request webhooks, you can inject the branch name from the payload:
+
+```yaml
+workspace:
+  type: git-clone
+  repo: "{{ .body.repository.clone_url }}"
+  ref: "{{ .body.pull_request.head.ref }}"
+```
+
+<Note>
+SSH URLs require that your Pylon host has an SSH key configured with access to the repository. For GitHub, add the host's public key as a deploy key on the repository.
+</Note>
+
+## git-worktree
+
+Uses a local clone of the repository already on the Pylon host, creating a [git worktree](https://git-scm.com/docs/git-worktree) for each job. This avoids a full network clone on every run, which is significantly faster on large repositories.
+
+```yaml
+workspace:
+  type: git-worktree
+  repo: /home/user/repos/nexus
+  ref: main
+```
+
+### Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | Yes | Must be `git-worktree`. |
+| `repo` | Yes | Absolute path to the local git repository on the host. |
+| `ref` | No | Branch, tag, or commit to check out in the worktree. |
+
+<Tip>
+Use `git-worktree` for faster cold starts on large repos. The local clone must already exist and be kept up to date — Pylon does not run `git fetch` automatically before creating the worktree.
+</Tip>
+
+## local
+
+Mounts an existing directory from the host into the agent container. No git operations are performed. Use this when you want the agent to work on a local directory that is not a git repository, or when you want it to see uncommitted changes.
+
+```yaml
+workspace:
+  type: local
+  path: /home/user/projects/my-service
+```
+
+### Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | Yes | Must be `local`. |
+| `path` | Yes | Absolute path to the directory on the host to mount into the container. |
+
+<Warning>
+The `local` workspace mounts the directory directly. The agent can read and modify files in place. Use with caution on directories containing sensitive data or uncommitted work.
+</Warning>
+
+## none
+
+No codebase is provided to the agent. Use this for pylons where the agent's task doesn't require access to code — for example, drafting a report from a webhook payload or querying an external API.
+
+```yaml
+workspace:
+  type: none
+```
+
+No additional fields are needed.
+
+## Comparison
+
+| Mode | Isolation | Speed | Use case |
+|---|---|---|---|
+| `git-clone` | High | Slower (network clone) | CI-style tasks, PR review, Sentry triage |
+| `git-worktree` | Medium | Fast (no clone) | High-frequency jobs on a large local repo |
+| `local` | Low | Fastest | Local dev, non-git directories |
+| `none` | N/A | N/A | Tasks that don't need code |

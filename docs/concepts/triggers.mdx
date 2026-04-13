@@ -1,0 +1,145 @@
+---
+title: "Triggers: webhook and cron events that start pylons"
+description: "Triggers define what event activates a pylon. Pylon supports webhook and cron triggers today, with chat commands and API calls coming soon."
+---
+
+A trigger tells Pylon what event should activate a pipeline. Every pylon has exactly one trigger, defined under the `trigger` key in `pylon.yaml`. Pylon supports two trigger types: `webhook` for HTTP-driven events and `cron` for scheduled jobs.
+
+## Webhook triggers
+
+A webhook trigger listens for an HTTP POST to a specific path on Pylon's built-in server. When a request arrives at that path, Pylon loads the matching pylon and starts a job.
+
+Pylon listens on port `8080` by default. You can change this in `~/.pylon/config.yaml` under `server.port`.
+
+```yaml
+trigger:
+  type: webhook
+  path: /sentry-triage
+```
+
+### Webhook fields
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | Yes | Must be `webhook`. |
+| `path` | Yes | The URL path Pylon listens on, e.g. `/sentry-triage`. Must start with `/`. |
+| `secret` | No | A shared secret used to validate the request signature. Supports `${ENV_VAR}` references. |
+| `signature_header` | No | The HTTP header containing the HMAC signature, e.g. `Sentry-Hook-Signature` or `X-Hub-Signature-256`. Required when `secret` is set. |
+| `public_url` | No | Overrides the global `server.public_url` for this pylon's displayed webhook URL. |
+
+### HMAC validation
+
+When you set `secret` and `signature_header`, Pylon validates the HMAC signature on every incoming request and rejects requests that fail validation.
+
+```yaml
+trigger:
+  type: webhook
+  path: /sentry-triage
+  secret: "${SENTRY_CLIENT_SECRET}"
+  signature_header: Sentry-Hook-Signature
+```
+
+Store secrets in `~/.pylon/.env` and reference them with `${VAR_NAME}` — Pylon loads this file on startup.
+
+### Exposing the webhook publicly
+
+Pylon's server runs locally. To receive webhooks from external services (GitHub, Sentry, etc.), you need to expose it to the internet.
+
+<Tabs>
+  <Tab title="Reverse proxy">
+    Point your reverse proxy (nginx, Caddy, Traefik) at Pylon's local port and set `public_url` in your global config or per-pylon:
+
+    ```yaml
+    # ~/.pylon/config.yaml
+    server:
+      port: 8080
+      public_url: https://pylon.example.com
+    ```
+  </Tab>
+  <Tab title="ngrok (development)">
+    For quick local testing, use ngrok to create a temporary public URL:
+
+    ```bash
+    ngrok http 8080
+    ```
+
+    Then set the URL in your pylon's trigger:
+
+    ```yaml
+    trigger:
+      type: webhook
+      path: /sentry-triage
+      public_url: https://abc123.ngrok.io
+    ```
+  </Tab>
+</Tabs>
+
+## Cron triggers
+
+A cron trigger runs a pylon on a schedule, using standard cron expression syntax.
+
+```yaml
+trigger:
+  type: cron
+  cron: "0 9 * * 1-5"
+```
+
+### Cron fields
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | Yes | Must be `cron`. |
+| `cron` | Yes | A standard 5-field cron expression. |
+
+### Cron expression format
+
+```
+┌───── minute (0-59)
+│ ┌───── hour (0-23)
+│ │ ┌───── day of month (1-31)
+│ │ │ ┌───── month (1-12)
+│ │ │ │ ┌───── day of week (0-6, Sunday=0)
+│ │ │ │ │
+* * * * *
+```
+
+Common examples:
+
+```
+0 9 * * 1-5    # Weekdays at 9am
+0 9 * * 1      # Every Monday at 9am
+0 */6 * * *    # Every 6 hours
+```
+
+<Note>
+Cron pylons run the agent directly and post results to the configured channel. There is no approval flow for cron triggers — `approval: true` has no effect when `type: cron`.
+</Note>
+
+### Cron example
+
+```yaml
+trigger:
+  type: cron
+  cron: "0 9 * * 1"  # Every Monday at 9am
+
+workspace:
+  type: git-clone
+  repo: git@github.com:acme/nexus.git
+  ref: main
+
+agent:
+  prompt: |
+    Audit this codebase for security vulnerabilities, outdated
+    dependencies, and code quality issues. Provide a summary report.
+  timeout: 30m
+
+channel:
+  message: "Weekly codebase audit"
+```
+
+## Coming soon
+
+The following trigger types are planned but not yet available:
+
+- **Chat command** — trigger a pylon from a Telegram or Slack message
+- **API call** — trigger a pylon via a direct API request with auth

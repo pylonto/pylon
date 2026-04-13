@@ -1,0 +1,178 @@
+---
+title: "Build a custom AI pipeline from scratch"
+description: "Use pylon construct without a template to create a pipeline tailored to your exact trigger, workspace, channel, agent, and approval requirements."
+---
+
+The built-in templates cover common use cases, but most real-world workflows have specific requirements — a unique webhook shape, a custom agent prompt, a particular repository setup, or a non-standard approval policy. Running `pylon construct` without a `--from` flag gives you an interactive wizard that walks through every option and produces a `pylon.yaml` you fully control. This guide explains each prompt and shows you a complete example at the end.
+
+## Steps
+
+<Steps>
+  <Step title="Start the constructor">
+    ```bash
+    pylon construct my-pipeline
+    ```
+
+    Replace `my-pipeline` with whatever name identifies this pipeline. The name becomes the webhook path (e.g. `/my-pipeline`) and the config directory (`~/.pylon/pylons/my-pipeline/`).
+  </Step>
+
+  <Step title="Enter a description (optional)">
+    ```
+    Description (optional): Notify on-call when a payment failure webhook fires
+    ```
+
+    The description is stored in the config for your reference. Leave it blank if you prefer.
+  </Step>
+
+  <Step title="Choose a trigger type">
+
+```
+Trigger -- what event starts this pylon?
+  ● Webhook (HTTP POST)
+  ○ Cron (scheduled)
+```
+
+**Webhook** — Pylon listens for an HTTP POST at a path you choose. Use this for integrations like Sentry, GitHub, PagerDuty, or any service that sends webhooks.
+
+**Cron** — Pylon runs the pipeline on a schedule you define. Use this for recurring audits, reports, or maintenance tasks.
+
+#### If you choose Webhook
+
+Pylon asks for two values:
+
+- **Webhook path** — defaults to `/<name>` (e.g. `/my-pipeline`). Change it if you need a different path.
+- **Public URL (optional)** — the full URL your external service should POST to (e.g. `https://your-server.com/my-pipeline`). Leave blank to use the global `server.public_url` from your Pylon setup.
+
+#### If you choose Cron
+
+Pylon asks for a cron expression:
+
+```
+Cron schedule: 0 9 * * 1-5
+```
+
+Enter any valid five-field cron expression (see the [cron audit guide](/guides/cron-audit) for examples).
+  </Step>
+
+  <Step title="Choose a workspace type">
+    ```
+    Workspace -- how should the agent access code?
+      ● Git clone (fresh clone per job)
+      ○ Git worktree (faster, uses local repo)
+      ○ Local path (mount a directory)
+      ○ None (no codebase needed)
+    ```
+
+    | Type | When to use |
+    |------|-------------|
+    | `git-clone` | Standard choice. Each job gets a fresh clone. |
+    | `git-worktree` | Faster than cloning; reuses a local bare repo on the same host. |
+    | `local` | Mount a directory from the host into the agent container. |
+    | `none` | The agent doesn't need a codebase (e.g. a pure API call). |
+
+    For `git-clone` and `git-worktree`, Pylon asks for the repo URL (use SSH for private repos) and the default branch.
+
+    For webhook-triggered pipelines you can use Go template expressions in these fields:
+
+    ```yaml
+    workspace:
+      type: git-clone
+      repo: "{{ .body.repository.clone_url }}"
+      ref: "{{ .body.pull_request.head.ref }}"
+    ```
+  </Step>
+
+  <Step title="Choose a channel">
+    Select **Use default** to inherit the channel you configured during `pylon setup`. Choose any other option to configure a channel specific to this pipeline.
+  </Step>
+
+  <Step title="Choose an agent">
+    Select **Use default** to use the agent from your global config. Choose another option to configure a per-pipeline agent — for example, pointing a cost-sensitive pipeline to a cheaper model.
+  </Step>
+
+  <Step title="Write the agent prompt">
+    This is the instruction Pylon sends to the agent each time the pipeline runs. Write it as if you were briefing a developer:
+
+    ```
+    Investigate the payment failure described below and identify the root cause.
+
+    Order ID: {{ .body.order_id }}
+    Error code: {{ .body.error_code }}
+    Customer: {{ .body.customer_email }}
+    ```
+
+    Use `{{ .body.field }}` to inject values from the incoming webhook payload. For cron pipelines there is no webhook payload — write a static prompt.
+  </Step>
+
+  <Step title="Set the approval policy">
+    - **Yes (`approval: true`)** — Pylon sends a notification with **Investigate** and **Ignore** buttons. The agent only runs if you click Investigate. Recommended for noisy or expensive pipelines.
+    - **No (`approval: false`)** — the agent runs immediately on every trigger. Recommended for low-noise, high-trust pipelines like automated PR review.
+
+    If you choose Yes, Pylon asks for a topic template and a message template — the text shown above the approval buttons in your chat.
+  </Step>
+
+  <Step title="Edit, test, and start">
+    After the wizard completes, make any final adjustments:
+
+    ```bash
+    pylon edit my-pipeline
+    ```
+
+    Test with a synthetic payload:
+
+    ```bash
+    pylon test my-pipeline
+    pylon test my-pipeline --payload '{"order_id":"ord_123","error_code":"insufficient_funds","customer_email":"user@example.com"}'
+    ```
+
+    When you're satisfied, start the daemon:
+
+    ```bash
+    pylon start
+    ```
+  </Step>
+
+</Steps>
+
+## Example: complete custom pipeline config
+
+The following `pylon.yaml` shows a finished pipeline for the payment failure scenario described above:
+
+```yaml
+name: "my-pipeline"
+description: "Notify on-call when a payment failure webhook fires"
+created: "2025-01-01T00:00:00Z"
+
+trigger:
+  type: webhook
+  path: /my-pipeline
+  secret: "${PAYMENT_WEBHOOK_SECRET}"
+  signature_header: X-Webhook-Signature
+
+channel:
+  topic: "Payment failure: {{ .body.order_id }}"
+  message: |
+    Order {{ .body.order_id }} failed with code {{ .body.error_code }}
+    Customer: {{ .body.customer_email }}
+  approval: true
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:acme/payments.git"
+  ref: main
+
+agent:
+  prompt: |
+    Investigate the payment failure described below and identify the root cause.
+
+    Order ID: {{ .body.order_id }}
+    Error code: {{ .body.error_code }}
+    Customer: {{ .body.customer_email }}
+  timeout: 10m
+```
+
+## Tips
+
+- Use `{{ .body.X }}` template expressions anywhere in `channel.topic`, `channel.message`, `workspace.repo`, `workspace.ref`, and `agent.prompt` to inject fields from the webhook payload.
+- Run `pylon test my-pipeline --payload '{...}'` with a real captured payload from your service to verify template expressions resolve correctly before going live.
+- Set `disabled: true` in the config to pause a pipeline without deleting it.

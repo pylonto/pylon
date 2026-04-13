@@ -1,0 +1,68 @@
+---
+title: "pylon start, stop, restart — control the daemon"
+sidebarTitle: "start / stop / restart"
+description: "pylon start powers up all pipelines and begins listening for webhook and cron triggers. Stop with Ctrl+C or SIGTERM. Optional name argument starts a single pylon."
+---
+
+`pylon start` launches the Pylon daemon — an HTTP server that listens for incoming webhooks and runs scheduled cron jobs. It powers up every pipeline you've constructed (or a single named one) and keeps running until you stop it.
+
+## Usage
+
+```bash
+pylon start          # start all pylons
+pylon start <name>   # start one specific pylon
+pylon stop           # print stop instructions
+pylon restart        # print restart instructions
+```
+
+## Arguments
+
+<ParamField path="name" type="string">
+  Optional. Start only the named pylon instead of all constructed pipelines. Useful for testing a single pipeline in isolation.
+</ParamField>
+
+## Startup sequence
+
+When you run `pylon start`, Pylon:
+
+1. Loads `~/.pylon/config.yaml` and `~/.pylon/.env`
+2. Loads all pylon configs (skips disabled ones)
+3. Recovers any jobs that were pending when the daemon last stopped
+4. Prunes orphaned Docker containers and workspaces from previous runs
+5. Builds or verifies agent Docker images
+6. Starts the HTTP server on the configured host and port (default `0.0.0.0:8080`)
+7. Watches pylon config files for changes and hot-reloads them automatically
+
+Example startup output:
+
+```
+Powering up pylons...
+
+  my-sentry               ok  webhook /my-sentry
+  weekly-audit            ok  cron    0 9 * * 1 (At 09:00 AM, only on Monday)
+
+2 pylons active -- listening on 0.0.0.0:8080
+```
+
+## Stopping the daemon
+
+Press **Ctrl+C** in the terminal, or send `SIGTERM` to the process. Pylon shuts down gracefully.
+
+`pylon stop` and `pylon restart` print instructions — they do not signal the running process directly. To control the daemon as a background service, use [systemd](/operations/systemd).
+
+## Hot reload
+
+Pylon watches `~/.pylon/pylons/*/pylon.yaml` for changes. When you save a pylon config (e.g. via `pylon edit`), the daemon reloads it automatically without a restart.
+
+<Note>
+  Changes to `~/.pylon/config.yaml` (the global config) require a full daemon restart.
+</Note>
+
+## Concurrency
+
+Pylon runs up to `docker.max_concurrent` agent containers in parallel (default: 3). Jobs that arrive when all slots are occupied are currently rejected. Increase the limit in `~/.pylon/config.yaml`:
+
+```yaml
+docker:
+  max_concurrent: 10
+```

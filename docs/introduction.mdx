@@ -1,0 +1,56 @@
+---
+title: "Pylon: event-driven AI agent pipelines, self-hosted"
+description: "Run event-driven AI coding agents on your own server. Pylon listens for webhook and cron events, sandboxes agents in Docker, and posts results to Telegram or Slack."
+---
+
+Pylon is a self-hosted daemon that turns external events into AI agent runs. When a Sentry error fires, a GitHub pull request opens, or a cron schedule triggers, Pylon spins up a sandboxed AI coding agent inside Docker, gives it access to your codebase, and sends the result back to your chat channel — with an optional approval step so you stay in control of when the agent actually runs.
+
+## Key concepts
+
+Pylon is built around five core concepts that you configure once and compose into pipelines:
+
+- **Pylon** — a named pipeline that wires together a trigger, an agent, a workspace, and a channel. Each pylon has its own config file and job history. See [Pylons](/concepts/pylons).
+- **Trigger** — what starts a pylon run. Currently supports inbound webhooks (HTTP POST) and cron schedules. See [Triggers](/concepts/triggers).
+- **Agent** — the AI coding assistant that runs inside Docker. Pylon supports Claude Code and OpenCode today, with Codex and Aider planned. See [Agents](/concepts/agents).
+- **Channel** — where Pylon sends notifications and results. Telegram and Slack are supported; Discord, WhatsApp, and iMessage are in progress. See [Channels](/concepts/channels).
+- **Workspace** — how the agent accesses your code. Options include a fresh `git clone`, a `git worktree` (faster, reuses a local repo), or a mounted local directory. See [Workspaces](/concepts/workspaces).
+
+## Requirements
+
+Before installing Pylon, make sure you have:
+
+- **Linux** — amd64 or arm64. macOS is not yet supported (blocked on Keychain credential storage for Claude OAuth).
+- **Docker** — Pylon runs every agent inside an isolated container. Install Docker from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/).
+- **A Telegram bot or Slack app** — Pylon posts results and approval prompts to a chat channel. You'll configure this during `pylon setup`.
+
+<Note>
+  macOS is not yet supported. If Docker is not found during `pylon setup`, Pylon will print the install URL and continue — but the daemon will not be able to run agents until Docker is available.
+</Note>
+
+## How the daemon works
+
+When you run `pylon start`, the daemon loads all your configured pylons and begins listening on a single HTTP port (default `0.0.0.0:8080`). Each pylon with a webhook trigger registers its own path on that port. Cron pylons register with the internal scheduler. When a request arrives at a webhook path, Pylon:
+
+1. Parses the incoming JSON payload.
+2. If approval is enabled, sends a notification to your channel with **Investigate** and **Ignore** buttons and waits.
+3. Once approved (or immediately if approval is off), clones or mounts the workspace, pulls the agent Docker image, and launches a container.
+4. Streams agent output and, when the run completes, posts a summary back to your channel.
+
+Up to three agent containers run concurrently by default. Jobs that arrive when all slots are occupied are currently rejected; a proper queue is on the roadmap.
+
+## Explore
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Install Pylon and trigger your first agent run in minutes.
+  </Card>
+  <Card title="What is a pylon?" icon="tower-observation" href="/concepts/pylons">
+    Understand triggers, agents, channels, and workspaces in depth.
+  </Card>
+  <Card title="Sentry error triage" icon="bug" href="/guides/sentry">
+    Set up automatic investigation of Sentry errors with one command.
+  </Card>
+  <Card title="CLI: pylon setup" icon="terminal" href="/cli/setup">
+    Reference for the interactive first-time configuration command.
+  </Card>
+</CardGroup>

@@ -1,0 +1,87 @@
+---
+title: "pylon list, edit, test, destroy — manage pipelines"
+sidebarTitle: "list / edit / test / destroy"
+description: "List all pylons, open their config in your editor, send test webhooks, or permanently delete a pipeline and its job history."
+---
+
+These commands let you inspect, modify, test, and remove the pipelines you've constructed. Use them day-to-day to manage your Pylon setup without touching config files directly.
+
+## pylon list
+
+Lists all constructed pipelines with their trigger type, path or schedule, and description.
+
+```bash
+pylon list
+```
+
+Example output:
+
+```
+NAME                         TRIGGER      PATH                           DESCRIPTION
+my-sentry                    webhook      /my-sentry                     Sentry error triage
+pr-review                    webhook      /pr-review                     GitHub PR reviewer
+weekly-audit                 cron         0 9 * * 1 (Every Monday 9am)   Weekly security audit
+```
+
+## pylon edit
+
+Opens the pylon's config file in your `$EDITOR` (defaults to `vi`).
+
+```bash
+pylon edit <name>
+```
+
+The file is at `~/.pylon/pylons/<name>/pylon.yaml`. The daemon hot-reloads it automatically after you save.
+
+## pylon test
+
+Sends a mock HTTP POST to the pylon's webhook endpoint. Requires `pylon start` to be running.
+
+```bash
+pylon test <name>
+pylon test <name> --payload '{"error":"divide by zero","issue":{"title":"NullPointerException"}}'
+```
+
+<ParamField path="name" type="string" required>
+  The pylon to test.
+</ParamField>
+
+<ParamField query="--payload" type="string">
+  A custom JSON string to use as the webhook body. If omitted, Pylon generates a default mock payload containing `repo`, `ref`, `error`, and `issue` fields.
+</ParamField>
+
+Example output:
+
+```
+Sending test webhook to http://0.0.0.0:8080/my-sentry
+Payload: {
+  "error": "Test error from pylon test my-sentry",
+  "issue": { "title": "Test issue for my-sentry" },
+  ...
+}
+
+Response [202]: { "job": "a1b2c3d4" }
+```
+
+<Tip>
+  Use `--payload` with a real payload captured from your external service to verify your prompt templates expand correctly.
+</Tip>
+
+## pylon destroy
+
+Permanently deletes a pylon's config directory and all its job history.
+
+```bash
+pylon destroy <name>
+```
+
+Pylon asks for confirmation before deleting:
+
+```
+This will delete pylon "my-sentry" and all its job history.
+Are you sure? [y/N]
+```
+
+<Warning>
+  This is irreversible. The config file and SQLite job database at `~/.pylon/pylons/<name>/` are removed permanently.
+</Warning>

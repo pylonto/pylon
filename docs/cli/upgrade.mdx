@@ -1,0 +1,87 @@
+---
+title: "pylon upgrade, version, completion — utility commands"
+sidebarTitle: "upgrade / version / completion"
+description: "Upgrade Pylon to the latest release, print the current version, generate shell tab-completion scripts, and manage the systemd service."
+---
+
+These utility commands help you keep Pylon up to date, check what version you're running, and improve your terminal workflow with tab completion.
+
+## pylon upgrade
+
+Downloads and replaces the current Pylon binary with the latest release from GitHub.
+
+```bash
+pylon upgrade
+```
+
+What it does:
+1. Detects your OS and architecture (linux/amd64 or linux/arm64)
+2. Downloads the latest binary from `https://github.com/pylonto/pylon/releases/latest/`
+3. Verifies the new binary runs (`pylon version`)
+4. Replaces the current binary in-place
+5. Rebuilds agent Docker images from the embedded files in the new binary
+6. If the Pylon systemd service is running, restarts it automatically
+
+```
+Current: pylon v0.3.1
+Downloading latest from https://github.com/pylonto/pylon/releases/latest/download/pylon-linux-amd64...
+Upgraded: pylon v0.3.2
+Restarting daemon...
+Daemon restarted.
+```
+
+<Note>
+  If the binary is installed in a system path (e.g. `/usr/local/bin`), you may need to run `sudo pylon upgrade`.
+</Note>
+
+## pylon version
+
+Prints the current installed version.
+
+```bash
+pylon version
+# pylon v0.3.2
+```
+
+## pylon completion
+
+Generates a tab-completion script for your shell. Add it to your shell profile for command and pylon-name completion.
+
+```bash
+pylon completion bash    # Bash
+pylon completion zsh     # Zsh
+pylon completion fish    # Fish
+```
+
+**Add to your shell profile:**
+
+<CodeGroup>
+```bash Bash
+# Add to ~/.bashrc
+eval "$(pylon completion bash)"
+```
+
+```zsh Zsh
+# Add to ~/.zshrc
+eval "$(pylon completion zsh)"
+```
+
+```fish Fish
+# Add to ~/.config/fish/config.fish
+pylon completion fish | source
+```
+</CodeGroup>
+
+Once enabled, press Tab after `pylon` to complete command names, and after commands like `pylon start`, `pylon edit`, or `pylon test` to complete pylon names.
+
+## pylon service
+
+Manages a systemd unit that runs Pylon as a background service.
+
+```bash
+pylon service install    # install and enable the systemd unit
+pylon service uninstall  # disable and remove the unit
+pylon service status     # check whether the service is active
+```
+
+See [Run Pylon as a systemd service](/operations/systemd) for full details.

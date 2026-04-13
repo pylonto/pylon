@@ -1,0 +1,135 @@
+---
+title: "Schedule a weekly codebase audit with Pylon"
+description: "Run an automated AI security and code-quality audit of your repository every Monday morning and receive the report in Telegram or Slack."
+---
+
+A recurring codebase audit catches security vulnerabilities, outdated dependencies, and code quality regressions before they reach production. This guide shows you how to use Pylon's `cron-audit` template to schedule that audit automatically every Monday at 9 AM — no webhook required, no manual trigger.
+
+## Prerequisites
+
+- Pylon installed and running (`pylon setup` complete)
+- A git repository the agent can clone (SSH key configured for private repos)
+- Telegram or Slack configured as your global channel
+
+## Steps
+
+<Steps>
+  <Step title="Create the pipeline">
+    Run `pylon construct` with the `cron-audit` template:
+
+    ```bash
+    pylon construct my-audit --from cron-audit
+    ```
+
+    Because this is a cron pipeline, Pylon immediately prompts you for two values:
+
+    - **Repo URL** — the repository the agent will audit (e.g. `git@github.com:acme/app.git`)
+    - **Default branch** — the branch to check out (defaults to `main`)
+
+    Enter these values and Pylon writes the config to `~/.pylon/pylons/my-audit/pylon.yaml`.
+  </Step>
+
+  <Step title="Review the generated config">
+
+```yaml
+name: "my-audit"
+created: "2025-01-01T00:00:00Z"
+
+trigger:
+  type: cron
+  cron: "0 9 * * 1"  # Every Monday at 9am
+
+channel:
+  message: "Weekly codebase audit"
+  approval: false
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:acme/app.git"  # Set your repo URL
+  ref: main
+
+agent:
+  prompt: |
+    Audit this codebase for security vulnerabilities, outdated
+    dependencies, and code quality issues. Provide a summary report.
+  timeout: 30m
+```
+
+The `approval: false` setting means the agent runs automatically on the cron schedule — there is no approval flow for cron triggers. The 30-minute timeout gives the agent enough time to work through a large codebase.
+  </Step>
+
+  <Step title="Start the daemon">
+    ```bash
+    pylon start
+    ```
+
+    Pylon registers the cron schedule and waits. The first run fires at 9 AM on the next Monday.
+  </Step>
+
+  <Step title="Receive the audit report">
+    At 9 AM every Monday, Pylon clones the repository, runs the agent, and posts a summary report to your configured channel. The report covers security vulnerabilities, outdated dependencies, and code quality issues identified by the agent.
+  </Step>
+
+</Steps>
+
+## Cron expression reference
+
+The `cron` field uses standard five-field cron syntax:
+
+```
+┌─────── minute (0–59)
+│ ┌───── hour (0–23)
+│ │ ┌─── day of month (1–31)
+│ │ │ ┌─ month (1–12)
+│ │ │ │ ┌ day of week (0–7, Sunday = 0 or 7)
+│ │ │ │ │
+0 9 * * 1
+```
+
+Common examples:
+
+| Expression      | Meaning                          |
+|-----------------|----------------------------------|
+| `0 9 * * 1`     | Every Monday at 9:00 AM          |
+| `0 9 * * 1-5`   | Weekdays at 9:00 AM              |
+| `0 0 1 * *`     | First day of every month at midnight |
+| `0 */6 * * *`   | Every 6 hours                    |
+| `30 8 * * 5`    | Every Friday at 8:30 AM          |
+
+## Customize the schedule
+
+Edit the pipeline to change when the audit runs:
+
+```bash
+pylon edit my-audit
+```
+
+For example, to audit every day at 7 AM:
+
+```yaml
+trigger:
+  type: cron
+  cron: "0 7 * * *"
+```
+
+## Customize the audit prompt
+
+Update `agent.prompt` to focus on areas specific to your project:
+
+```yaml
+agent:
+  prompt: |
+    Audit this codebase for security vulnerabilities, outdated
+    dependencies, and code quality issues. Provide a summary report.
+    Focus especially on authentication flows and third-party API usage.
+  timeout: 30m
+```
+
+## Adjust the timeout
+
+Large repositories may need more time. Increase the timeout as needed:
+
+```yaml
+agent:
+  timeout: 60m
+```

@@ -1,0 +1,128 @@
+---
+title: "Run and manage the Pylon daemon"
+description: "Start, stop, and configure the Pylon daemon. Learn how it recovers jobs, prunes containers, hot-reloads config, and exposes webhooks to external services."
+---
+
+The Pylon daemon is a long-running HTTP server that listens for webhook and cron events, dispatches AI agent containers, and posts results to your channel. You start it with `pylon start` and it stays running until you send it a termination signal. Everything else — job recovery, container cleanup, config watching — happens automatically in the background.
+
+## Starting the daemon
+
+Run `pylon start` to start all pylons at once:
+
+```bash
+pylon start
+```
+
+To start only a specific pylon, pass its name as an argument:
+
+```bash
+pylon start my-sentry
+```
+
+On startup, Pylon prints each active pylon together with its trigger type and path or cron expression, then reports the address it is listening on:
+
+```
+Powering up pylons...
+
+  my-sentry                ok  webhook /my-sentry
+  weekly-audit             ok  cron 0 9 * * 1 (every Monday at 09:00)
+
+2 pylons active -- listening on 0.0.0.0:8080
+```
+
+### What happens on start
+
+<Steps>
+
+<Step title="Recover pending jobs">
+Pylon reads each pylon's SQLite database and restores any jobs that were in `queued` or `pending` state when the daemon last stopped. Those jobs resume processing immediately.
+</Step>
+
+<Step title="Prune orphaned containers">
+Pylon identifies Docker containers and workspace directories that are no longer associated with a known job and removes them. This prevents stale containers from accumulating between restarts.
+</Step>
+
+<Step title="Verify agent images">
+Pylon checks that the Docker image for each active pylon's agent type is present (for example, `pylon/agent-claude`). If an image is missing, it is built before the server starts accepting requests.
+</Step>
+
+<Step title="Start the HTTP server">
+The daemon begins listening on the host and port from your global config (default `0.0.0.0:8080`). Webhook routes and cron schedules are registered for all active, non-disabled pylons.
+</Step>
+
+</Steps>
+
+## Hot-reload
+
+Pylon watches your pylon config files for changes and reloads them automatically. You do not need to restart the daemon after editing a `pylon.yaml` file. Changes to trigger paths, agent prompts, and channel settings take effect within seconds.
+
+<Note>
+Hot-reload applies to individual pylon configs (`~/.pylon/pylons/<name>/pylon.yaml`). Changes to the global config (`~/.pylon/config.yaml`) require a full restart.
+</Note>
+
+## Stopping and restarting
+
+To stop the daemon, send `SIGTERM` to the running process. If you started it in a terminal, press `Ctrl+C`:
+
+```bash
+# Stop via keyboard shortcut in the terminal running pylon start
+Ctrl+C
+
+# Or send SIGTERM from another terminal
+kill <pid>
+```
+
+Running `pylon stop` prints a reminder of the above — Pylon does not manage a PID file itself.
+
+To restart, stop the daemon and run `pylon start` again:
+
+```bash
+# pylon restart prints this hint:
+# Stop and re-run `pylon start`.
+pylon start
+```
+
+<Tip>
+For unattended restarts, install Pylon as a systemd service — it will restart automatically on failure. See [Run Pylon as a systemd service](/operations/systemd).
+</Tip>
+
+## Exposing webhooks to external services
+
+Pylon listens on a local address by default. External services like Sentry or GitHub need a publicly reachable URL to deliver webhooks. You have two options:
+
+**Use a reverse proxy or cloud server.** Deploy Pylon on a machine with a public IP and set `server.public_url` in `~/.pylon/config.yaml`:
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+  public_url: https://pylon.your-domain.com
+```
+
+**Use a tunnel for local development.** Run ngrok alongside Pylon and set the tunnel URL as `public_url`:
+
+```bash
+ngrok http 8080
+```
+
+Then update your config with the URL ngrok prints (for example `https://abc123.ngrok-free.app`):
+
+```yaml
+server:
+  public_url: https://abc123.ngrok-free.app
+```
+
+Pylon uses `public_url` when generating webhook URLs to show you and when `pylon doctor` tests reachability.
+
+## Concurrency
+
+By default, Pylon runs at most 3 agent containers simultaneously. Incoming jobs that arrive while all slots are full are currently rejected. To increase the limit, set `docker.max_concurrent` in `~/.pylon/config.yaml`:
+
+```yaml
+docker:
+  max_concurrent: 6
+```
+
+<Warning>
+Each agent container can consume significant CPU and memory while it runs. Increase `max_concurrent` only if your host has the resources to support it.
+</Warning>

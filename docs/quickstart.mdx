@@ -1,0 +1,139 @@
+---
+title: "Get started with Pylon in five minutes"
+description: "Install the daemon, connect your chat channel, build a pipeline from the Sentry template, and trigger your first AI agent run — all from the command line."
+---
+
+This guide takes you from a blank Linux machine to a running Pylon daemon with a working Sentry pipeline. You'll install the binary, run the interactive setup wizard, create your first pylon from a template, start the daemon, and send a test webhook to confirm the agent runs and posts to your channel.
+
+<Note>
+  Pylon requires Docker and a Telegram bot or Slack app before you begin. If you haven't installed Docker yet, see [Installation](/installation) for the full prerequisites checklist.
+</Note>
+
+<Steps>
+  <Step title="Install Pylon">
+    Download and install the Pylon binary with a single command:
+
+    ```bash
+    curl -fsSL https://pylon.to/install.sh | sh
+    ```
+
+    The install script detects your architecture (amd64 or arm64), downloads the matching binary from GitHub Releases, and places it in `/usr/local/bin`. Verify the installation:
+
+    ```bash
+    pylon version
+    ```
+  </Step>
+
+  <Step title="Run pylon setup">
+    Run the interactive setup wizard to configure your channel and AI agent:
+
+    ```bash
+    pylon setup
+    ```
+
+    Setup walks you through three choices:
+
+    **Channel** — where Pylon sends notifications and agent results. Select **Telegram** or **Slack**. For Telegram, you'll provide a bot token from [@BotFather](https://t.me/BotFather) and a chat ID (setup can auto-detect the chat ID if you add the bot to a group and send a command). For Slack, you'll paste a bot token (`xoxb-…`) and an app-level token (`xapp-…`).
+
+    **AI agent** — the coding assistant that runs inside Docker. Select **Claude Code** (uses your `~/.claude/` OAuth session or an `ANTHROPIC_API_KEY`) or **OpenCode** (supports built-in Zen mode with no key required, or a bring-your-own provider key).
+
+    **Public URL** — optional base URL where external services like Sentry or GitHub can reach your daemon. Leave blank if you're running locally and will use a tunnel.
+
+    <Tip>
+      If you have `TELEGRAM_BOT_TOKEN`, `SLACK_BOT_TOKEN`, or `SLACK_APP_TOKEN` set in your environment, setup reads them automatically and skips the token prompts.
+    </Tip>
+
+    After setup completes, your global config is saved to `~/.pylon/config.yaml` and your tokens are stored in `~/.pylon/.env`.
+  </Step>
+
+  <Step title="Create a pipeline from template">
+    Create a Sentry error-triage pipeline using the built-in template:
+
+    ```bash
+    pylon construct my-sentry --from sentry
+    ```
+
+    The `sentry` template configures a pylon with:
+
+    - **Trigger**: webhook at `/my-sentry`
+    - **Workspace**: `git-clone` (clones your repo fresh for each job)
+    - **Agent prompt**: investigates the error title, culprit, level, and Sentry URL
+    - **Approval**: enabled — you'll receive an **Investigate / Ignore** notification before the agent runs
+
+    After construction, Pylon prints the webhook URL to point Sentry at and suggests `pylon edit my-sentry` to customize the prompt or add your repo URL.
+
+    <Note>
+      The `--from` flag accepts four templates: `sentry`, `github-pr`, `cron-audit`, and `blank`. Run `pylon construct <name>` without `--from` for the fully interactive wizard.
+    </Note>
+  </Step>
+
+  <Step title="Start the daemon">
+    Start Pylon and power up all your configured pipelines:
+
+    ```bash
+    pylon start
+    ```
+
+    The daemon loads every pylon from `~/.pylon/pylons/`, registers webhook paths and cron schedules, and begins listening on `0.0.0.0:8080`. You'll see output like:
+
+    ```
+    Powering up pylons...
+
+      my-sentry                ok  webhook /my-sentry
+
+    1 pylons active -- listening on 0.0.0.0:8080
+    ```
+
+    To start only a specific pylon instead of all of them:
+
+    ```bash
+    pylon start my-sentry
+    ```
+
+    <Warning>
+      `pylon start` runs in the foreground. To run it in the background, use a process manager like systemd. See [Running Pylon](/operations/running) for a systemd unit example.
+    </Warning>
+  </Step>
+
+  <Step title="Send a test webhook">
+    In a second terminal, send a test event to confirm the pipeline is working:
+
+    ```bash
+    pylon test my-sentry
+    ```
+
+    This sends a synthetic Sentry-shaped webhook payload to `http://localhost:8080/my-sentry`. If approval is enabled (it is for the `sentry` template), you'll immediately receive an **Investigate / Ignore** message in your Telegram group or Slack channel.
+  </Step>
+
+  <Step title="Check your channel">
+    Open Telegram or Slack. You should see an approval message with the test error details and two buttons: **Investigate** and **Ignore**.
+
+    Tap **Investigate**. Pylon will:
+
+    1. Clone your repo (or skip if no repo is configured in the template yet).
+    2. Pull the agent Docker image and start the container.
+    3. Pass the prompt and payload to the agent.
+    4. Post the agent's findings back to the same channel thread.
+
+    <Tip>
+      If you haven't added a repo URL to the pylon config yet, the agent runs without a codebase and will note that in its response. Run `pylon edit my-sentry` to add your `workspace.repo` URL before sending a real Sentry webhook.
+    </Tip>
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Sentry guide" icon="bug" href="/guides/sentry">
+    Configure a real Sentry webhook and add your repo for full error triage.
+  </Card>
+  <Card title="Pylon concepts" icon="tower-observation" href="/concepts/pylons">
+    Learn how triggers, agents, channels, and workspaces fit together.
+  </Card>
+  <Card title="pylon construct" icon="hammer" href="/cli/construct">
+    Full reference for the construct command and all available templates.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/pylon-config">
+    Edit pylon YAML directly to customize prompts, timeouts, and approval flow.
+  </Card>
+</CardGroup>

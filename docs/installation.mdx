@@ -1,0 +1,95 @@
+---
+title: "Install Pylon on Linux (amd64 and arm64)"
+description: "Download the Pylon binary for Linux amd64 or arm64, verify your Docker setup, configure shell completion, and keep Pylon up to date with pylon upgrade."
+---
+
+Pylon ships as a single self-contained binary for Linux. There is no package manager dependency or runtime to install beyond Docker. This page covers prerequisites, the install command, shell completion, and how to upgrade.
+
+## Prerequisites
+
+You need the following before installing Pylon:
+
+- **Linux** — amd64 or arm64. Pylon releases binaries for both architectures. macOS is not yet supported (see [note below](#macos-not-yet-supported)).
+- **Docker** — Pylon runs every AI agent inside an isolated Docker container. Install Docker Engine from [docs.docker.com/engine/install](https://docs.docker.com/engine/install/), then verify it is running:
+
+  ```bash
+  docker version
+  ```
+
+- **A Telegram bot or Slack app** — Pylon posts notifications and agent results to a chat channel. You'll configure this during `pylon setup`:
+  - **Telegram**: create a bot via [@BotFather](https://t.me/BotFather) and have your bot token ready.
+  - **Slack**: create a Slack app with Socket Mode enabled. `pylon setup` prints the exact app manifest to paste.
+
+## Install
+
+Download and install the binary with curl:
+
+```bash
+curl -fsSL https://pylon.to/install.sh | sh
+```
+
+The install script detects your CPU architecture, downloads the matching binary from [GitHub Releases](https://github.com/pylonto/pylon/releases/latest), and places it at `/usr/local/bin/pylon`.
+
+## Verify
+
+Confirm the installation succeeded:
+
+```bash
+pylon version
+```
+
+You should see output like `pylon 0.3.1`. If the command is not found, check that `/usr/local/bin` is on your `PATH`.
+
+## Shell completion
+
+Pylon can generate tab-completion scripts for Bash, Zsh, and Fish. Add the appropriate line to your shell profile:
+
+<CodeGroup>
+
+```bash ~/.bashrc
+eval "$(pylon completion bash)"
+```
+
+```zsh ~/.zshrc
+eval "$(pylon completion zsh)"
+```
+
+```fish ~/.config/fish/config.fish
+pylon completion fish | source
+```
+
+</CodeGroup>
+
+After editing your profile, reload it:
+
+```bash
+source ~/.bashrc   # or ~/.zshrc, depending on your shell
+```
+
+Tab completion lets you press `<Tab>` to complete pylon names in commands like `pylon start <Tab>` and `pylon test <Tab>`.
+
+## Upgrade
+
+To upgrade Pylon to the latest release, run:
+
+```bash
+pylon upgrade
+```
+
+`pylon upgrade` downloads the latest binary for your architecture from GitHub Releases, verifies it runs correctly, then atomically replaces the current binary. It also rebuilds the agent Docker images embedded in the new release. If Pylon is running under systemd, `pylon upgrade` restarts the daemon automatically.
+
+<Note>
+  If the binary is installed in a system directory, you may need to run `sudo pylon upgrade`.
+</Note>
+
+## macOS — not yet supported
+
+macOS support is blocked on Keychain credential storage for Claude OAuth. The Claude Code agent uses `~/.claude/` for OAuth tokens, and securely persisting those credentials in a cross-platform way across Docker volume mounts requires Keychain integration that is not yet implemented. Follow [github.com/pylonto/pylon](https://github.com/pylonto/pylon) for updates.
+
+## Next steps
+
+With Pylon installed, run the interactive setup wizard to connect your chat channel and choose your AI agent:
+
+<Card title="Quick start" icon="rocket" href="/quickstart">
+  Configure Pylon and trigger your first agent run in five minutes.
+</Card>

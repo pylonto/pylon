@@ -1,0 +1,87 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "aspen",
+  "name": "Pylon",
+  "colors": {
+    "primary": "#5B6EF5",
+    "light": "#EEF0FE",
+    "dark": "#1A1D3A"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pylonto/pylon"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Docs",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/pylons",
+              "concepts/triggers",
+              "concepts/agents",
+              "concepts/channels",
+              "concepts/workspaces"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/sentry",
+              "guides/github-pr",
+              "guides/cron-audit",
+              "guides/custom-pipeline"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/global-config",
+              "configuration/pylon-config",
+              "configuration/prompt-templates",
+              "configuration/host-tools"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/running",
+              "operations/jobs",
+              "operations/systemd",
+              "operations/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/setup",
+              "cli/construct",
+              "cli/start",
+              "cli/list-edit-destroy",
+              "cli/jobs",
+              "cli/doctor",
+              "cli/upgrade"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

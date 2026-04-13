@@ -1,0 +1,155 @@
+---
+title: "Triage Sentry errors automatically with Pylon"
+description: "Connect Sentry issue alerts to Pylon so you can approve investigations on demand and let an AI agent diagnose errors in your codebase."
+---
+
+When Sentry fires an issue alert, Pylon sends you a Telegram or Slack notification with **Investigate** and **Ignore** buttons. Click Investigate and Pylon spins up a sandboxed AI agent that clones your repo, reads the error context, and posts its findings back to your chat. This guide walks you through setting that up from scratch.
+
+## Prerequisites
+
+- Pylon installed and running (`pylon setup` complete)
+- A Sentry project with permission to create webhooks
+- Telegram or Slack configured as your global channel (`pylon setup` → Channel)
+
+## Steps
+
+<Steps>
+  <Step title="Create the pipeline">
+    Run `pylon construct` with the `sentry` template to scaffold a ready-to-use pipeline:
+
+    ```bash
+    pylon construct my-sentry --from sentry
+    ```
+
+    Pylon writes the pipeline config to `~/.pylon/pylons/my-sentry/pylon.yaml`.
+  </Step>
+
+  <Step title="Review the generated config">
+    Open the file with `pylon edit my-sentry` or inspect it directly. It will look like this:
+
+```yaml
+name: "my-sentry"
+created: "2025-01-01T00:00:00Z"
+
+trigger:
+  type: webhook
+  path: /my-sentry
+  # secret: "${SENTRY_CLIENT_SECRET}"
+  # signature_header: Sentry-Hook-Signature
+
+channel:
+  topic: "{{ .body.data.event.title }}"
+  message: |
+    {{ .body.data.event.title }}
+    {{ .body.data.event.culprit }}
+    {{ .body.data.event.web_url }}
+  approval: true
+
+workspace:
+  type: git-clone
+
+agent:
+  prompt: |
+    Investigate this Sentry error and suggest a fix.
+
+    Title: {{ .body.data.event.title }}
+    Culprit: {{ .body.data.event.culprit }}
+    Level: {{ .body.data.event.level }}
+    Platform: {{ .body.data.event.platform }}
+    Sentry URL: {{ .body.data.event.web_url }}
+  timeout: 10m
+```
+
+    Notice that `approval: true` is set. This means Pylon always asks you before running the agent — recommended for Sentry so noisy or low-priority alerts don't consume agent time automatically.
+
+    The `workspace.type: git-clone` field tells Pylon to clone your repo before handing control to the agent. Add your repo URL and branch by editing the file:
+
+    ```yaml
+    workspace:
+      type: git-clone
+      repo: "git@github.com:your-org/your-repo.git"
+      ref: main
+    ```
+  </Step>
+
+  <Step title="Configure the Sentry webhook">
+    In Sentry, go to **Settings → Integrations → WebHooks** (or your project's **Alerts → Webhooks**):
+
+    1. Add a new webhook URL pointing to your Pylon server:
+       ```
+       https://your-server.com/my-sentry
+       ```
+    2. Under **Events**, enable **Issue alerts** (the `issue` event type).
+    3. Save the webhook.
+
+    Sentry will now POST to your Pylon endpoint whenever an issue alert fires.
+  </Step>
+
+  <Step title="Start the daemon">
+    ```bash
+    pylon start
+    ```
+
+    Pylon begins listening for incoming webhooks on the configured port.
+  </Step>
+
+  <Step title="Test the pipeline">
+    Send a sample payload to verify the pipeline is wired up correctly:
+
+    ```bash
+    pylon test my-sentry
+    ```
+
+    Pylon fires a synthetic Sentry payload, triggers the approval flow in your chat, and confirms the pipeline is reachable end-to-end.
+  </Step>
+
+  <Step title="Approve an investigation">
+    When a real Sentry issue fires, you receive a notification in Telegram or Slack:
+
+    ```
+    TypeError: Cannot read properties of undefined (reading 'id')
+    routes/user.js in getUserById
+    https://sentry.io/organizations/acme/issues/12345/
+    ```
+
+    Below the message you'll see **Investigate** and **Ignore** buttons. Click **Investigate** — Pylon clones your repo and runs the agent with the full error context from the payload.
+  </Step>
+
+  <Step title="Read the findings">
+    The agent posts its analysis back to the same chat thread (or channel). Findings typically include the likely root cause, the relevant code path, and a suggested fix.
+  </Step>
+
+</Steps>
+
+## Add webhook signature validation (recommended)
+
+To verify that incoming requests are genuinely from Sentry, enable HMAC validation in your pipeline config:
+
+```yaml
+trigger:
+  type: webhook
+  path: /my-sentry
+  secret: "${SENTRY_CLIENT_SECRET}"
+  signature_header: Sentry-Hook-Signature
+```
+
+Set the `SENTRY_CLIENT_SECRET` environment variable to the client secret shown in your Sentry webhook settings. Pylon will reject any request whose signature does not match.
+
+## Customize the agent prompt
+
+Edit the pipeline directly to change what the agent investigates:
+
+```bash
+pylon edit my-sentry
+```
+
+Update the `agent.prompt` field with any additional instructions — for example, pointing the agent to a specific module or asking it to check related test coverage.
+
+## Adjust the timeout
+
+The default agent timeout is `10m`. For large codebases or complex errors, increase it in the config:
+
+```yaml
+agent:
+  timeout: 20m
+```
