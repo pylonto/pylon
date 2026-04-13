@@ -70,8 +70,6 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		Options(
 			huh.NewOption("Webhook (HTTP POST)", "webhook"),
 			huh.NewOption("Cron (scheduled)", "cron"),
-			huh.NewOption("Chat command (coming soon)", "chat"),
-			huh.NewOption("API call (coming soon)", "api"),
 		).
 		Value(&triggerType).Run(); err != nil {
 		return err
@@ -203,9 +201,6 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			huh.NewOption(fmt.Sprintf("Use default (%s)", channelLabel), "default"),
 			huh.NewOption("Telegram (configure new)", "telegram"),
 			huh.NewOption("Slack (configure new)", "slack"),
-			huh.NewOption("Discord (coming soon)", "discord"),
-			huh.NewOption("WhatsApp (coming soon)", "whatsapp"),
-			huh.NewOption("iMessage (coming soon)", "imessage"),
 			huh.NewOption("Webhook (generic HTTP POST)", "webhook"),
 			huh.NewOption("stdout (console only)", "stdout"),
 		).
@@ -221,8 +216,6 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			pyl.Channel = &config.PylonChannel{Type: "slack", Slack: sl}
-		case "discord", "whatsapp", "imessage":
-			comingSoon(channelChoice)
 		default:
 			pyl.Channel = &config.PylonChannel{Type: channelChoice}
 		}
@@ -250,8 +243,6 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			huh.NewOption(fmt.Sprintf("Use default (%s)", agentLabel), "default"),
 			huh.NewOption("Claude Code (configure new)", "claude"),
 			huh.NewOption("OpenCode (configure new)", "opencode"),
-			huh.NewOption("Codex (coming soon)", "codex"),
-			huh.NewOption("Aider (coming soon)", "aider"),
 			huh.NewOption("Custom command", "custom"),
 		).
 		Value(&agentChoice).Run(); err != nil {
@@ -260,8 +251,6 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 
 	if agentChoice != "default" {
 		switch agentChoice {
-		case "codex", "aider":
-			comingSoon(agentChoice)
 		default:
 			pyl.Agent = &config.PylonAgent{Type: agentChoice}
 		}

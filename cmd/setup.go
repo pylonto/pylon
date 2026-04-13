@@ -48,9 +48,6 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		Options(
 			huh.NewOption("Telegram", "telegram"),
 			huh.NewOption("Slack", "slack"),
-			huh.NewOption("Discord (coming soon)", "discord"),
-			huh.NewOption("WhatsApp (coming soon)", "whatsapp"),
-			huh.NewOption("iMessage (coming soon)", "imessage"),
 			huh.NewOption("Webhook (generic HTTP POST)", "webhook"),
 			huh.NewOption("stdout (console only)", "stdout"),
 		).
@@ -97,8 +94,6 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		Options(
 			huh.NewOption("Claude Code", "claude"),
 			huh.NewOption("OpenCode", "opencode"),
-			huh.NewOption("Codex (coming soon)", "codex"),
-			huh.NewOption("Aider (coming soon)", "aider"),
 			huh.NewOption("Custom", "custom"),
 		).
 		Value(&agentChoice).
