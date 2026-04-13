@@ -1,0 +1,191 @@
+---
+title: "Daemon"
+description: "Start, stop, and manage the Pylon daemon as a foreground process or systemd service."
+---
+
+The Pylon daemon is a long-running HTTP server that listens for webhook and cron events, dispatches AI agent containers, and posts results to your channel. Start it with `pylon start` and it runs in the foreground until you stop it.
+
+## Starting the daemon
+
+```bash
+pylon start
+```
+
+To start only a specific pylon, pass its name:
+
+```bash
+pylon start my-sentry
+```
+
+On startup, Pylon prints each active pylon with its trigger type, then reports the listening address:
+
+```
+Powering up pylons...
+
+  my-sentry                ok  webhook /my-sentry
+  weekly-audit             ok  cron 0 9 * * 1 (every Monday at 09:00)
+
+2 pylons active -- listening on 0.0.0.0:8080
+```
+
+## What happens on startup
+
+<Steps>
+
+<Step title="Recover pending jobs">
+Reads each pylon's SQLite database and restores any jobs that were `queued` or `pending` when the daemon last stopped.
+</Step>
+
+<Step title="Prune orphaned containers">
+Removes Docker containers and workspace directories no longer associated with a known job.
+</Step>
+
+<Step title="Verify agent images">
+Checks that the Docker image for each pylon's agent type is present (e.g. `pylon/agent-claude`). Missing images are built before the server starts.
+</Step>
+
+<Step title="Start the HTTP server">
+Begins listening on the configured host and port (default `0.0.0.0:8080`). Webhook routes and cron schedules are registered for all active pylons.
+</Step>
+
+</Steps>
+
+## Hot reload
+
+Pylon watches pylon config files for changes and reloads them automatically. Edits to trigger paths, agent prompts, and channel settings take effect within seconds -- no restart needed.
+
+<Note>
+Hot reload applies to individual pylon configs (`~/.pylon/pylons/<name>/pylon.yaml`). Changes to the global config (`~/.pylon/config.yaml`) require a full daemon restart.
+</Note>
+
+## Stopping the daemon
+
+The daemon runs in the foreground. Press **Ctrl+C** or send `SIGTERM` from another terminal:
+
+```bash
+kill <pid>
+```
+
+To restart, stop the daemon and run `pylon start` again.
+
+## Exposing webhooks
+
+Pylon listens on a local address by default. External services need a publicly reachable URL to deliver webhooks.
+
+<Tabs>
+
+<Tab title="Reverse proxy">
+Deploy Pylon on a machine with a public IP (or behind nginx/Caddy) and set `server.public_url` in `~/.pylon/config.yaml`:
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+  public_url: https://pylon.your-domain.com
+```
+</Tab>
+
+<Tab title="ngrok (development)">
+Run ngrok alongside Pylon and set the tunnel URL as `public_url`:
+
+```bash
+ngrok http 8080
+```
+
+Then update your config with the URL ngrok prints:
+
+```yaml
+server:
+  public_url: https://abc123.ngrok-free.app
+```
+</Tab>
+
+</Tabs>
+
+Pylon uses `public_url` when generating webhook URLs and when `pylon doctor` tests reachability.
+
+## Concurrency
+
+By default, Pylon runs at most **3** agent containers simultaneously. Jobs that arrive while all slots are full are rejected. To change the limit, set `docker.max_concurrent` in `~/.pylon/config.yaml`:
+
+```yaml
+docker:
+  max_concurrent: 6
+```
+
+<Warning>
+Each agent container can consume significant CPU and memory. Increase `max_concurrent` only if your host has the resources to support it.
+</Warning>
+
+## systemd service
+
+Running Pylon as a systemd service gives you automatic startup on boot, restart on failure, and `journalctl` log integration.
+
+### Install
+
+```bash
+pylon service install
+```
+
+Pylon detects whether you are running as root:
+
+- **Without root** -- installs a user-level service at `~/.config/systemd/user/pylon.service` and enables it with `systemctl --user enable pylon`.
+- **With root (`sudo`)** -- installs a system-level service at `/etc/systemd/system/pylon.service` and enables it with `systemctl enable pylon`.
+
+Both variants are enabled automatically so they start on login (user) or boot (system). The service is configured with `Restart=on-failure` and `RestartSec=5`.
+
+### Check status
+
+```bash
+pylon service status
+```
+
+Or use `systemctl` directly:
+
+<Tabs>
+
+<Tab title="User-level">
+```bash
+systemctl --user status pylon
+```
+</Tab>
+
+<Tab title="System-level">
+```bash
+systemctl status pylon
+```
+</Tab>
+
+</Tabs>
+
+### View logs
+
+Pylon's output is captured by journald when running as a service:
+
+```bash
+# User-level
+journalctl --user -u pylon -f
+
+# System-level
+journalctl -u pylon -f
+```
+
+<Tip>
+Add `-n 100` to print the last 100 lines of history when you start following: `journalctl --user -u pylon -f -n 100`.
+</Tip>
+
+### Uninstall
+
+```bash
+pylon service uninstall
+```
+
+This stops the service, disables it, removes the unit file, and reloads the systemd daemon. Pylon checks both user-level and system-level paths and removes whichever one exists.
+
+### Upgrades
+
+When you run `pylon upgrade` and the daemon is managed by systemd, Pylon detects this automatically and restarts the service after the upgrade completes. No manual stop/start is needed.
+
+<Note>
+To switch between user-level and system-level, run `pylon service uninstall` first, then re-run `pylon service install` with or without `sudo`.
+</Note>

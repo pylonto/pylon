@@ -1,0 +1,260 @@
+---
+title: "Webhooks"
+description: "Set up webhook-triggered AI agent pipelines for Sentry errors, GitHub PRs, and custom services."
+---
+
+Webhook pipelines let Pylon react to events from external services in real time. When a service sends an HTTP POST to Pylon's webhook endpoint, Pylon matches the request to a pipeline, optionally asks for approval, then spins up an AI agent in a sandboxed Docker container with full access to your codebase.
+
+## Sentry Error Triage
+
+Receive a notification for every Sentry issue alert and approve which ones to investigate. The agent clones your repo, analyzes the error context, and posts its findings back to your chat.
+
+<Steps>
+  <Step title="Create the pipeline">
+    ```bash
+    pylon construct my-sentry --from sentry
+    ```
+
+    Pylon writes the config to `~/.pylon/pylons/my-sentry/pylon.yaml`.
+  </Step>
+
+  <Step title="Review the generated config">
+    Open the file with `pylon edit my-sentry`. The full config looks like this:
+
+    ```yaml
+    name: "my-sentry"
+    created: "2025-01-01T00:00:00Z"
+
+    trigger:
+      type: webhook
+      path: /my-sentry
+      secret: "${SENTRY_CLIENT_SECRET}"
+      signature_header: Sentry-Hook-Signature
+
+    channel:
+      topic: "{{ .body.data.event.title }}"
+      message: |
+        {{ .body.data.event.title }}
+        {{ .body.data.event.culprit }}
+        {{ .body.data.event.web_url }}
+      approval: true
+
+    workspace:
+      type: git-clone
+      repo: "git@github.com:your-org/your-repo.git"
+      ref: main
+
+    agent:
+      prompt: |
+        Investigate this Sentry error and suggest a fix.
+
+        Title: {{ .body.data.event.title }}
+        Culprit: {{ .body.data.event.culprit }}
+        Level: {{ .body.data.event.level }}
+        Platform: {{ .body.data.event.platform }}
+        Sentry URL: {{ .body.data.event.web_url }}
+      timeout: 10m
+    ```
+
+    Replace the `workspace.repo` value with your actual repository URL.
+
+    <Note>
+    `approval: true` means Pylon always asks before running the agent -- recommended for Sentry so noisy or low-priority alerts don't consume agent time automatically.
+    </Note>
+  </Step>
+
+  <Step title="Configure the Sentry webhook">
+    In Sentry, go to **Settings > Integrations > WebHooks** (or your project's **Alerts > Webhooks**):
+
+    1. Add a new webhook URL pointing to your Pylon server:
+       ```
+       https://your-server.com/my-sentry
+       ```
+    2. Under **Events**, enable **Issue alerts** (the `issue` event type).
+    3. Copy the **Client Secret** from the webhook settings and set it as an environment variable on your Pylon server:
+       ```bash
+       echo 'SENTRY_CLIENT_SECRET=your-secret-here' >> ~/.pylon/.env
+       ```
+    4. Save the webhook.
+
+    Pylon validates the HMAC signature on every incoming request using the `Sentry-Hook-Signature` header and rejects requests that don't match.
+  </Step>
+
+  <Step title="Start the daemon and test">
+    ```bash
+    pylon start
+    ```
+
+    Send a synthetic payload to verify the pipeline works end-to-end:
+
+    ```bash
+    pylon test my-sentry
+    ```
+  </Step>
+
+  <Step title="Approve an investigation">
+    When a real Sentry issue fires, you receive a notification in Telegram or Slack:
+
+    ```
+    TypeError: Cannot read properties of undefined (reading 'id')
+    routes/user.js in getUserById
+    https://sentry.io/organizations/acme/issues/12345/
+    ```
+
+    Below the message you see **Investigate** and **Ignore** buttons. Click **Investigate** -- Pylon clones your repo and runs the agent with the full error context from the payload. The agent posts its analysis (root cause, relevant code path, suggested fix) back to the same chat thread.
+  </Step>
+</Steps>
+
+---
+
+## GitHub PR Review
+
+Automatically review every pull request for bugs, security issues, and code quality. The agent clones the PR branch and posts findings to your channel -- no approval gate, no manual trigger.
+
+<Steps>
+  <Step title="Create the pipeline">
+    ```bash
+    pylon construct my-pr-review --from github-pr
+    ```
+
+    Pylon writes the config to `~/.pylon/pylons/my-pr-review/pylon.yaml`.
+  </Step>
+
+  <Step title="Review the generated config">
+
+    ```yaml
+    name: "my-pr-review"
+    created: "2025-01-01T00:00:00Z"
+
+    trigger:
+      type: webhook
+      path: /my-pr-review
+      secret: "${GITHUB_WEBHOOK_SECRET}"
+      signature_header: X-Hub-Signature-256
+
+    channel:
+      topic: "PR #{{ .body.number }}: {{ .body.pull_request.title }}"
+      message: |
+        PR #{{ .body.number }}: {{ .body.pull_request.title }}
+      approval: false
+
+    workspace:
+      type: git-clone
+      repo: "{{ .body.repository.clone_url }}"
+      ref: "{{ .body.pull_request.head.ref }}"
+
+    agent:
+      prompt: |
+        Review this pull request. Check for bugs, security issues, and
+        suggest improvements. Be concise and actionable.
+      timeout: 15m
+    ```
+
+    The `workspace.repo` and `workspace.ref` fields use Go template expressions to pull the clone URL and branch name directly from the GitHub payload -- you do not need to hard-code them. With `approval: false`, the agent runs immediately on every PR.
+  </Step>
+
+  <Step title="Configure the GitHub webhook">
+    In your GitHub repository, go to **Settings > Webhooks > Add webhook**:
+
+    1. Set **Payload URL** to your Pylon endpoint:
+       ```
+       https://your-server.com/my-pr-review
+       ```
+    2. Set **Content type** to `application/json`.
+    3. Enter a **Secret** and save it as an environment variable on your Pylon server:
+       ```bash
+       echo 'GITHUB_WEBHOOK_SECRET=your-secret-here' >> ~/.pylon/.env
+       ```
+    4. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and enable **Pull requests**.
+    5. Click **Add webhook**.
+
+    GitHub signs every payload with the `X-Hub-Signature-256` header. Pylon validates this signature and rejects requests that don't match.
+  </Step>
+
+  <Step title="Start the daemon and test">
+    ```bash
+    pylon start
+    ```
+
+    Test with a synthetic payload:
+
+    ```bash
+    pylon test my-pr-review
+    ```
+
+    Or pass a payload matching a specific PR:
+
+    ```bash
+    pylon test my-pr-review --payload '{"number":42,"pull_request":{"title":"Fix login bug","head":{"ref":"fix/login"}},"repository":{"clone_url":"https://github.com/acme/app.git"}}'
+    ```
+  </Step>
+
+  <Step title="Open a real pull request">
+    Open a PR in your repository. Within seconds, Pylon clones the head branch, runs the agent, and posts the review findings to your configured channel.
+  </Step>
+</Steps>
+
+---
+
+## Custom Webhook
+
+Any service that sends HTTP POST requests can trigger a Pylon pipeline. If your service is not covered by a built-in template, you can build a pipeline from scratch.
+
+### Generic skeleton
+
+The following `pylon.yaml` shows the structure of a custom webhook pipeline. Replace the placeholder template variables with fields from your service's payload:
+
+```yaml
+name: "my-pipeline"
+description: "Respond to incoming webhooks from my service"
+created: "2025-01-01T00:00:00Z"
+
+trigger:
+  type: webhook
+  path: /my-pipeline
+  secret: "${MY_WEBHOOK_SECRET}"
+  signature_header: X-Webhook-Signature
+
+channel:
+  topic: "{{ .body.event_type }}: {{ .body.summary }}"
+  message: |
+    {{ .body.summary }}
+    {{ .body.details_url }}
+  approval: true
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:your-org/your-repo.git"
+  ref: main
+
+agent:
+  prompt: |
+    Investigate the event described below.
+
+    Event type: {{ .body.event_type }}
+    Summary: {{ .body.summary }}
+    Details: {{ .body.details_url }}
+  timeout: 10m
+```
+
+### Creating from scratch
+
+Run `pylon construct` without a `--from` flag to start the interactive wizard:
+
+```bash
+pylon construct my-pipeline
+```
+
+The wizard walks you through trigger type, workspace, channel, agent prompt, and approval policy. The resulting `pylon.yaml` is fully editable with `pylon edit my-pipeline`.
+
+### Template expressions
+
+Use `{{ .body.field }}` anywhere in `channel.topic`, `channel.message`, `workspace.repo`, `workspace.ref`, and `agent.prompt` to inject values from the incoming webhook payload. Nested fields work too: `{{ .body.data.event.title }}`.
+
+<Tip>
+During development, test your pipeline with a captured payload to verify template expressions resolve correctly before going live:
+
+```bash
+pylon test my-pipeline --payload '{"event_type":"deploy","summary":"Production deploy v2.3.1","details_url":"https://example.com/deploys/42"}'
+```
+</Tip>

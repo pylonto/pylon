@@ -1,9 +1,9 @@
 ---
-title: "Global config reference: ~/.pylon/config.yaml"
-description: "Configure Pylon's server port, Docker concurrency limits, default agent, and notification channel in the machine-level YAML file at ~/.pylon/config.yaml."
+title: "config.yaml"
+description: "Complete reference for the global Pylon configuration file. Defines the server port, Docker concurrency limits, default agent runtime, notification channel, and host CLI tools at the machine level."
 ---
 
-Pylon uses a single machine-level config file at `~/.pylon/config.yaml` to define how your daemon runs: which port it listens on, what Docker limits apply to agent containers, and which notification channel receives alerts by default. Running `pylon setup` creates this file for you and walks you through the core options. Secrets such as bot tokens and API keys belong in `~/.pylon/.env` (one `KEY=VALUE` pair per line); Pylon loads that file automatically on `pylon start` and never reads it into version control.
+Pylon uses a single machine-level config file at `~/.pylon/config.yaml` to define how your daemon runs: which port it listens on, what Docker limits apply to agent containers, which notification channel receives alerts by default, and which host CLI tools agents can call. Running `pylon setup` creates this file for you and walks you through the core options. Secrets such as bot tokens and API keys belong in `~/.pylon/.env` (one `KEY=VALUE` pair per line); Pylon loads that file automatically on `pylon start` and never reads it into version control.
 
 ## Secrets file
 
@@ -76,13 +76,16 @@ docker:
   default_timeout: "15m"
 
 # Host CLI tools that agents can call via Pylon's exec gateway.
-# See the host tools page for details.
+# Each tool is an executable on the host exposed to agent containers by name.
 tools:
   - name: deploy
     path: /usr/local/bin/deploy.sh
     timeout: "60s"
   - name: lint
     path: /usr/local/bin/eslint
+  - name: notify
+    path: /usr/local/bin/notify.sh
+    timeout: "10s"
 ```
 
 ## Field reference
@@ -183,6 +186,45 @@ tools:
 
 ### `tools`
 
+The `tools` list defines host CLI programs that agent containers can call through Pylon's exec gateway. By default, agent containers are isolated Docker environments with no access to your host filesystem or binaries. This list is the controlled way to bridge that gap -- you choose exactly which executables to expose, and agents can only call tools that are listed.
+
 <ParamField path="tools" type="ToolConfig[]">
-  List of host CLI tools exposed to agent containers via Pylon's exec gateway. Each entry specifies a `name`, an absolute `path` to the executable, and an optional `timeout`. See the [host tools guide](/configuration/host-tools) for full details.
+  List of host CLI tools exposed to agent containers via Pylon's exec gateway. Each entry specifies a `name`, an absolute `path` to the executable, and an optional `timeout`.
 </ParamField>
+
+<ParamField path="tools[].name" type="string" required>
+  Identifier used to reference this tool in per-pylon `agent.tools` lists and in agent instructions. Choose a short, descriptive name without spaces.
+</ParamField>
+
+<ParamField path="tools[].path" type="string" required>
+  Absolute path to the executable on the host machine. The file must be executable by the user running `pylon start`.
+</ParamField>
+
+<ParamField path="tools[].timeout" type="string" default="30s">
+  Maximum time Pylon waits for a single tool invocation to complete. Accepts Go duration strings such as `30s`, `2m`. If the tool does not finish within this limit, Pylon terminates the call and returns an error to the agent.
+</ParamField>
+
+#### How tools work
+
+The exec gateway proxies calls from inside the agent container to named executables on the host. When an agent invokes a tool by name, Pylon looks up the matching entry in the resolved tools list, runs the executable on the host with the same OS user privileges as the `pylon start` process, captures its output, and returns it to the agent. This lets agents trigger real workflows -- deployments, linters, build commands -- without needing a privileged container or a shared filesystem mount.
+
+#### Per-pylon override
+
+Individual pylons can override the global tools list by setting `agent.tools` in their `pylon.yaml`. When `agent.tools` is present (even as an empty list), it replaces the global list entirely for that pylon. When `agent.tools` is absent, Pylon falls back to the global `tools` list defined here. This lets you give individual pylons a restricted subset of tools, or grant a specific pylon access to a tool not available globally.
+
+```yaml
+# In a pylon.yaml -- overrides the global tools list for this pylon only.
+agent:
+  tools:
+    - name: deploy
+      path: /usr/local/bin/deploy.sh
+      timeout: "60s"
+```
+
+#### Security model
+
+Agents cannot run arbitrary commands on your host. They can only call tools by name through the exec gateway, and only tools that appear in the pylon's resolved tools list are reachable. If an agent attempts to call a tool that is not listed, the gateway rejects the call.
+
+<Warning>
+  Each listed executable runs with the same OS user privileges as the `pylon start` process. Avoid listing tools that have broad write access to your filesystem or that accept untrusted input without sanitization.
+</Warning>

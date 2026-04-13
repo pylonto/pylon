@@ -1,0 +1,194 @@
+---
+title: "Troubleshooting"
+description: "Diagnose and fix common Pylon issues."
+---
+
+When something is not working, start with `pylon doctor`. It runs a series of checks against your environment and reports each one as `ok`, `WARN`, or `FAIL` with a suggested fix.
+
+## Running the health check
+
+```bash
+pylon doctor
+```
+
+Example output:
+
+```
+Pylon Doctor
+
+Config .............. ok    /home/you/.pylon/config.yaml found
+Docker .............. ok    running (v27.3.1)
+Agent image ......... ok    pylon/agent-claude:latest built
+Telegram bot ........ ok    connected (@my_pylon_bot)
+Telegram chat ....... ok    chat -1001234567890 accessible
+Git (SSH) ........... ok    GitHub SSH key configured
+OAuth session ....... ok    /home/you/.claude found
+Port 8080 ........... ok    available
+Pylons .............. 2 constructed (my-sentry, weekly-audit)
+  my-sentry webhook ... ok    https://pylon.example.com/my-sentry reachable
+systemd service ..... ok    active
+
+All checks passed.
+```
+
+`pylon doctor` checks the following:
+
+- **Config** -- global config file exists at `~/.pylon/config.yaml`
+- **Docker** -- Docker daemon is running and accessible
+- **Agent image** -- the agent Docker image (e.g. `pylon/agent-claude`) is built
+- **Telegram / Slack** -- bot token is valid and the configured chat or channel is accessible
+- **Git auth** -- SSH key or `gh` CLI authentication is present for private repo access
+- **Agent auth** -- OAuth session (`~/.claude`) or API key is configured for the agent type
+- **Port** -- configured port is available (or already held by Pylon)
+- **Pylons** -- lists constructed pylons and tests webhook URL reachability
+- **systemd** -- reports whether the Pylon service is installed and active
+
+## Common issues
+
+<AccordionGroup>
+
+<Accordion title="pylon start fails with 'load config: ... run pylon setup first'">
+The global config file is missing. Run initial setup to create it:
+
+```bash
+pylon setup
+```
+
+This creates `~/.pylon/config.yaml` and walks you through configuring your channel, agent type, and server settings.
+</Accordion>
+
+<Accordion title="No notification received in Telegram or Slack">
+1. Verify the bot token is set in `~/.pylon/.env`:
+   ```bash
+   cat ~/.pylon/.env
+   # Should contain TELEGRAM_BOT_TOKEN=... or SLACK_BOT_TOKEN=...
+   ```
+2. Confirm the channel type in your global config matches the token:
+   ```yaml
+   defaults:
+     channel:
+       type: telegram   # or slack
+   ```
+3. Run `pylon doctor` -- it tests the bot connection and reports whether the chat or channel is accessible.
+4. For Telegram: ensure the bot is a group admin with topic management permissions. For Slack: ensure the bot is invited to the channel.
+</Accordion>
+
+<Accordion title="Webhook not triggered / 404 from external service">
+1. Confirm `pylon start` is running and listening on the expected port.
+2. Check that `server.public_url` in `~/.pylon/config.yaml` resolves to your machine. Run `pylon doctor` to test reachability.
+3. Verify the external service's webhook URL path matches the pylon's `trigger.path` (e.g. `/my-sentry`).
+4. If running locally, use a tunnel:
+   ```bash
+   ngrok http 8080
+   ```
+   Then update `server.public_url` with the ngrok URL.
+</Accordion>
+
+<Accordion title="Agent container starts but fails immediately">
+Stream the container logs:
+
+```bash
+pylon logs <job-id>
+```
+
+Common causes:
+- Missing environment variables (API keys, secrets) -- check `~/.pylon/.env`
+- Wrong repo URL or clone failure -- see "Private repo won't clone" below
+- Unresolved template variables in the agent prompt -- check the pylon config
+
+You can also attach to a running job:
+
+```bash
+pylon attach <job-id>
+```
+</Accordion>
+
+<Accordion title="Docker image not found / agent won't run">
+Rebuild the agent image:
+
+```bash
+pylon rebuild-images
+```
+
+Verify which images are present:
+
+```bash
+docker images pylon/agent-claude
+```
+
+If the image exists but containers still fail, run `pylon doctor` to confirm Docker is healthy.
+</Accordion>
+
+<Accordion title="Port 8080 already in use">
+Either change Pylon's port in `~/.pylon/config.yaml`:
+
+```yaml
+server:
+  port: 9090
+```
+
+Then restart the daemon and update `server.public_url` and any registered webhook URLs.
+
+Or find and stop the conflicting process:
+
+```bash
+lsof -i :8080
+kill <pid>
+```
+</Accordion>
+
+<Accordion title="Private repo won't clone">
+Pylon clones repos inside Docker containers using the host's credentials.
+
+1. Use SSH URL format in your pylon config:
+   ```yaml
+   workspace:
+     type: git-clone
+     repo: git@github.com:your-org/your-repo.git
+     ref: main
+   ```
+2. Verify your SSH key works:
+   ```bash
+   ssh -T git@github.com
+   ```
+3. Alternatively, authenticate with the GitHub CLI:
+   ```bash
+   gh auth login
+   gh auth setup-git
+   ```
+
+Run `pylon doctor` to confirm Git authentication is detected.
+</Accordion>
+
+<Accordion title="Max concurrent jobs reached / job rejected">
+Pylon enforces a limit on simultaneous agent containers. Increase it in `~/.pylon/config.yaml`:
+
+```yaml
+docker:
+  max_concurrent: 6
+```
+
+Restart the daemon afterward. Ensure your host has enough CPU and memory for the higher concurrency.
+</Accordion>
+
+<Accordion title="pylon test returns 'connection refused'">
+`pylon test` sends a POST to the locally running daemon. The daemon must be running first:
+
+```bash
+pylon start
+```
+
+Then in another terminal:
+
+```bash
+pylon test my-sentry
+```
+
+If `pylon start` is running but `pylon test` still fails, verify the port in `~/.pylon/config.yaml` matches the daemon's listening port.
+</Accordion>
+
+</AccordionGroup>
+
+## Config hot reload
+
+Pylon watches pylon config files (`~/.pylon/pylons/<name>/pylon.yaml`) for changes and reloads them automatically. Global config changes and new pylons require a daemon restart.

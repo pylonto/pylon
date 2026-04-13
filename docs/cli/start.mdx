@@ -1,6 +1,5 @@
 ---
-title: "pylon start, stop, restart — control the daemon"
-sidebarTitle: "start / stop / restart"
+title: "start"
 description: "pylon start powers up all pipelines and begins listening for webhook and cron triggers. Stop with Ctrl+C or SIGTERM. Optional name argument starts a single pylon."
 ---
 
@@ -48,7 +47,7 @@ Powering up pylons...
 
 Press **Ctrl+C** in the terminal, or send `SIGTERM` to the process. Pylon shuts down gracefully.
 
-`pylon stop` and `pylon restart` print instructions — they do not signal the running process directly. To control the daemon as a background service, use [systemd](/operations/systemd).
+`pylon stop` and `pylon restart` print instructions — they do not signal the running process directly. To control the daemon as a background service, use [systemd](/running/daemon).
 
 ## Hot reload
 

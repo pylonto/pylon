@@ -1,0 +1,502 @@
+---
+title: "pylon.yaml"
+description: "Complete reference for the per-pylon configuration file. Defines triggers, workspaces, agent prompts with template variables, notification channels, and host tools for each Pylon pipeline."
+---
+
+Each pylon you create gets its own config file at `~/.pylon/pylons/<name>/pylon.yaml`. Running `pylon construct <name>` creates this file through an interactive prompt; you can open it in your editor at any time with `pylon edit <name>`. Per-pylon settings take priority over the global defaults in `~/.pylon/config.yaml`, so you only need to specify fields that differ from the global configuration.
+
+## Examples
+
+These are complete, copy-pasteable `pylon.yaml` files covering the three most common patterns.
+
+### Sentry webhook with approval
+
+A webhook pylon that triages Sentry errors. HMAC validation ensures only authentic Sentry payloads are accepted, and `approval: true` requires a human to approve each job before the agent starts.
+
+```yaml
+# ~/.pylon/pylons/sentry-triage/pylon.yaml
+
+# Identifier for this pylon. Matches the directory name.
+name: sentry-triage
+
+# Shown in `pylon list` output.
+description: "Sentry error triage for the nexus project"
+
+# Set to true to pause this pylon without deleting it.
+disabled: false
+
+# Set by `pylon construct`. Do not edit.
+created: 2025-06-01T09:00:00Z
+
+trigger:
+  type: webhook
+  # Incoming POST requests to this path activate the pylon.
+  path: /sentry-triage
+  # HMAC secret for signature validation. References ~/.pylon/.env.
+  secret: "${SENTRY_WEBHOOK_SECRET}"
+  # Header where Sentry places its HMAC signature.
+  signature_header: "X-Sentry-Hook-Signature"
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:myorg/nexus.git"
+  ref: main
+
+channel:
+  type: telegram
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: -1001234567890
+    allowed_users:
+      - 987654321
+  # Topic and message use template variables to show Sentry event info.
+  topic: "{{ .body.data.event.title }}"
+  message: |
+    {{ .body.data.event.title }}
+    {{ .body.data.event.culprit }}
+    {{ .body.data.event.web_url }}
+  # Human must click Approve before the agent starts.
+  approval: true
+
+agent:
+  type: claude
+  auth: oauth
+  # Template variables inject live Sentry payload data into the prompt.
+  prompt: |
+    Investigate this Sentry error and suggest a fix.
+
+    Title: {{ .body.data.event.title }}
+    Culprit: {{ .body.data.event.culprit }}
+    Level: {{ .body.data.event.level }}
+    Platform: {{ .body.data.event.platform }}
+    Sentry URL: {{ .body.data.event.web_url }}
+  timeout: "10m"
+  # Expose only the deploy tool from the global tools list.
+  tools:
+    - name: deploy
+      path: /usr/local/bin/deploy.sh
+      timeout: "60s"
+```
+
+### GitHub PR review (no approval)
+
+A webhook pylon that reviews every pull request automatically. The workspace repo and branch are resolved dynamically from the GitHub webhook payload, so the agent always clones the exact branch under review. No approval step -- the agent starts immediately.
+
+```yaml
+# ~/.pylon/pylons/pr-review/pylon.yaml
+
+name: pr-review
+description: "Automated code review for pull requests"
+disabled: false
+created: 2025-07-15T14:30:00Z
+
+trigger:
+  type: webhook
+  path: /pr-review
+  # GitHub sends signatures in this header when a webhook secret is set.
+  secret: "${GITHUB_WEBHOOK_SECRET}"
+  signature_header: "X-Hub-Signature-256"
+
+workspace:
+  type: git-clone
+  # Dynamic repo/ref from the webhook payload -- Pylon clones the PR branch.
+  repo: "{{ .body.repository.clone_url }}"
+  ref: "{{ .body.pull_request.head.ref }}"
+
+channel:
+  type: telegram
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: -1001234567890
+    allowed_users:
+      - 987654321
+  topic: "PR #{{ .body.number }}: {{ .body.pull_request.title }}"
+  message: |
+    New PR from {{ .body.pull_request.user.login }}
+    {{ .body.pull_request.html_url }}
+  # No approval required -- agent starts on every PR event.
+  approval: false
+
+agent:
+  type: claude
+  auth: api_key
+  api_key: "${ANTHROPIC_API_KEY}"
+  prompt: |
+    Review pull request #{{ .body.number }}: {{ .body.pull_request.title }}.
+    Check for bugs, security issues, and suggest improvements.
+    Focus on the diff -- do not rewrite files unless there is a clear defect.
+  timeout: "15m"
+```
+
+### Cron audit (scheduled weekly)
+
+A cron pylon that runs a weekly security audit. There is no webhook trigger -- Pylon fires the job on a schedule. The workspace is a fresh git clone so the agent always audits the latest code.
+
+```yaml
+# ~/.pylon/pylons/weekly-audit/pylon.yaml
+
+name: weekly-audit
+description: "Weekly security audit of the platform repo"
+disabled: false
+created: 2025-08-01T08:00:00Z
+
+trigger:
+  # Cron trigger instead of webhook.
+  type: cron
+  # Every Monday at 9 AM.
+  cron: "0 9 * * 1"
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:myorg/platform.git"
+  ref: main
+
+channel:
+  type: slack
+  slack:
+    bot_token: "${SLACK_BOT_TOKEN}"
+    app_token: "${SLACK_APP_TOKEN}"
+    channel_id: "C0123456789"
+    allowed_users:
+      - "U0123456789"
+  topic: "Weekly security audit"
+  message: "Scheduled security audit starting now."
+  # No approval -- cron jobs run unattended.
+  approval: false
+
+agent:
+  type: claude
+  auth: api_key
+  api_key: "${ANTHROPIC_API_KEY}"
+  env:
+    AUDIT_SCOPE: "full"
+  prompt: |
+    Run a security audit of this codebase. Check for:
+    - Hardcoded secrets or credentials
+    - SQL injection or command injection risks
+    - Outdated dependencies with known CVEs
+    - Overly permissive file or network access
+
+    Write a summary of findings to AUDIT.md in the repo root.
+  timeout: "30m"
+  tools:
+    - name: lint
+      path: /usr/local/bin/eslint
+```
+
+## Field reference
+
+### Top-level fields
+
+<ParamField path="name" type="string" required>
+  Identifier for this pylon. Must match the directory name under `~/.pylon/pylons/`. Set automatically by `pylon construct`.
+</ParamField>
+
+<ParamField path="description" type="string">
+  Optional human-readable description shown in `pylon list` output.
+</ParamField>
+
+<ParamField path="disabled" type="boolean" default="false">
+  When `true`, `pylon start` skips this pylon entirely. Use this to temporarily pause a pylon without deleting it.
+</ParamField>
+
+<ParamField path="created" type="string">
+  ISO 8601 timestamp set automatically when you run `pylon construct`. Do not edit this field.
+</ParamField>
+
+### `trigger`
+
+<ParamField path="trigger.type" type="string" required>
+  How the pylon is activated. Accepted values: `webhook`, `cron`.
+</ParamField>
+
+<ParamField path="trigger.path" type="string">
+  URL path for the webhook endpoint (for example, `/my-pipeline`). Required when `type` is `webhook`. Pylon registers this path on the global server port when the daemon starts.
+</ParamField>
+
+<ParamField path="trigger.cron" type="string">
+  Cron expression for scheduled pylons (for example, `0 9 * * 1-5` for weekdays at 9 AM). Required when `type` is `cron`.
+</ParamField>
+
+<ParamField path="trigger.secret" type="string">
+  HMAC secret used to validate incoming webhook signatures. When set, Pylon rejects requests whose signature does not match. Use `${VAR}` to reference a value from `~/.pylon/.env`.
+</ParamField>
+
+<ParamField path="trigger.signature_header" type="string">
+  HTTP header Pylon reads to find the HMAC signature (for example, `X-Hub-Signature-256`). Required when `trigger.secret` is set.
+</ParamField>
+
+<ParamField path="trigger.public_url" type="string">
+  Overrides `server.public_url` from the global config for this pylon only. Useful when a single Pylon server serves webhooks from multiple domains.
+</ParamField>
+
+### `workspace`
+
+<ParamField path="workspace.type" type="string" required>
+  How the agent accesses source code. Accepted values:
+
+  - `git-clone` -- Pylon clones the repository fresh for each job.
+  - `git-worktree` -- Pylon creates a worktree from a local clone, which is faster than a full clone.
+  - `local` -- Pylon mounts a local directory from the host into the container.
+  - `none` -- No codebase. Use this for pylons that do not need to read or modify files.
+</ParamField>
+
+<ParamField path="workspace.repo" type="string">
+  Git repository URL. Use SSH (`git@github.com:org/repo.git`) for private repositories. Supports template variables so you can resolve the URL from the webhook payload (for example, `{{ .body.repository.clone_url }}`). Required when `type` is `git-clone` or `git-worktree`.
+</ParamField>
+
+<ParamField path="workspace.ref" type="string">
+  Branch or tag to check out. Supports template variables (for example, `{{ .body.pull_request.head.ref }}`). Defaults to `main` when not specified.
+</ParamField>
+
+<ParamField path="workspace.path" type="string">
+  Absolute path to a local directory on the host. Pylon mounts this directory into the agent container. Required when `type` is `local`.
+</ParamField>
+
+### `channel`
+
+The `channel` block is optional. When omitted, the pylon uses the global `defaults.channel` from `config.yaml`. When present, the pylon-level settings take full priority.
+
+<ParamField path="channel.type" type="string">
+  Notification backend for this pylon. Accepted values: `telegram`, `slack`, `webhook`, `stdout`. Overrides the global default.
+</ParamField>
+
+<ParamField path="channel.telegram" type="TelegramConfig">
+  Telegram connection settings. Accepts the same fields as `defaults.channel.telegram` in the global config. Required when `channel.type` is `telegram`.
+</ParamField>
+
+<ParamField path="channel.slack" type="SlackConfig">
+  Slack connection settings. Accepts the same fields as `defaults.channel.slack` in the global config. Required when `channel.type` is `slack`.
+</ParamField>
+
+<ParamField path="channel.topic" type="string">
+  Thread or topic subject line shown in the notification. Supports template variables for injecting webhook payload data.
+</ParamField>
+
+<ParamField path="channel.message" type="string">
+  Notification message body displayed above the Approve/Ignore buttons. Supports template variables.
+</ParamField>
+
+<ParamField path="channel.approval" type="boolean" default="false">
+  When `true`, Pylon sends a notification with Approve and Ignore buttons and waits for a human to respond before starting the agent. When `false`, the agent starts immediately on every trigger event.
+</ParamField>
+
+### `agent`
+
+The `agent` block is optional. When omitted, the pylon uses `defaults.agent` from the global config.
+
+<ParamField path="agent.type" type="string">
+  Agent runtime for this pylon. Accepted values: `claude`, `opencode`. Overrides the global default.
+</ParamField>
+
+<ParamField path="agent.auth" type="string">
+  Authentication method. Overrides the global default for the chosen agent type. Accepted values: `oauth`, `api_key` (Claude); `none`, `api-key` (OpenCode).
+</ParamField>
+
+<ParamField path="agent.api_key" type="string">
+  API key reference, used when `auth` is `api_key`. Use `${VAR}` to reference a value from `~/.pylon/.env` (for example, `${ANTHROPIC_API_KEY}`). This lets you assign a different key per pylon.
+</ParamField>
+
+<ParamField path="agent.provider" type="string">
+  LLM provider for OpenCode agents. Accepted values: `anthropic`, `openai`, `google`. Overrides the global default.
+</ParamField>
+
+<ParamField path="agent.env" type="map[string]string">
+  Additional environment variables injected into the agent container. Use this to pass service-specific configuration without hardcoding values in the prompt.
+</ParamField>
+
+<ParamField path="agent.prompt" type="string" required>
+  The instruction sent to the agent when a job starts. Supports Go template syntax to inject data from the webhook payload. See the Prompt templates section below.
+</ParamField>
+
+<ParamField path="agent.timeout" type="string">
+  Maximum run time for a single job (for example, `10m`, `30m`). Overrides `docker.default_timeout` from the global config.
+</ParamField>
+
+<ParamField path="agent.tools" type="ToolConfig[]">
+  Host CLI tools available to this pylon's agent. When set, this list replaces the global `tools` list entirely for this pylon. Each entry accepts `name`, `path`, and an optional `timeout`. See the Host tools section below.
+</ParamField>
+
+## Prompt templates
+
+Pylon renders your agent prompt as a Go template before sending it to the agent container. This means you can embed data from the incoming webhook payload directly in the prompt, so the agent receives context-rich instructions without any extra glue code. The same template syntax works in `channel.topic` and `channel.message`, letting you surface the right information in your notification thread title and preview message.
+
+### Template syntax
+
+Access a field from the webhook JSON body using double curly braces and the `.body` prefix:
+
+```
+{{ .body.<field> }}
+```
+
+Nested fields follow the same dot notation as the JSON structure:
+
+```
+{{ .body.pull_request.head.ref }}
+```
+
+Pylon uses the standard Go `text/template` package. Any valid Go template expression works, including conditionals and range loops, but most prompts only need simple field substitutions.
+
+### Available variables
+
+| Variable | Description |
+|---|---|
+| `{{ .body.error }}` | Generic top-level error message |
+| `{{ .body.issue.title }}` | Issue title (GitHub, Linear, or generic) |
+| `{{ .body.number }}` | Pull request or issue number |
+| `{{ .body.pull_request.title }}` | GitHub pull request title |
+| `{{ .body.pull_request.head.ref }}` | Branch name for a pull request |
+| `{{ .body.repository.clone_url }}` | HTTPS clone URL for the repository |
+| `{{ .body.data.event.title }}` | Sentry event title |
+| `{{ .body.data.event.culprit }}` | Sentry culprit file and function |
+| `{{ .body.data.event.level }}` | Sentry severity level (e.g. `error`, `fatal`) |
+| `{{ .body.data.event.platform }}` | Sentry platform (e.g. `python`, `javascript`) |
+| `{{ .body.data.event.web_url }}` | Link to the Sentry issue in the web UI |
+
+Any field present in the POST body is accessible. The table above lists common examples -- your actual available fields depend on the service sending the webhook.
+
+### Template examples
+
+**Sentry error triage** -- inject event details from a Sentry webhook:
+
+```yaml
+agent:
+  prompt: |
+    Investigate this Sentry error and suggest a fix.
+
+    Title: {{ .body.data.event.title }}
+    Culprit: {{ .body.data.event.culprit }}
+    Level: {{ .body.data.event.level }}
+    Platform: {{ .body.data.event.platform }}
+    Sentry URL: {{ .body.data.event.web_url }}
+```
+
+**GitHub pull request review** -- resolve the repo and branch from the payload:
+
+```yaml
+workspace:
+  type: git-clone
+  repo: "{{ .body.repository.clone_url }}"
+  ref: "{{ .body.pull_request.head.ref }}"
+
+agent:
+  prompt: |
+    Review pull request #{{ .body.number }}: {{ .body.pull_request.title }}.
+    Check for bugs, security issues, and suggest improvements.
+```
+
+Notice that template variables also work in `workspace.repo` and `workspace.ref`, so Pylon clones the exact branch being reviewed.
+
+**Notification channel fields** -- template variables apply to `channel.topic` and `channel.message` too, not just the agent prompt:
+
+```yaml
+channel:
+  approval: true
+  topic: "{{ .body.data.event.title }}"
+  message: |
+    {{ .body.data.event.title }}
+    {{ .body.data.event.culprit }}
+    {{ .body.data.event.web_url }}
+```
+
+### Testing template expansion
+
+Use `pylon test` with a `--payload` flag to see how your templates expand against a sample payload before sending real traffic:
+
+```bash
+pylon test my-pylon --payload '{"error": "divide by zero", "issue": {"title": "ZeroDivisionError"}}'
+```
+
+Pylon prints the resolved prompt and channel message so you can confirm the substitution looks correct.
+
+For more complex payloads, pass a path to a JSON file:
+
+```bash
+pylon test my-pylon --payload "$(cat sample-sentry-event.json)"
+```
+
+### Tips
+
+<Tip>
+  If a referenced field is missing from the payload, Go's template engine renders it as `<no value>`. Check your test output to catch typos in field paths before going live.
+</Tip>
+
+<Tip>
+  Whitespace inside `{{ "{{" }} }}` is ignored, so `{{ .body.error }}` and `{{.body.error}}` are equivalent.
+</Tip>
+
+<Tip>
+  To include a literal `{{ "{{" }}` in your prompt (rare), escape it as `{{ "{{" }}"{{"{{ "}}" }}`.
+</Tip>
+
+## Host tools
+
+By default, agent containers are isolated Docker environments with no access to your host filesystem or binaries. Host tools let you selectively expose specific CLI programs -- deployment scripts, linters, build tools -- to agents via Pylon's exec gateway. The gateway proxies calls from inside the container to named executables on the host, so agents can trigger real workflows without needing a privileged container or a shared filesystem mount.
+
+### Configuring tools per pylon
+
+The `agent.tools` list in `pylon.yaml` controls which host tools this pylon's agent can call. Each entry defines one tool:
+
+```yaml
+agent:
+  tools:
+    - name: deploy
+      path: /usr/local/bin/deploy.sh
+      timeout: "60s"
+    - name: lint
+      path: /usr/local/bin/eslint
+```
+
+<ParamField path="agent.tools[].name" type="string" required>
+  Identifier used to reference this tool in agent instructions. Choose a short, descriptive name without spaces.
+</ParamField>
+
+<ParamField path="agent.tools[].path" type="string" required>
+  Absolute path to the executable on the host machine. The file must be executable by the user running `pylon start`.
+</ParamField>
+
+<ParamField path="agent.tools[].timeout" type="string" default="30s">
+  Maximum time Pylon waits for a single tool invocation to complete. Accepts Go duration strings such as `30s`, `2m`. If the tool does not finish within this limit, Pylon terminates the call and returns an error to the agent.
+</ParamField>
+
+### Resolution order
+
+If `agent.tools` is set (even to an empty list), it replaces the global `tools` list from `config.yaml` for that pylon. If `agent.tools` is absent, Pylon uses the global list. This means you can give individual pylons a restricted subset of tools, or grant a specific pylon access to a tool not available globally.
+
+### Security model
+
+Agents cannot run arbitrary commands on your host. They can only call tools by name through the exec gateway, and only tools that appear in the pylon's resolved tools list are reachable. If an agent attempts to call a tool that is not listed, the gateway rejects the call.
+
+<Warning>
+  Each listed executable runs with the same OS user privileges as the `pylon start` process. Avoid listing tools that have broad write access to your filesystem or that accept untrusted input without sanitization.
+</Warning>
+
+### Example: deploy script
+
+A common pattern is exposing a deployment script that agents can invoke after making code changes:
+
+```yaml
+agent:
+  tools:
+    - name: deploy
+      path: /usr/local/bin/deploy.sh
+      timeout: "120s"
+  prompt: |
+    Fix the following error, then run the `deploy` tool to apply the changes.
+
+    Error: {{ .body.error }}
+```
+
+The agent calls the tool through the gateway; Pylon runs `/usr/local/bin/deploy.sh` on the host, captures its output, and returns it to the agent.
+
+## Config resolution order
+
+When Pylon runs a job it merges settings from both files, with the per-pylon file taking full priority:
+
+| Setting | Resolved from |
+|---|---|
+| `channel.type` | Per-pylon `channel.type` -> global `defaults.channel.type` |
+| `agent.type` | Per-pylon `agent.type` -> global `defaults.agent.type` -> `claude` |
+| `agent.auth` | Per-pylon `agent.auth` -> global agent defaults -> `oauth` (Claude) |
+| `agent.timeout` | Per-pylon `agent.timeout` -> global `docker.default_timeout` -> `15m` |
+| `agent.tools` | Per-pylon `agent.tools` (if non-empty) -> global `tools` |

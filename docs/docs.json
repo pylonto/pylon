@@ -27,9 +27,10 @@
             ]
           },
           {
-            "group": "Core Concepts",
+            "group": "Concepts",
             "pages": [
               "concepts/pylons",
+              "concepts/nexus",
               "concepts/triggers",
               "concepts/agents",
               "concepts/channels",
@@ -37,44 +38,39 @@
             ]
           },
           {
-            "group": "Guides",
+            "group": "YAML",
             "pages": [
-              "guides/sentry",
-              "guides/github-pr",
-              "guides/cron-audit",
-              "guides/custom-pipeline"
+              "yaml/pylon",
+              "yaml/config"
             ]
           },
           {
-            "group": "Configuration",
+            "group": "Examples",
             "pages": [
-              "configuration/global-config",
-              "configuration/pylon-config",
-              "configuration/prompt-templates",
-              "configuration/host-tools"
+              "examples/webhooks",
+              "examples/cron"
             ]
           },
           {
-            "group": "Operations",
+            "group": "Running",
             "pages": [
-              "operations/running",
-              "operations/jobs",
-              "operations/systemd",
-              "operations/troubleshooting"
+              "running/daemon",
+              "running/troubleshooting"
             ]
           }
         ]
       },
       {
-        "tab": "CLI Reference",
+        "tab": "CLI",
         "groups": [
           {
             "group": "Commands",
             "pages": [
               "cli/setup",
               "cli/construct",
+              "cli/nexus",
               "cli/start",
-              "cli/list-edit-destroy",
+              "cli/list",
               "cli/jobs",
               "cli/doctor",
               "cli/upgrade"

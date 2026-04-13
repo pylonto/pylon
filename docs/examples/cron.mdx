@@ -1,0 +1,236 @@
+---
+title: "Cron"
+description: "Schedule recurring AI agent runs with cron expressions."
+---
+
+Cron pipelines run AI agents on a schedule -- no webhook required, no manual trigger. Pylon evaluates the cron expression, and when the time comes, it clones your repo, runs the agent, and posts results to your configured channel.
+
+## Weekly Codebase Audit
+
+Schedule an automated security and code-quality audit every Monday at 9 AM. The agent clones your repo, analyzes the codebase, and posts a summary report to Telegram or Slack.
+
+<Steps>
+  <Step title="Create the pipeline">
+    ```bash
+    pylon construct weekly-audit --from cron-audit
+    ```
+
+    Pylon prompts you for two values:
+
+    - **Repo URL** -- the repository the agent will audit (e.g. `git@github.com:acme/app.git`)
+    - **Default branch** -- the branch to check out (defaults to `main`)
+
+    Enter these values and Pylon writes the config to `~/.pylon/pylons/weekly-audit/pylon.yaml`.
+  </Step>
+
+  <Step title="Review the generated config">
+
+    ```yaml
+    name: "weekly-audit"
+    created: "2025-01-01T00:00:00Z"
+
+    trigger:
+      type: cron
+      cron: "0 9 * * 1"  # Every Monday at 9am
+
+    channel:
+      message: "Weekly codebase audit"
+      approval: false
+
+    workspace:
+      type: git-clone
+      repo: "git@github.com:acme/app.git"
+      ref: main
+
+    agent:
+      prompt: |
+        Audit this codebase for security vulnerabilities, outdated
+        dependencies, and code quality issues. Provide a summary report.
+      timeout: 30m
+    ```
+
+    The 30-minute timeout gives the agent enough time to work through a large codebase. Increase it for very large repositories.
+  </Step>
+
+  <Step title="Start the daemon">
+    ```bash
+    pylon start
+    ```
+
+    Pylon registers the cron schedule and waits. The first run fires at 9 AM on the next Monday.
+  </Step>
+
+  <Step title="Receive the audit report">
+    At 9 AM every Monday, Pylon clones the repository, runs the agent, and posts a summary report to your configured channel covering security vulnerabilities, outdated dependencies, and code quality issues.
+  </Step>
+</Steps>
+
+<Note>
+There is no approval flow for cron triggers. The `approval` field has no effect when `trigger.type` is `cron` -- the agent always runs automatically on schedule.
+</Note>
+
+---
+
+## Cron Expression Reference
+
+The `trigger.cron` field uses standard five-field cron syntax:
+
+```
++----- minute (0-59)
+| +--- hour (0-23)
+| | +- day of month (1-31)
+| | | +- month (1-12)
+| | | | +- day of week (0-7, Sunday = 0 or 7)
+| | | | |
+* * * * *
+```
+
+### Common expressions
+
+| Expression      | Schedule                             |
+|-----------------|--------------------------------------|
+| `0 0 * * *`     | Daily at midnight                    |
+| `0 */6 * * *`   | Every 6 hours                        |
+| `0 9 * * 1-5`   | Weekdays at 9:00 AM                  |
+| `0 9 * * 1`     | Every Monday at 9:00 AM              |
+| `0 0 1 * *`     | First day of every month at midnight |
+| `30 8 * * 5`    | Every Friday at 8:30 AM             |
+| `0 12 * * *`    | Daily at noon                        |
+| `0 */4 * * *`   | Every 4 hours                        |
+
+---
+
+## Timezone Support
+
+By default, cron expressions are evaluated in the system's local timezone. Use the `trigger.timezone` field to specify a different timezone with an IANA timezone identifier:
+
+```yaml
+trigger:
+  type: cron
+  cron: "0 9 * * 1"
+  timezone: "America/New_York"
+```
+
+<Tabs>
+  <Tab title="US timezones">
+    ```yaml
+    timezone: "America/New_York"      # Eastern
+    timezone: "America/Chicago"       # Central
+    timezone: "America/Denver"        # Mountain
+    timezone: "America/Los_Angeles"   # Pacific
+    ```
+  </Tab>
+  <Tab title="Europe timezones">
+    ```yaml
+    timezone: "Europe/London"         # GMT/BST
+    timezone: "Europe/Berlin"         # CET/CEST
+    timezone: "Europe/Paris"          # CET/CEST
+    timezone: "Europe/Istanbul"       # TRT
+    ```
+  </Tab>
+  <Tab title="Asia/Pacific timezones">
+    ```yaml
+    timezone: "Asia/Tokyo"            # JST
+    timezone: "Asia/Shanghai"         # CST
+    timezone: "Asia/Kolkata"          # IST
+    timezone: "Australia/Sydney"      # AEST/AEDT
+    ```
+  </Tab>
+  <Tab title="UTC">
+    ```yaml
+    timezone: "UTC"
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## More Schedule Examples
+
+### Daily security scan at midnight UTC
+
+```yaml
+name: "nightly-scan"
+
+trigger:
+  type: cron
+  cron: "0 0 * * *"
+  timezone: "UTC"
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:acme/app.git"
+  ref: main
+
+agent:
+  prompt: |
+    Scan this codebase for security vulnerabilities. Focus on
+    dependency CVEs, hardcoded secrets, and injection risks.
+  timeout: 20m
+```
+
+### Every 6 hours -- dependency check
+
+```yaml
+name: "dep-check"
+
+trigger:
+  type: cron
+  cron: "0 */6 * * *"
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:acme/app.git"
+  ref: main
+
+agent:
+  prompt: |
+    Check all dependencies for known vulnerabilities and available
+    updates. Report any critical or high severity issues.
+  timeout: 15m
+```
+
+### Weekdays at 9 AM -- standup summary
+
+```yaml
+name: "standup-summary"
+
+trigger:
+  type: cron
+  cron: "0 9 * * 1-5"
+  timezone: "America/New_York"
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:acme/app.git"
+  ref: main
+
+agent:
+  prompt: |
+    Summarize the git activity from the last 24 hours. List new
+    commits, open PRs, and any failing CI checks.
+  timeout: 10m
+```
+
+### First of every month -- full audit
+
+```yaml
+name: "monthly-audit"
+
+trigger:
+  type: cron
+  cron: "0 0 1 * *"
+  timezone: "UTC"
+
+workspace:
+  type: git-clone
+  repo: "git@github.com:acme/app.git"
+  ref: main
+
+agent:
+  prompt: |
+    Perform a comprehensive audit of this codebase. Cover security
+    vulnerabilities, code quality, test coverage gaps, outdated
+    dependencies, and architecture concerns. Provide a detailed report.
+  timeout: 60m
+```

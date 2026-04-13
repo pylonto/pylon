@@ -1,5 +1,5 @@
 ---
-title: "Get started with Pylon in five minutes"
+title: "Quickstart"
 description: "Install the daemon, connect your chat channel, build a pipeline from the Sentry template, and trigger your first AI agent run — all from the command line."
 ---
 
@@ -91,7 +91,7 @@ This guide takes you from a blank Linux machine to a running Pylon daemon with a
     ```
 
     <Warning>
-      `pylon start` runs in the foreground. To run it in the background, use a process manager like systemd. See [Running Pylon](/operations/running) for a systemd unit example.
+      `pylon start` runs in the foreground. To run it in the background, use a process manager like systemd. See [Daemon](/running/daemon) for a systemd unit example.
     </Warning>
   </Step>
 
@@ -124,8 +124,8 @@ This guide takes you from a blank Linux machine to a running Pylon daemon with a
 ## Next steps
 
 <CardGroup cols={2}>
-  <Card title="Sentry guide" icon="bug" href="/guides/sentry">
-    Configure a real Sentry webhook and add your repo for full error triage.
+  <Card title="Webhook examples" icon="bolt" href="/examples/webhooks">
+    Sentry error triage, GitHub PR review, and custom webhook pipelines.
   </Card>
   <Card title="Pylon concepts" icon="tower-observation" href="/concepts/pylons">
     Learn how triggers, agents, channels, and workspaces fit together.
@@ -133,7 +133,7 @@ This guide takes you from a blank Linux machine to a running Pylon daemon with a
   <Card title="pylon construct" icon="hammer" href="/cli/construct">
     Full reference for the construct command and all available templates.
   </Card>
-  <Card title="Configuration" icon="gear" href="/configuration/pylon-config">
+  <Card title="YAML reference" icon="gear" href="/yaml/pylon">
     Edit pylon YAML directly to customize prompts, timeouts, and approval flow.
   </Card>
 </CardGroup>

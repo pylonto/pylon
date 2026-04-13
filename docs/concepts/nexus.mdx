@@ -1,0 +1,144 @@
+---
+title: "Nexus"
+description: "Interactive terminal dashboard for managing pylons, jobs, and the daemon."
+---
+
+Nexus is Pylon's full-screen terminal dashboard, built with [Bubbletea](https://github.com/charmbracelet/bubbletea). It lets you manage pylons, start and stop the daemon, monitor jobs, and configure pipelines -- all from one screen.
+
+```bash
+pylon nexus
+```
+
+## Layout
+
+Nexus uses a two-panel design:
+
+- **Left sidebar** -- Shows the Pylon logo with an animated spinner, the current version (with upgrade indicator when a new release is available), daemon status (ON/OFF), and a list of all configured pylons. Each pylon has a status indicator: a filled diamond means active, an empty diamond means disabled.
+- **Right panel** -- Switches between the home view (detail for the selected pylon) and wizard views (setup, construct).
+
+A vertical gold separator divides the two panels. The bottom of the screen shows context-sensitive keybinding hints that change based on the current view and focus state.
+
+## Home view
+
+The home view is the default screen. The left sidebar lists all your pylons. Navigate the list with `j`/`k` (or arrow keys), and press `l` or `enter` to shift focus into the detail panel for the selected pylon. Press `h` or `esc` to return focus to the list.
+
+When no pylons exist, Nexus shows a prompt to press `c` to construct one or `g` to run global setup.
+
+Each pylon row in the sidebar shows:
+- The pylon name (truncated if too long)
+- A status diamond: filled green when a job is active, filled dim when idle, outlined when disabled
+
+## Detail view
+
+When you select a pylon, the right panel shows its full configuration and job history.
+
+### Configuration section
+
+The detail view displays:
+- **Trigger** -- The trigger type and its path (for webhooks) or cron expression with a human-readable description (for cron triggers)
+- **Timezone** -- For cron pylons, the resolved timezone
+- **Next run** -- For cron pylons, the next scheduled fire time with a countdown (e.g. "Mon Apr 13 09:00  (in 2h 30m)")
+- **Webhook URL** -- For webhook pylons, the full public URL with a `[y] copy` hint
+- **Workspace** -- The workspace type, repository, ref, and path
+- **Agent** -- The agent type and authentication method
+- **Channel** -- The notification channel type
+- **Topic** -- The topic template (if configured), truncated to 36 characters
+- **Message** -- The message template (if configured), truncated to 36 characters
+- **Auto-run** -- Whether the pylon runs automatically or requires approval
+- **Prompt** -- The agent prompt, shown as a truncated single line by default. Press `p` to expand the full prompt text.
+
+### Job history table
+
+Below the config section, a job history table shows the 20 most recent jobs. Toggle visibility with `t`. The table columns are:
+
+| Column | Description |
+|---|---|
+| ID | First 8 characters of the job ID |
+| STATUS | Current status: running, completed, failed, timeout, approval, stale, or dismissed |
+| TRIGGERED | When the job was created (e.g. "Apr 12 14:30") |
+| DURATION | Wall-clock duration from start to completion |
+
+Navigate jobs with `j`/`k` when the detail panel is focused. Selecting a failed job shows its error message inline below the row.
+
+## Keybindings
+
+### Navigation
+
+| Key | Action |
+|---|---|
+| `j` / `down` | Move down |
+| `k` / `up` | Move up |
+| `l` / `enter` | Open detail view (shift focus to right panel) |
+| `h` / `esc` | Back to pylon list |
+| `q` | Quit Nexus |
+
+### Pylon management
+
+| Key | Action |
+|---|---|
+| `c` | Construct a new pylon (launches the construct wizard) |
+| `e` | Edit the selected pylon config in `$EDITOR` |
+| `x` | Toggle enable/disable for the selected pylon |
+| `D` | Delete the selected pylon (with confirmation) |
+
+### Daemon control
+
+| Key | Action |
+|---|---|
+| `d` | Start or stop the daemon (with confirmation for stop) |
+
+### Detail view actions
+
+These keys are available when the detail panel is focused (after pressing `l` or `enter`):
+
+| Key | Action |
+|---|---|
+| `p` | Toggle prompt preview (expand/collapse) |
+| `t` | Toggle job history table |
+| `y` | Copy webhook URL to clipboard (webhook pylons only) |
+| `f` | Fire a cron pylon manually (with confirmation) |
+| `e` | Edit the pylon config in `$EDITOR` |
+| `a` | Open the message template builder |
+
+### Job actions
+
+These keys are available when a job is selected in the job history table:
+
+| Key | Action |
+|---|---|
+| `l` | View job logs (live `docker logs` for running containers, or pager for finished jobs) |
+| `x` | Kill a running job, or dismiss a finished job (with confirmation) |
+| `r` | Retry a failed or timed-out job (with confirmation) |
+
+### Global
+
+| Key | Action |
+|---|---|
+| `g` | Run global setup wizard |
+| `?` | Run `pylon doctor` diagnostics |
+| `u` | Upgrade to latest version (shown only when an update is available) |
+
+## Message template builder
+
+The message template builder is an interactive tool for composing notification message templates from webhook payload fields. Open it by pressing `a` from the detail view.
+
+The builder reads the most recent job's trigger payload and presents its fields organized into collapsible groups. You can browse the payload structure, see sample values from the real data, and check off the fields you want included in your message template.
+
+| Key | Action |
+|---|---|
+| `j` / `k` | Navigate fields |
+| `space` | Toggle group expand/collapse, or check/uncheck a field |
+| `enter` | Save the template and return to detail view |
+| `esc` | Cancel and return without saving |
+
+Selected fields are rendered as labeled Go template expressions (e.g. `Title: {{ .body.event.title }}`). A live preview of the generated template appears at the bottom of the screen as you select fields. The template is saved to the pylon's `channel.message` config field.
+
+## Setup wizard
+
+Press `g` from the home view to launch the global setup wizard inside Nexus. This is the same wizard as `pylon setup`, but embedded in the TUI rather than running as a separate process. It walks through Docker verification, channel configuration, agent selection, and public URL setup.
+
+Press `esc` to cancel the wizard (with confirmation) and return to the home view.
+
+<Note>
+Nexus requires a terminal with at least 60 columns. If the terminal is too narrow, it displays a resize prompt instead of the dashboard.
+</Note>
