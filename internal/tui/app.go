@@ -90,7 +90,9 @@ func checkUpdateCmd(current string) tea.Cmd {
 		if json.NewDecoder(resp.Body).Decode(&r) != nil || r.TagName == "" {
 			return nil
 		}
-		if r.TagName != current && current != "dev" {
+		latest := strings.TrimPrefix(r.TagName, "v")
+		cur := strings.TrimPrefix(current, "v")
+		if latest != cur && cur != "dev" {
 			return updateAvailableMsg{version: r.TagName}
 		}
 		return nil
@@ -302,11 +304,19 @@ func (m AppModel) renderLeftPanel() string {
 	spinner := m.glyph.View()
 	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Pylon Nexus")
 	b.WriteString(" " + spinner + " " + title + "\n")
+	displayVer := m.version
+	if !strings.HasPrefix(displayVer, "v") {
+		displayVer = "v" + displayVer
+	}
 	if m.latestVersion != "" {
-		ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version + " > ")
-		b.WriteString("   " + ver + renderShimmer(m.latestVersion, m.glyph.shimmerTick) + "\n")
+		displayLatest := m.latestVersion
+		if !strings.HasPrefix(displayLatest, "v") {
+			displayLatest = "v" + displayLatest
+		}
+		ver := lipgloss.NewStyle().Foreground(colorGold).Render(displayVer + " > ")
+		b.WriteString("   " + ver + renderShimmer(displayLatest, m.glyph.shimmerTick) + "\n")
 	} else {
-		ver := lipgloss.NewStyle().Foreground(colorGold).Render(m.version)
+		ver := lipgloss.NewStyle().Foreground(colorGold).Render(displayVer)
 		b.WriteString("   " + ver + "\n")
 	}
 
