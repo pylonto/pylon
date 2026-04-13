@@ -67,12 +67,9 @@ func Build(agentType string) error {
 // pull attempts to docker pull the image. Returns true on success.
 func pull(image string) bool {
 	cmd := exec.Command("docker", "pull", image)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		_ = output
-		return false
-	}
-	return true
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run() == nil
 }
 
 // imageExists checks whether a Docker image exists locally.

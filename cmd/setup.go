@@ -151,8 +151,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nSetup complete.\n")
 	fmt.Printf("  Config saved to %s\n", config.GlobalPath())
 	fmt.Printf("  Run `pylon construct <name>` to create your first pylon.\n")
-	fmt.Printf("\n  Enable tab completion:\n")
-	fmt.Printf("    eval \"$(pylon completion zsh)\"   # add to ~/.zshrc\n\n")
+
+	offerCompletion()
+
 	return nil
 }
 
@@ -476,4 +477,55 @@ func setupOpenCode() (*config.OpenCodeDefaults, error) {
 	}
 
 	return oc, nil
+}
+
+func offerCompletion() {
+	shell := filepath.Base(os.Getenv("SHELL"))
+	var rcFile, evalLine string
+	switch shell {
+	case "zsh":
+		rcFile = "~/.zshrc"
+		evalLine = `eval "$(pylon completion zsh)"`
+	case "bash":
+		rcFile = "~/.bashrc"
+		evalLine = `eval "$(pylon completion bash)"`
+	case "fish":
+		rcFile = "~/.config/fish/config.fish"
+		evalLine = "pylon completion fish | source"
+	default:
+		return
+	}
+
+	fmt.Println()
+	var install bool
+	if err := huh.NewConfirm().
+		Title("Enable tab completion?").
+		Description(fmt.Sprintf("Appends to %s", rcFile)).
+		Value(&install).
+		Run(); err != nil || !install {
+		return
+	}
+
+	// Expand ~ to home directory.
+	home, _ := os.UserHomeDir()
+	path := strings.Replace(rcFile, "~", home, 1)
+
+	// Check if already present.
+	if data, err := os.ReadFile(path); err == nil && strings.Contains(string(data), "pylon completion") {
+		fmt.Printf("  Already configured in %s\n", rcFile)
+		return
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("  Could not write to %s: %v\n", rcFile, err)
+		return
+	}
+	defer f.Close()
+
+	if _, err := fmt.Fprintf(f, "\n# Pylon tab completion\n%s\n", evalLine); err != nil {
+		fmt.Printf("  Could not write to %s: %v\n", rcFile, err)
+		return
+	}
+	fmt.Printf("  Added to %s. Restart your shell or run: source %s\n", rcFile, rcFile)
 }
