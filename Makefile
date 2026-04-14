@@ -1,4 +1,4 @@
-.PHONY: build dev run fmt lint image clean setup test
+.PHONY: build dev run fmt lint image clean setup test cover cover-html smoke
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -31,6 +31,17 @@ doctor: build
 	./pylon doctor
 
 test:
+	go test ./... -race -count=1
+
+cover:
+	go test ./... -race -coverprofile=coverage.out
+	go tool cover -func=coverage.out
+
+cover-html:
+	go test ./... -race -coverprofile=coverage.out
+	go tool cover -html=coverage.out -o coverage.html
+
+smoke:
 	curl -s -X POST localhost:8080/sentry \
 		-H "Content-Type: application/json" \
 		-d '{"repo": "https://github.com/kelseyhightower/nocode", "ref": "master", "error": "Unhandled promise rejection in router.js line 42"}' | jq .
