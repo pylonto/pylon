@@ -199,7 +199,8 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 		return fmt.Errorf("unsupported channel type %q (supported: telegram, slack, webhook, stdout) -- update %s or press e to edit", p.Channel.Type, path)
 	}
 	if p.Channel != nil {
-		if err := validateChannelConfig(p.Channel.Type, p.Channel.Telegram, p.Channel.Slack, path); err != nil {
+		pylonEnv := LoadPylonEnvFile(p.Name)
+		if err := validateChannelConfig(p.Channel.Type, p.Channel.Telegram, p.Channel.Slack, path, pylonEnv, PylonEnvPath(p.Name)); err != nil {
 			return err
 		}
 	}

@@ -100,21 +100,29 @@ var validAgentTypes = map[string]bool{
 
 // envUnset returns an error message if value looks like a ${VAR} reference
 // that expanded to empty, or "" if the value is fine.
-func envUnset(field, value string) string {
-	expanded := os.ExpandEnv(value)
-	if expanded != "" {
-		return ""
-	}
-	// Extract the variable name from the raw value for a helpful message.
+// pylonEnv is checked first (may be nil), then the process environment.
+// envPath is the file path shown in the error hint.
+func envUnset(field, value string, pylonEnv map[string]string, envPath string) string {
+	// Extract the variable name from the raw value.
 	name := strings.TrimPrefix(value, "${")
 	name = strings.TrimSuffix(name, "}")
+	// Check per-pylon env first.
+	if v, ok := pylonEnv[name]; ok && v != "" {
+		return ""
+	}
+	// Fall back to process environment (includes global .env loaded at startup).
+	if os.Getenv(name) != "" {
+		return ""
+	}
 	return fmt.Sprintf("%s references ${%s} but it is not set -- add %s=<value> to %s",
-		field, name, name, EnvPath())
+		field, name, name, envPath)
 }
 
 // validateChannelConfig checks that the channel type matches its config section
-// and that required fields are present.
-func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path string) error {
+// and that required fields are present. pylonEnv holds per-pylon env vars
+// (may be nil for global config validation). envPath is the env file shown in
+// error hints for unset variables.
+func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path string, pylonEnv map[string]string, envPath string) error {
 	hint := " -- update " + path + " or press e to edit"
 	switch typ {
 	case "telegram":
@@ -128,7 +136,7 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 			return errors.New("telegram.bot_token is required" + hint)
 		}
 		if strings.HasPrefix(tg.BotToken, "${") {
-			if msg := envUnset("telegram.bot_token", tg.BotToken); msg != "" {
+			if msg := envUnset("telegram.bot_token", tg.BotToken, pylonEnv, envPath); msg != "" {
 				return errors.New(msg)
 			}
 		}
@@ -144,7 +152,7 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 			return errors.New("slack.bot_token is required" + hint)
 		}
 		if strings.HasPrefix(sl.BotToken, "${") {
-			if msg := envUnset("slack.bot_token", sl.BotToken); msg != "" {
+			if msg := envUnset("slack.bot_token", sl.BotToken, pylonEnv, envPath); msg != "" {
 				return errors.New(msg)
 			}
 		}
@@ -152,7 +160,7 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 			return errors.New("slack.app_token is required" + hint)
 		}
 		if strings.HasPrefix(sl.AppToken, "${") {
-			if msg := envUnset("slack.app_token", sl.AppToken); msg != "" {
+			if msg := envUnset("slack.app_token", sl.AppToken, pylonEnv, envPath); msg != "" {
 				return errors.New(msg)
 			}
 		}
@@ -169,7 +177,7 @@ func (c *GlobalConfig) Validate() error {
 	if !validChannelTypes[c.Defaults.Channel.Type] {
 		return fmt.Errorf("unsupported channel type %q (supported: telegram, slack, webhook, stdout) -- update %s", c.Defaults.Channel.Type, path)
 	}
-	if err := validateChannelConfig(c.Defaults.Channel.Type, c.Defaults.Channel.Telegram, c.Defaults.Channel.Slack, path); err != nil {
+	if err := validateChannelConfig(c.Defaults.Channel.Type, c.Defaults.Channel.Telegram, c.Defaults.Channel.Slack, path, nil, EnvPath()); err != nil {
 		return err
 	}
 	if !validAgentTypes[c.Defaults.Agent.Type] {
