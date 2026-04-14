@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
 
@@ -283,6 +284,10 @@ type pylonDeletedMsg struct{ err error }
 
 func deletePylonCmd(name string) tea.Cmd {
 	return func() tea.Msg {
+		// Clean up job workspaces before removing the pylon directory.
+		for _, id := range store.JobIDsFromDB(config.PylonDBPath(name)) {
+			runner.CleanupWorkspace(id)
+		}
 		err := config.DeletePylon(name)
 		return pylonDeletedMsg{err: err}
 	}

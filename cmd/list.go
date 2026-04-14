@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/runner"
+	"github.com/pylonto/pylon/internal/store"
 )
 
 func init() {
@@ -73,6 +75,10 @@ var destroyCmd = &cobra.Command{
 		if confirm != "y" && confirm != "Y" {
 			fmt.Println("Cancelled.")
 			return nil
+		}
+		// Clean up job workspaces before removing the pylon directory.
+		for _, id := range store.JobIDsFromDB(config.PylonDBPath(name)) {
+			runner.CleanupWorkspace(id)
 		}
 		if err := config.DeletePylon(name); err != nil {
 			return err

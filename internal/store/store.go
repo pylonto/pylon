@@ -306,6 +306,31 @@ func (s *Store) LoadPayloadSample(pylonName string) string {
 	return payload
 }
 
+// JobIDsFromDB opens a SQLite database at path, reads all job IDs, and closes it.
+// Returns nil on any error. Used for cleanup before deleting a pylon.
+func JobIDsFromDB(path string) []string {
+	db, err := sql.Open("sqlite", path+"?mode=ro")
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT id FROM jobs")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func (s *Store) persist(j *Job) {
 	bodyJSON, _ := json.Marshal(j.Body)
 	s.db.Exec( //nolint:errcheck // cache is authoritative
