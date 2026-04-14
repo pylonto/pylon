@@ -100,7 +100,7 @@ func TestPruneOrphanedWorkspaces(t *testing.T) {
 
 	// Create a symlink workspace for job-4
 	target := t.TempDir()
-	os.Symlink(target, filepath.Join(jobsDir, "job-4"))
+	_ = os.Symlink(target, filepath.Join(jobsDir, "job-4"))
 
 	// Only job-2 is active
 	active := map[string]bool{"job-2": true}

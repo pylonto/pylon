@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func openMultiTestStore(t *testing.T) (*MultiStore, *Store, *Store) {
+func openMultiTestStore(t *testing.T) (*MultiStore, *Store) {
 	t.Helper()
 	sa, err := Open(filepath.Join(t.TempDir(), "a.db"))
 	require.NoError(t, err)
@@ -20,11 +20,11 @@ func openMultiTestStore(t *testing.T) (*MultiStore, *Store, *Store) {
 	t.Cleanup(func() { sb.Close() })
 
 	ms := NewMulti(map[string]*Store{"pylon-a": sa, "pylon-b": sb})
-	return ms, sa, sb
+	return ms, sa
 }
 
 func TestMultiStorePutAndGet(t *testing.T) {
-	ms, _, _ := openMultiTestStore(t)
+	ms, _ := openMultiTestStore(t)
 
 	ms.Put(makeJob("job-1", "pylon-a", "pending"))
 	ms.Put(makeJob("job-2", "pylon-b", "running"))
@@ -42,7 +42,7 @@ func TestMultiStorePutAndGet(t *testing.T) {
 }
 
 func TestMultiStoreGetByTopic(t *testing.T) {
-	ms, _, _ := openMultiTestStore(t)
+	ms, _ := openMultiTestStore(t)
 
 	job := makeJob("job-1", "pylon-a", "running")
 	job.TopicID = "topic-42"
@@ -57,7 +57,7 @@ func TestMultiStoreGetByTopic(t *testing.T) {
 }
 
 func TestMultiStoreList(t *testing.T) {
-	ms, _, _ := openMultiTestStore(t)
+	ms, _ := openMultiTestStore(t)
 
 	ms.Put(makeJob("job-1", "pylon-a", "pending"))
 	ms.Put(makeJob("job-2", "pylon-b", "running"))
@@ -68,7 +68,7 @@ func TestMultiStoreList(t *testing.T) {
 }
 
 func TestMultiStoreUpdateStatus(t *testing.T) {
-	ms, _, _ := openMultiTestStore(t)
+	ms, _ := openMultiTestStore(t)
 
 	ms.Put(makeJob("job-1", "pylon-a", "pending"))
 	ms.UpdateStatus("job-1", "running")
@@ -79,7 +79,7 @@ func TestMultiStoreUpdateStatus(t *testing.T) {
 }
 
 func TestMultiStoreSetCompleted(t *testing.T) {
-	ms, _, _ := openMultiTestStore(t)
+	ms, _ := openMultiTestStore(t)
 
 	ms.Put(makeJob("job-1", "pylon-a", "running"))
 	ms.SetCompleted("job-1", json.RawMessage(`{"result":"ok"}`))
@@ -91,7 +91,7 @@ func TestMultiStoreSetCompleted(t *testing.T) {
 }
 
 func TestMultiStoreDelete(t *testing.T) {
-	ms, _, _ := openMultiTestStore(t)
+	ms, _ := openMultiTestStore(t)
 
 	ms.Put(makeJob("job-1", "pylon-a", "pending"))
 	ms.Delete("job-1")
@@ -102,7 +102,7 @@ func TestMultiStoreDelete(t *testing.T) {
 
 func TestMultiStoreGetFallback(t *testing.T) {
 	// Put a job directly into the underlying store (bypassing index)
-	ms, sa, _ := openMultiTestStore(t)
+	ms, sa := openMultiTestStore(t)
 
 	sa.Put(makeJob("job-direct", "pylon-a", "pending"))
 	// The index doesn't know about this job, but Get should find it via fallback

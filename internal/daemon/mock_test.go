@@ -91,11 +91,3 @@ func (c *mockChannel) OnMessage(fn func(string, string, string)) {
 func (c *mockChannel) Commands() []channel.Command {
 	return channel.BotCommands
 }
-
-func (c *mockChannel) getMessages() []mockMessage {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	cp := make([]mockMessage, len(c.messages))
-	copy(cp, c.messages)
-	return cp
-}
