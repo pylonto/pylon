@@ -18,34 +18,6 @@ type GlobalConfig struct {
 	Server   ServerConfig   `yaml:"server"`
 	Defaults DefaultsConfig `yaml:"defaults"`
 	Docker   DockerConfig   `yaml:"docker"`
-	Tools    []ToolConfig   `yaml:"tools,omitempty"`
-}
-
-// ToolConfig defines a host CLI tool available to agent containers via the exec gateway.
-type ToolConfig struct {
-	Name    string `yaml:"name"`
-	Path    string `yaml:"path"`
-	Timeout string `yaml:"timeout,omitempty"` // default "30s"
-}
-
-// TimeoutDuration returns the parsed timeout, defaulting to 30s.
-func (t *ToolConfig) TimeoutDuration() time.Duration {
-	if t.Timeout != "" {
-		if d, err := time.ParseDuration(t.Timeout); err == nil {
-			return d
-		}
-	}
-	return 30 * time.Second
-}
-
-// ToolByName returns the ToolConfig for a given tool name, or nil if not found.
-func (c *GlobalConfig) ToolByName(name string) *ToolConfig {
-	for i := range c.Tools {
-		if c.Tools[i].Name == name {
-			return &c.Tools[i]
-		}
-	}
-	return nil
 }
 
 type ServerConfig struct {
@@ -265,9 +237,49 @@ func SaveGlobal(cfg *GlobalConfig) error {
 	return os.WriteFile(GlobalPath(), data, 0644)
 }
 
-// EnvPath returns the path to the secrets env file.
+// EnvPath returns the path to the global secrets env file.
 func EnvPath() string {
 	return filepath.Join(Dir(), ".env")
+}
+
+// PylonEnvPath returns the path to a per-pylon secrets env file.
+func PylonEnvPath(name string) string {
+	return filepath.Join(PylonDir(name), ".env")
+}
+
+// LoadPylonEnvFile reads ~/.pylon/pylons/<name>/.env into a map.
+// Returns an empty map if the file does not exist.
+func LoadPylonEnvFile(name string) map[string]string {
+	m := make(map[string]string)
+	f, err := os.Open(PylonEnvPath(name))
+	if err != nil {
+		return m
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || line[0] == '#' {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		m[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+	}
+	return m
+}
+
+// ExpandWithPylonEnv expands ${VAR} references in s, checking pylonEnv first,
+// then falling back to the process environment.
+func ExpandWithPylonEnv(s string, pylonEnv map[string]string) string {
+	return os.Expand(s, func(key string) string {
+		if v, ok := pylonEnv[key]; ok {
+			return v
+		}
+		return os.Getenv(key)
+	})
 }
 
 // LoadEnv reads ~/.pylon/.env and sets any variables not already in the environment.

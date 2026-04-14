@@ -18,7 +18,7 @@ Pylon currently supports two agents: **Claude Code** and **OpenCode**. You confi
 | `env` | No | Additional environment variables to inject into the container. |
 | `prompt` | Yes | The instruction sent to the agent. Supports `{{ .body.field }}` templating. |
 | `timeout` | No | Maximum time the agent container can run, e.g. `10m`, `30m`. Defaults to `15m`. |
-| `tools` | No | Host CLI tools the agent can call via the exec gateway. Overrides global `tools` if set. |
+| `volumes` | No | Host directories to mount into the container, e.g. credential directories. See [pylon.yaml](/yaml/pylon#volumes). |
 
 ## Claude Code
 

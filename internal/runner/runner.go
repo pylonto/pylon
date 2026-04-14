@@ -38,6 +38,8 @@ type RunParams struct {
 	Ref           string
 	WorkspaceType string // "git-clone", "git-worktree", "local", "none"
 	LocalPath     string // for type "local"
+	Volumes       []string // user-configured bind mounts, e.g. "~/.config/gcloud:/home/pylon/.config/gcloud:ro"
+	PylonEnv      map[string]string // per-pylon env vars from ~/.pylon/pylons/<name>/.env
 	Channel       channel.Channel
 	TopicID       string
 }
@@ -91,9 +93,13 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 	}
 
 	var mounts []mount.Mount
+	expand := func(s string) string {
+		return config.ExpandWithPylonEnv(s, p.PylonEnv)
+	}
+
 	switch p.AgentType {
 	case "opencode":
-		apiKey := os.ExpandEnv(p.APIKey)
+		apiKey := expand(p.APIKey)
 		envVar := config.ProviderEnvVar(p.Provider)
 		if apiKey == "" {
 			apiKey = os.Getenv(envVar)
@@ -112,7 +118,7 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 				mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude.json"), Target: "/home/pylon/.claude.json"},
 			)
 		} else {
-			apiKey := os.ExpandEnv(p.APIKey)
+			apiKey := expand(p.APIKey)
 			if apiKey == "" {
 				apiKey = os.Getenv("ANTHROPIC_API_KEY")
 			}
@@ -123,10 +129,30 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 	}
 
 	for k, v := range p.ExtraEnv {
-		envList = append(envList, k+"="+os.ExpandEnv(v))
+		envList = append(envList, k+"="+expand(v))
 	}
 
 	mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: workDir, Target: "/workspace"})
+
+	// User-configured volume mounts
+	for _, v := range p.Volumes {
+		parts := strings.SplitN(v, ":", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		source := config.ExpandHome(parts[0])
+		target := parts[1]
+		readOnly := true // default to read-only
+		if len(parts) == 3 && parts[2] == "rw" {
+			readOnly = false
+		}
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   source,
+			Target:   target,
+			ReadOnly: readOnly,
+		})
+	}
 
 	if p.Channel != nil && p.TopicID != "" {
 		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)

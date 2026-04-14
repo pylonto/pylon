@@ -121,7 +121,7 @@ func setupLocal(p RunParams) (string, error) {
 	if _, err := os.Stat(absPath); err != nil {
 		return "", fmt.Errorf("local path %q does not exist: %w", absPath, err)
 	}
-	// Symlink so WorkDir(jobID) resolves for the exec gateway
+	// Symlink so WorkDir(jobID) resolves to the actual local path
 	linkPath := WorkDir(p.JobID)
 	os.MkdirAll(filepath.Dir(linkPath), 0755)
 	if err := os.Symlink(absPath, linkPath); err != nil {

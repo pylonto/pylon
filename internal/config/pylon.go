@@ -89,17 +89,7 @@ type PylonAgent struct {
 	Env      map[string]string `yaml:"env,omitempty"`
 	Prompt   string            `yaml:"prompt"`
 	Timeout  string            `yaml:"timeout,omitempty"`
-	Tools    []ToolConfig      `yaml:"tools,omitempty"` // per-pylon tool definitions
-}
-
-// ResolveTools returns the ToolConfigs available to this pylon.
-// Per-pylon tools take priority. If none are defined, falls back to global tools.
-// An empty list in both means no tools are available.
-func (p *PylonConfig) ResolveTools(global *GlobalConfig) []ToolConfig {
-	if p.Agent != nil && len(p.Agent.Tools) > 0 {
-		return p.Agent.Tools
-	}
-	return global.Tools
+	Volumes  []string          `yaml:"volumes,omitempty"` // e.g. "~/.config/gcloud:/home/pylon/.config/gcloud:ro"
 }
 
 // PylonDir returns the directory for a named pylon.
@@ -123,6 +113,57 @@ var validTriggerTypes = map[string]bool{
 
 var validWorkspaceTypes = map[string]bool{
 	"git-clone": true, "git-worktree": true, "local": true, "none": true, "": true,
+}
+
+// blockedVolumeSources lists host paths that must never be mounted into containers.
+var blockedVolumeSources = []string{
+	"/",
+	"/etc",
+	"/root",
+	"/var/run/docker.sock",
+}
+
+// ExpandHome replaces a leading ~ with the user's home directory.
+func ExpandHome(path string) string {
+	if strings.HasPrefix(path, "~/") || path == "~" {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[1:])
+	}
+	return path
+}
+
+// validateVolume checks that a volume string has the form source:target[:ro|rw].
+func validateVolume(v string) error {
+	parts := strings.SplitN(v, ":", 3)
+	if len(parts) < 2 {
+		return fmt.Errorf("expected source:target[:ro|rw]")
+	}
+	source := parts[0]
+	if source == "" {
+		return fmt.Errorf("source path is empty")
+	}
+	if !strings.HasPrefix(source, "/") && !strings.HasPrefix(source, "~") {
+		return fmt.Errorf("source path must be absolute or start with ~")
+	}
+	if parts[1] == "" {
+		return fmt.Errorf("target path is empty")
+	}
+	if len(parts) == 3 {
+		mode := parts[2]
+		if mode != "ro" && mode != "rw" {
+			return fmt.Errorf("mode must be ro or rw, got %q", mode)
+		}
+	}
+
+	// Check against blocklist
+	expanded := ExpandHome(source)
+	expanded = filepath.Clean(expanded)
+	for _, blocked := range blockedVolumeSources {
+		if expanded == blocked {
+			return fmt.Errorf("mounting %s is not allowed for security reasons", blocked)
+		}
+	}
+	return nil
 }
 
 // Validate checks the pylon config for invalid values.
@@ -164,6 +205,13 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 	}
 	if p.Agent != nil && p.Agent.Type != "" && !validAgentTypes[p.Agent.Type] {
 		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode) -- update %s or press e to edit", p.Agent.Type, path)
+	}
+	if p.Agent != nil {
+		for _, v := range p.Agent.Volumes {
+			if err := validateVolume(v); err != nil {
+				return fmt.Errorf("invalid volume %q: %w -- update %s or press e to edit", v, err, path)
+			}
+		}
 	}
 	return nil
 }

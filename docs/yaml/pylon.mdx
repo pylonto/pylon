@@ -1,6 +1,6 @@
 ---
 title: "pylon.yaml"
-description: "Complete reference for the per-pylon configuration file. Defines triggers, workspaces, agent prompts with template variables, notification channels, and host tools for each Pylon pipeline."
+description: "Complete reference for the per-pylon configuration file. Defines triggers, workspaces, agent prompts with template variables, notification channels, and volume mounts for each Pylon pipeline."
 ---
 
 Each pylon you create gets its own config file at `~/.pylon/pylons/<name>/pylon.yaml`. Running `pylon construct <name>` creates this file through an interactive prompt; you can open it in your editor at any time with `pylon edit <name>`. Per-pylon settings take priority over the global defaults in `~/.pylon/config.yaml`, so you only need to specify fields that differ from the global configuration.
@@ -71,11 +71,6 @@ agent:
     Platform: {{ .body.data.event.platform }}
     Sentry URL: {{ .body.data.event.web_url }}
   timeout: "10m"
-  # Expose only the deploy tool from the global tools list.
-  tools:
-    - name: deploy
-      path: /usr/local/bin/deploy.sh
-      timeout: "60s"
 ```
 
 ### GitHub PR review (no approval)
@@ -179,9 +174,6 @@ agent:
 
     Write a summary of findings to AUDIT.md in the repo root.
   timeout: "30m"
-  tools:
-    - name: lint
-      path: /usr/local/bin/eslint
 ```
 
 ## Field reference
@@ -313,8 +305,8 @@ The `agent` block is optional. When omitted, the pylon uses `defaults.agent` fro
   Maximum run time for a single job (for example, `10m`, `30m`). Overrides `docker.default_timeout` from the global config.
 </ParamField>
 
-<ParamField path="agent.tools" type="ToolConfig[]">
-  Host CLI tools available to this pylon's agent. When set, this list replaces the global `tools` list entirely for this pylon. Each entry accepts `name`, `path`, and an optional `timeout`. See the Host tools section below.
+<ParamField path="agent.volumes" type="string[]">
+  Host directories to mount into the agent container. Each entry uses the format `source:target[:ro|rw]`. Defaults to read-only (`ro`) when the mode is omitted. See the Volumes section below.
 </ParamField>
 
 ## Prompt templates
@@ -429,65 +421,74 @@ pylon test my-pylon --payload "$(cat sample-sentry-event.json)"
   To include a literal `{{ "{{" }}` in your prompt (rare), escape it as `{{ "{{" }}"{{"{{ "}}" }}`.
 </Tip>
 
-## Host tools
+## Volumes
 
-By default, agent containers are isolated Docker environments with no access to your host filesystem or binaries. Host tools let you selectively expose specific CLI programs -- deployment scripts, linters, build tools -- to agents via Pylon's exec gateway. The gateway proxies calls from inside the container to named executables on the host, so agents can trigger real workflows without needing a privileged container or a shared filesystem mount.
+By default, agent containers are isolated Docker environments with no access to your host filesystem beyond the mounted workspace. Volumes let you mount additional host directories into the container -- typically credential directories or configuration files that CLI tools inside the container need to authenticate with external services.
 
-### Configuring tools per pylon
+### Configuring volumes
 
-The `agent.tools` list in `pylon.yaml` controls which host tools this pylon's agent can call. Each entry defines one tool:
+The `agent.volumes` list in `pylon.yaml` defines host paths to mount into the agent container. Each entry uses Docker-style `source:target[:mode]` syntax:
 
 ```yaml
 agent:
-  tools:
-    - name: deploy
-      path: /usr/local/bin/deploy.sh
-      timeout: "60s"
-    - name: lint
-      path: /usr/local/bin/eslint
+  volumes:
+    - "~/.config/gcloud:/home/pylon/.config/gcloud:ro"
+    - "~/.aws:/home/pylon/.aws:ro"
 ```
 
-<ParamField path="agent.tools[].name" type="string" required>
-  Identifier used to reference this tool in agent instructions. Choose a short, descriptive name without spaces.
-</ParamField>
+The mode is optional and defaults to `ro` (read-only). Set it to `rw` if the tool needs to write to the mounted directory.
 
-<ParamField path="agent.tools[].path" type="string" required>
-  Absolute path to the executable on the host machine. The file must be executable by the user running `pylon start`.
-</ParamField>
+Source paths can use `~` to reference the home directory of the user running `pylon start`.
 
-<ParamField path="agent.tools[].timeout" type="string" default="30s">
-  Maximum time Pylon waits for a single tool invocation to complete. Accepts Go duration strings such as `30s`, `2m`. If the tool does not finish within this limit, Pylon terminates the call and returns an error to the agent.
-</ParamField>
+<Note>
+If you mount a directory containing scripts (e.g. `~/scripts:/opt/scripts:ro`), the scripts must be executable (`chmod +x`) on the host. The agent runs as a non-root user inside the container, so the file permissions must allow execution by that user.
+</Note>
 
-### Resolution order
+### Credential patterns
 
-If `agent.tools` is set (even to an empty list), it replaces the global `tools` list from `config.yaml` for that pylon. If `agent.tools` is absent, Pylon uses the global list. This means you can give individual pylons a restricted subset of tools, or grant a specific pylon access to a tool not available globally.
+There are two common ways to pass credentials into agent containers:
+
+**Environment variables** -- for service accounts with static tokens. Store tokens in `~/.pylon/.env` and reference them in the `env` block:
+
+```yaml
+agent:
+  env:
+    SENTRY_AUTH_TOKEN: "${SENTRY_AUTH_TOKEN}"
+    GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+```
+
+**Volume mounts** -- for credential forwarding. Authenticate on the host and mount the credential directory into the container:
+
+```yaml
+agent:
+  volumes:
+    - "~/.config/gcloud:/home/pylon/.config/gcloud:ro"
+```
+
+Use environment variables when the tool supports them (most CI-oriented CLIs do). Use volume mounts when the tool expects credential files on disk, or when you want to share an existing authenticated session from the host.
 
 ### Security model
 
-Agents cannot run arbitrary commands on your host. They can only call tools by name through the exec gateway, and only tools that appear in the pylon's resolved tools list are reachable. If an agent attempts to call a tool that is not listed, the gateway rejects the call.
+Pylon blocks mounting dangerous host paths to prevent container escape:
 
-<Warning>
-  Each listed executable runs with the same OS user privileges as the `pylon start` process. Avoid listing tools that have broad write access to your filesystem or that accept untrusted input without sanitization.
-</Warning>
+- `/var/run/docker.sock` -- would let the agent spin up privileged containers
+- `/`, `/etc`, `/root` -- would expose sensitive system files
 
-### Example: deploy script
+Volumes default to read-only. Only use `rw` when the tool genuinely needs write access.
 
-A common pattern is exposing a deployment script that agents can invoke after making code changes:
+### Example: Google Cloud credentials
+
+Authenticate on the host, then mount the credential directory so the agent's container can use `gcloud`:
 
 ```yaml
 agent:
-  tools:
-    - name: deploy
-      path: /usr/local/bin/deploy.sh
-      timeout: "120s"
+  volumes:
+    - "~/.config/gcloud:/home/pylon/.config/gcloud:ro"
   prompt: |
-    Fix the following error, then run the `deploy` tool to apply the changes.
-
-    Error: {{ .body.error }}
+    Deploy the fix to staging using gcloud.
 ```
 
-The agent calls the tool through the gateway; Pylon runs `/usr/local/bin/deploy.sh` on the host, captures its output, and returns it to the agent.
+The agent runs `gcloud` inside the container, which reads the mounted credentials without needing a separate login.
 
 ## Config resolution order
 
@@ -499,4 +500,4 @@ When Pylon runs a job it merges settings from both files, with the per-pylon fil
 | `agent.type` | Per-pylon `agent.type` -> global `defaults.agent.type` -> `claude` |
 | `agent.auth` | Per-pylon `agent.auth` -> global agent defaults -> `oauth` (Claude) |
 | `agent.timeout` | Per-pylon `agent.timeout` -> global `docker.default_timeout` -> `15m` |
-| `agent.tools` | Per-pylon `agent.tools` (if non-empty) -> global `tools` |
+| `agent.volumes` | Per-pylon `agent.volumes` (no global fallback) |

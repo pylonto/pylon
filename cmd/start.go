@@ -115,11 +115,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Build a channel per pylon using ResolveChannel (merges global + per-pylon).
 	channels := make(map[string]channel.Channel)
 	for name, pyl := range pylons {
+		pylonEnv := config.LoadPylonEnvFile(name)
+		expand := func(s string) string {
+			return config.ExpandWithPylonEnv(s, pylonEnv)
+		}
 		chType, tg, sl := pyl.ResolveChannel(global)
 		switch chType {
 		case "telegram":
 			if tg != nil {
-				token := os.ExpandEnv(tg.BotToken)
+				token := expand(tg.BotToken)
 				if token != "" {
 					channels[name] = channel.NewTelegram(ctx, token, tg.ChatID, tg.AllowedUsers)
 					log.Printf("[pylon] %q: telegram enabled", name)
@@ -129,8 +133,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 			}
 		case "slack":
 			if sl != nil {
-				botToken := os.ExpandEnv(sl.BotToken)
-				appToken := os.ExpandEnv(sl.AppToken)
+				botToken := expand(sl.BotToken)
+				appToken := expand(sl.AppToken)
 				if botToken != "" && appToken != "" {
 					channels[name] = channel.NewSlack(ctx, botToken, appToken, sl.ChannelID, sl.AllowedUsers)
 					log.Printf("[pylon] %q: slack enabled", name)

@@ -266,31 +266,23 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	}
 	agentimage.Ensure(effectiveType)
 
-	// Host tools (from global config)
-	if len(global.Tools) > 0 {
-		var options []huh.Option[string]
-		for _, t := range global.Tools {
-			options = append(options, huh.NewOption(fmt.Sprintf("%s (%s)", t.Name, t.Path), t.Name))
+	// Volume mounts
+	var volumeInput string
+	if err := huh.NewInput().
+		Title("Volume mounts (optional):").
+		Description("Mount host paths into the container. Comma-separated.\nFormat: source:target[:ro|rw]  (default: ro)\nExample: ~/.config/gcloud:/home/pylon/.config/gcloud").
+		Placeholder("~/.config/gcloud:/home/pylon/.config/gcloud:ro").
+		Value(&volumeInput).Run(); err != nil {
+		return err
+	}
+	if volumeInput != "" {
+		if pyl.Agent == nil {
+			pyl.Agent = &config.PylonAgent{}
 		}
-
-		var toolChoices []string
-		if err := huh.NewMultiSelect[string]().
-			Title("Host tools -- which CLIs can this agent use?").
-			Description("Select the tools this agent is allowed to execute on the host.\nLeave empty for none.").
-			Options(options...).
-			Value(&toolChoices).Run(); err != nil {
-			return err
-		}
-
-		if len(toolChoices) > 0 {
-			if pyl.Agent == nil {
-				pyl.Agent = &config.PylonAgent{}
-			}
-			// Copy full ToolConfig for selected tools
-			for _, name := range toolChoices {
-				if t := global.ToolByName(name); t != nil {
-					pyl.Agent.Tools = append(pyl.Agent.Tools, *t)
-				}
+		for _, v := range strings.Split(volumeInput, ",") {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				pyl.Agent.Volumes = append(pyl.Agent.Volumes, v)
 			}
 		}
 	}
