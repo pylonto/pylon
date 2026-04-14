@@ -116,6 +116,12 @@ func (m *MultiStore) Delete(id string) {
 	m.mu.Unlock()
 }
 
+func (m *MultiStore) SavePayloadSample(pylonName string, body map[string]interface{}) {
+	if s := m.storeFor(pylonName); s != nil {
+		s.SavePayloadSample(pylonName, body)
+	}
+}
+
 func (m *MultiStore) RecoverFromDB() int {
 	m.mu.RLock()
 	storesCopy := make(map[string]*Store, len(m.stores))

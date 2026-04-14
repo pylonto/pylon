@@ -160,6 +160,8 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 			return
 		}
 
+		d.Store.SavePayloadSample(name, body)
+
 		jobID := uuid.New().String()
 		callbackURL := fmt.Sprintf("http://host.docker.internal:%d/callback/%s", d.Global.Server.Port, jobID)
 		log.Printf("[pylon] [%s] %q triggered, payload: %s", jobID[:8], name, string(rawBody))

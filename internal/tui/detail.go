@@ -1010,7 +1010,8 @@ func triggerPylonCmd(pylonName string, global *config.GlobalConfig) tea.Cmd {
 	}
 }
 
-// loadPayloadPaths extracts flattened field paths from the most recent job's trigger payload.
+// loadPayloadPaths extracts flattened field paths from the stored payload sample,
+// falling back to the most recent job for pre-migration databases.
 func (m detailModel) loadPayloadPaths() ([]string, map[string]string) {
 	dbPath := config.PylonDBPath(m.name)
 	s, err := store.Open(dbPath)
@@ -1018,12 +1019,19 @@ func (m detailModel) loadPayloadPaths() ([]string, map[string]string) {
 		return nil, nil
 	}
 	defer s.Close()
-	jobs, _ := s.RecentJobs(m.name, 1)
-	if len(jobs) == 0 {
-		return nil, nil
+
+	// Prefer the dedicated sample (always from a real webhook).
+	payload := s.LoadPayloadSample(m.name)
+
+	// Fallback: most recent job (pre-migration databases).
+	if payload == "" {
+		jobs, _ := s.RecentJobs(m.name, 1)
+		if len(jobs) == 0 {
+			return nil, nil
+		}
+		s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobs[0].ID).Scan(&payload) //nolint:errcheck // checked via empty string
 	}
-	var payload string
-	s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobs[0].ID).Scan(&payload) //nolint:errcheck // checked via empty string
+
 	if payload == "" {
 		return nil, nil
 	}

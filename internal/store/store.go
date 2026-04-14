@@ -89,6 +89,16 @@ func migrate(db *sql.DB) error {
 		}
 		db.Exec("DELETE FROM schema_version")                      //nolint:errcheck
 		db.Exec("INSERT INTO schema_version (version) VALUES (1)") //nolint:errcheck
+		version = 1
+	}
+	if version < 2 {
+		db.Exec(`CREATE TABLE IF NOT EXISTS payload_sample (
+			pylon_name TEXT PRIMARY KEY,
+			payload TEXT NOT NULL,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`) //nolint:errcheck
+		db.Exec("DELETE FROM schema_version")                      //nolint:errcheck
+		db.Exec("INSERT INTO schema_version (version) VALUES (2)") //nolint:errcheck
 	}
 	return nil
 }
@@ -276,6 +286,28 @@ func (s *Store) RecoverFromDB() int {
 		count++
 	}
 	return count
+}
+
+// SavePayloadSample upserts the most recent real webhook payload for a pylon.
+// The message builder reads from this instead of scanning jobs.
+func (s *Store) SavePayloadSample(pylonName string, body map[string]interface{}) {
+	raw, err := json.Marshal(body)
+	if err != nil || len(body) == 0 {
+		return
+	}
+	s.db.Exec( //nolint:errcheck // best-effort
+		`INSERT INTO payload_sample (pylon_name, payload, updated_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(pylon_name) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at`,
+		pylonName, string(raw),
+	)
+}
+
+// LoadPayloadSample returns the stored sample webhook payload for a pylon, or "".
+func (s *Store) LoadPayloadSample(pylonName string) string {
+	var payload string
+	s.db.QueryRow("SELECT payload FROM payload_sample WHERE pylon_name = ?", pylonName).Scan(&payload) //nolint:errcheck // empty string on miss
+	return payload
 }
 
 func (s *Store) persist(j *Job) {
