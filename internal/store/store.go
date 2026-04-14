@@ -92,11 +92,7 @@ func migrate(db *sql.DB) error {
 		version = 1
 	}
 	if version < 2 {
-		db.Exec(`CREATE TABLE IF NOT EXISTS payload_sample (
-			pylon_name TEXT PRIMARY KEY,
-			payload TEXT NOT NULL,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`) //nolint:errcheck
+		db.Exec("CREATE TABLE IF NOT EXISTS payload_sample (pylon_name TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)") //nolint:errcheck
 		db.Exec("DELETE FROM schema_version")                      //nolint:errcheck
 		db.Exec("INSERT INTO schema_version (version) VALUES (2)") //nolint:errcheck
 	}
