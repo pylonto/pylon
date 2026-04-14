@@ -435,7 +435,7 @@ func (d *Daemon) registerApprovalHandler() {
 			if cmd == "done" || strings.HasPrefix(text, "/done@") {
 				runner.CleanupWorkspace(job.ID)
 				n.ReplyMessage(topicID, n.FormatText("Job closed."), incomingMsgID) //nolint:errcheck // best-effort
-				n.CloseTopic(topicID)                                 //nolint:errcheck // best-effort
+				n.CloseTopic(topicID)                                               //nolint:errcheck // best-effort
 				d.Store.Delete(job.ID)
 				return
 			}

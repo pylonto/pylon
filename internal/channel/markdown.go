@@ -47,9 +47,9 @@ func MarkdownToTelegramV2(md string) string {
 
 type bufStack []*strings.Builder
 
-func (s *bufStack) push()                   { *s = append(*s, &strings.Builder{}) }
-func (s *bufStack) w() *strings.Builder     { return (*s)[len(*s)-1] }
-func (s *bufStack) result() string          { return (*s)[0].String() }
+func (s *bufStack) push()               { *s = append(*s, &strings.Builder{}) }
+func (s *bufStack) w() *strings.Builder { return (*s)[len(*s)-1] }
+func (s *bufStack) result() string      { return (*s)[0].String() }
 func (s *bufStack) pop() string {
 	last := (*s)[len(*s)-1]
 	*s = (*s)[:len(*s)-1]

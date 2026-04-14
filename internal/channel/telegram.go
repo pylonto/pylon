@@ -417,4 +417,3 @@ func PollForChat(token string) (int64, string, error) {
 }
 
 func isGroup(t string) bool { return t == "group" || t == "supergroup" }
-

@@ -1,4 +1,4 @@
-.PHONY: build run fmt lint image clean setup test
+.PHONY: build dev run fmt lint image clean setup test
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -10,6 +10,11 @@ lint:
 
 build: fmt
 	go build -ldflags "-X github.com/pylonto/pylon/cmd.Version=$(VERSION)" -o pylon .
+
+dev: fmt
+	go build -ldflags "-X github.com/pylonto/pylon/cmd.Version=$(VERSION)" -o $(shell which pylon) .
+	systemctl --user restart pylon
+	@echo "Deployed $(VERSION) to $$(which pylon) and restarted daemon"
 
 image:
 	docker build -t ghcr.io/pylonto/agent-claude agent/claude/
