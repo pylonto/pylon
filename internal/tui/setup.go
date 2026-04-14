@@ -49,7 +49,7 @@ func newSetupWizard() wizardModel {
 				func() (string, error) {
 					out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output()
 					if err != nil {
-						return "", fmt.Errorf("Docker not found. Install: https://docs.docker.com/get-docker/")
+						return "", fmt.Errorf("docker not found; install: https://docs.docker.com/get-docker/")
 					}
 					return "Docker " + strings.TrimSpace(string(out)), nil
 				},
