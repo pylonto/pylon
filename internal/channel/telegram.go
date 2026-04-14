@@ -82,7 +82,7 @@ func (t *Telegram) CreateTopic(name string) (string, error) {
 
 func (t *Telegram) sendMsg(topicID, text string, replyMarkup interface{}) (string, error) {
 	params := map[string]interface{}{
-		"chat_id": t.chatID, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
+		"chat_id": t.chatID, "text": text, "parse_mode": "MarkdownV2",
 	}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
@@ -107,7 +107,7 @@ func (t *Telegram) SendMessage(topicID, text string) (string, error) {
 
 func (t *Telegram) ReplyMessage(topicID, text, replyTo string) (string, error) {
 	params := map[string]interface{}{
-		"chat_id": t.chatID, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
+		"chat_id": t.chatID, "text": text, "parse_mode": "MarkdownV2",
 	}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
@@ -139,9 +139,13 @@ func (t *Telegram) SendApproval(topicID, text, jobID string) (string, error) {
 func (t *Telegram) EditMessage(topicID, messageID, text string) error {
 	mid, _ := strconv.ParseInt(messageID, 10, 64)
 	_, err := t.callAPI("editMessageText", map[string]interface{}{
-		"chat_id": t.chatID, "message_id": mid, "text": EscapeMarkdownV2(text), "parse_mode": "MarkdownV2",
+		"chat_id": t.chatID, "message_id": mid, "text": text, "parse_mode": "MarkdownV2",
 	})
 	return err
+}
+
+func (t *Telegram) FormatText(text string) string {
+	return MarkdownToTelegramV2(text)
 }
 
 func (t *Telegram) CloseTopic(topicID string) error {
@@ -414,16 +418,3 @@ func PollForChat(token string) (int64, string, error) {
 
 func isGroup(t string) bool { return t == "group" || t == "supergroup" }
 
-// EscapeMarkdownV2 escapes special characters for Telegram MarkdownV2.
-func EscapeMarkdownV2(s string) string {
-	const special = `_*[]()~` + "`" + `>#+-=|{}.!`
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if strings.ContainsRune(special, r) {
-			b.WriteByte('\\')
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}

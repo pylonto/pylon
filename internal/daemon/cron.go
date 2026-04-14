@@ -111,7 +111,7 @@ func (d *Daemon) fireCronJob(name string) {
 	if n != nil {
 		topicID, _ = n.CreateTopic(topicName)
 		if pyl.Channel != nil && pyl.Channel.Message != "" {
-			n.SendMessage(topicID, runner.ResolveTemplate(pyl.Channel.Message, nil)) //nolint:errcheck // best-effort notification
+			n.SendMessage(topicID, n.FormatText(runner.ResolveTemplate(pyl.Channel.Message, nil))) //nolint:errcheck // best-effort notification
 		}
 	}
 

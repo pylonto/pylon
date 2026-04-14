@@ -106,6 +106,10 @@ func (s *Slack) EditMessage(topicID, messageID, text string) error {
 	return err
 }
 
+func (s *Slack) FormatText(text string) string {
+	return MarkdownToSlackMrkdwn(text)
+}
+
 func (s *Slack) SendTyping(topicID string) error {
 	// Slack has no typing indicator API for bots in channels.
 	return nil

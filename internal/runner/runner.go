@@ -228,7 +228,7 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		if ctx.Err() == context.DeadlineExceeded {
 			msg = fmt.Sprintf("Agent timed out after %s", p.Timeout)
 		}
-		p.Channel.SendMessage(p.TopicID, msg) //nolint:errcheck // best-effort notification
+		p.Channel.SendMessage(p.TopicID, p.Channel.FormatText(msg)) //nolint:errcheck // best-effort notification
 	}
 	return jobErr
 }
