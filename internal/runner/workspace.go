@@ -82,10 +82,19 @@ func setupWorktree(ctx context.Context, p RunParams) (string, error) {
 	if _, err := os.Stat(filepath.Join(bareDir, "HEAD")); os.IsNotExist(err) {
 		log.Printf("[pylon] [%s] initial bare clone of %s", p.JobID[:8], sshRepo)
 		os.MkdirAll(filepath.Dir(bareDir), 0755)
+		var cloneErr bytes.Buffer
 		cmd := exec.CommandContext(ctx, "git", "clone", "--bare", sshRepo, bareDir)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = &cloneErr
 		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("bare clone: %w", err)
+			msg := strings.TrimSpace(cloneErr.String())
+			if strings.Contains(msg, "Could not read from remote") || strings.Contains(msg, "Permission denied") {
+				return "", fmt.Errorf("bare clone of %s failed -- check that the repo exists and your SSH key is configured: %s", sshRepo, msg)
+			}
+			if strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist") {
+				return "", fmt.Errorf("bare clone of %s failed -- repo not found: %s", sshRepo, msg)
+			}
+			return "", fmt.Errorf("bare clone of %s failed: %s", sshRepo, msg)
 		}
 	} else {
 		log.Printf("[pylon] [%s] fetching %s", p.JobID[:8], sshRepo)
@@ -101,11 +110,23 @@ func setupWorktree(ctx context.Context, p RunParams) (string, error) {
 	pruneCmd.Run() // best-effort
 
 	log.Printf("[pylon] [%s] creating worktree for %s", p.JobID[:8], p.Ref)
+	var wtErr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "git", "worktree", "add", "--detach", workDir, p.Ref)
 	cmd.Dir = bareDir
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = &wtErr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("worktree add: %w", err)
+		msg := strings.TrimSpace(wtErr.String())
+		// Check if the ref simply doesn't exist in the bare repo.
+		refCheck := exec.CommandContext(ctx, "git", "rev-parse", "--verify", p.Ref)
+		refCheck.Dir = bareDir
+		if refCheck.Run() != nil {
+			return "", fmt.Errorf("ref %q not found in %s -- check that the branch/tag exists and run 'git fetch' in the bare repo at %s", p.Ref, sshRepo, bareDir)
+		}
+		if strings.Contains(msg, "already checked out") || strings.Contains(msg, "is already a worktree") {
+			return "", fmt.Errorf("worktree for %q already exists -- a previous job may not have cleaned up; remove %s and retry", p.Ref, workDir)
+		}
+		return "", fmt.Errorf("worktree add for ref %q failed: %s", p.Ref, msg)
 	}
 	return workDir, nil
 }
