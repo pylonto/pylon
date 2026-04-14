@@ -345,11 +345,13 @@ func (d *Daemon) registerApprovalHandler() {
 		case "investigate":
 			log.Printf("[pylon] [%s] approved", jobID[:8])
 			d.Store.UpdateStatus(jobID, "running")
-			n.EditMessage(job.TopicID, job.MessageID, "Spinning up agent...") //nolint:errcheck // best-effort
+			original := runner.ResolveTemplate(pyl.Channel.Message, job.Body)
+			n.EditMessage(job.TopicID, job.MessageID, original+"\n\n-- Approved, spinning up agent...") //nolint:errcheck // best-effort
 			d.runJob(job.PylonName, pyl, jobID, job.Body, job.CallbackURL, job.TopicID, "", job.SessionID)
 		case "ignore":
 			log.Printf("[pylon] [%s] dismissed", jobID[:8])
-			n.EditMessage(job.TopicID, job.MessageID, "Dismissed") //nolint:errcheck // best-effort
+			original := runner.ResolveTemplate(pyl.Channel.Message, job.Body)
+			n.EditMessage(job.TopicID, job.MessageID, original+"\n\n-- Dismissed") //nolint:errcheck // best-effort
 			d.Store.UpdateStatus(jobID, "dismissed")
 			d.Store.Delete(jobID)
 		}
