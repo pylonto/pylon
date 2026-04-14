@@ -4,7 +4,7 @@ You must construct additional pylons.
 
 Self-hosted daemon that turns events into sandboxed AI agent runs.
 
-![demo](demo.gif)
+![screenshot](screenshot.png)
 
 ## Install
 
