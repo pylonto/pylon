@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/agentimage"
@@ -32,164 +31,79 @@ var doctorCmd = &cobra.Command{
 
 func runDoctor(cmd *cobra.Command, args []string) error {
 	config.LoadEnv()
-	fmt.Printf("\nPylon Doctor\n\n")
+	fmt.Println("\nPylon Doctor")
 
 	issues := 0
 	recommendations := 0
 
-	// Config
+	// ── System ──────────────────────────────────────────────
+	fmt.Println("\nSystem")
+
 	global, err := config.LoadGlobal()
 	if err != nil {
-		fmt.Printf("Config .............. FAIL  %s not found\n", config.GlobalPath())
-		fmt.Println("  Run `pylon setup` to create it.")
+		drLine("Config", "FAIL", config.GlobalPath()+" not found")
 		issues++
 	} else {
-		fmt.Printf("Config .............. ok    %s found\n", config.GlobalPath())
+		drLine("Config", "ok", config.GlobalPath()+" found")
 	}
 
-	// Docker
 	if out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output(); err == nil {
-		fmt.Printf("Docker .............. ok    running (v%s)\n", strings.TrimSpace(string(out)))
+		drLine("Docker", "ok", "running (v"+strings.TrimSpace(string(out))+")")
 	} else {
-		fmt.Println("Docker .............. FAIL  not found")
-		fmt.Println("  Install: https://docs.docker.com/engine/install/")
+		drLine("Docker", "FAIL", "not found -- https://docs.docker.com/engine/install/")
 		issues++
 	}
 
-	// Agent image
 	agentType := "claude"
 	if global != nil && global.Defaults.Agent.Type != "" {
 		agentType = global.Defaults.Agent.Type
 	}
 	agentImage := agentimage.ImageName(agentType)
-	if out, err := exec.Command("docker", "images", agentImage, "--format", "{{.Tag}}").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
-		fmt.Printf("Agent image ......... ok    %s:%s\n", agentImage, strings.TrimSpace(string(out)))
-	} else {
-		fmt.Printf("Agent image ......... --    %s not found\n", agentImage)
-		fmt.Printf("  Run: docker pull %s\n", agentImage)
-		recommendations++
-	}
-
-	// Telegram
-	if global != nil && global.Defaults.Channel.Type == "telegram" && global.Defaults.Channel.Telegram != nil {
-		token := os.ExpandEnv(global.Defaults.Channel.Telegram.BotToken)
-		if token == "" || token == global.Defaults.Channel.Telegram.BotToken {
-			fmt.Println("Telegram bot ........ FAIL  TELEGRAM_BOT_TOKEN not set")
-			fmt.Println("  export TELEGRAM_BOT_TOKEN=<your token>")
-			issues++
-		} else if username, err := channel.GetBotUsername(token); err == nil {
-			fmt.Printf("Telegram bot ........ ok    connected (@%s)\n", username)
-			chatID := global.Defaults.Channel.Telegram.ChatID
-			if chatID == 0 {
-				fmt.Println("Telegram chat ....... FAIL  chat_id not configured")
-				if fixGlobalChatID(token, username, global) {
-					fmt.Printf("Telegram chat ....... ok    chat %d saved\n", global.Defaults.Channel.Telegram.ChatID)
-				} else {
-					issues++
-				}
-			} else if err := channel.CheckChatAccess(token, chatID); err == nil {
-				fmt.Printf("Telegram chat ....... ok    chat %d accessible\n", chatID)
-			} else {
-				fmt.Printf("Telegram chat ....... FAIL  chat %d: %v\n", chatID, err)
-				if fixGlobalChatID(token, username, global) {
-					fmt.Printf("Telegram chat ....... ok    chat %d saved\n", global.Defaults.Channel.Telegram.ChatID)
-				} else {
-					fmt.Println("  Make sure the bot is an admin in the group with topic management permissions")
-					issues++
-				}
-			}
+	if out, err := exec.Command("docker", "images", agentImage, "--format", "{{.Tag}}").Output(); err == nil {
+		tag := firstNonEmptyLine(string(out))
+		if tag != "" && tag != "<none>" {
+			drLine("Agent image", "ok", agentImage+":"+tag)
 		} else {
-			fmt.Println("Telegram bot ........ FAIL  could not connect (invalid token?)")
-			issues++
-		}
-	} else if global != nil && global.Defaults.Channel.Type == "slack" && global.Defaults.Channel.Slack != nil {
-		botToken := os.ExpandEnv(global.Defaults.Channel.Slack.BotToken)
-		if botToken == "" || botToken == global.Defaults.Channel.Slack.BotToken {
-			fmt.Println("Slack bot ........... FAIL  SLACK_BOT_TOKEN not set")
-			fmt.Println("  export SLACK_BOT_TOKEN=<your token>")
-			issues++
-		} else if username, err := channel.ValidateSlackToken(botToken); err == nil {
-			fmt.Printf("Slack bot ........... ok    connected (@%s)\n", username)
-			channelID := global.Defaults.Channel.Slack.ChannelID
-			if name, err := channel.CheckSlackAccess(botToken, channelID); err == nil {
-				fmt.Printf("Slack channel ....... ok    #%s accessible\n", name)
-			} else {
-				fmt.Printf("Slack channel ....... FAIL  %s: %v\n", channelID, err)
-				fmt.Println("  Make sure the bot is invited to the channel")
-				issues++
-			}
-		} else {
-			fmt.Println("Slack bot ........... FAIL  could not connect (invalid token?)")
-			issues++
-		}
-	} else if global != nil {
-		fmt.Println("Channel ............. --    not configured")
-		var fix string
-		if err := huh.NewSelect[string]().
-			Title("Configure a default channel now?").
-			Options(
-				huh.NewOption("Telegram", "telegram"),
-				huh.NewOption("Slack", "slack"),
-				huh.NewOption("Skip", "skip"),
-			).
-			Value(&fix).
-			Run(); err == nil && fix != "skip" {
-			switch fix {
-			case "telegram":
-				if tg, err := setupTelegram(); err == nil {
-					global.Defaults.Channel = config.ChannelDefaults{Type: "telegram", Telegram: tg}
-					if err := config.SaveGlobal(global); err != nil {
-						fmt.Printf("  Could not save config: %v\n", err)
-						issues++
-					} else {
-						fmt.Println("Channel ............. ok    telegram saved")
-					}
-				} else {
-					fmt.Printf("  Telegram setup failed: %v\n", err)
-					issues++
-				}
-			case "slack":
-				if sl, err := setupSlack(); err == nil {
-					global.Defaults.Channel = config.ChannelDefaults{Type: "slack", Slack: sl}
-					if err := config.SaveGlobal(global); err != nil {
-						fmt.Printf("  Could not save config: %v\n", err)
-						issues++
-					} else {
-						fmt.Println("Channel ............. ok    slack saved")
-					}
-				} else {
-					fmt.Printf("  Slack setup failed: %v\n", err)
-					issues++
-				}
-			}
-		}
-	}
-
-	// Git auth
-	if out, err := exec.Command("ssh", "-T", "git@github.com").CombinedOutput(); err != nil {
-		outStr := string(out)
-		if strings.Contains(outStr, "successfully authenticated") {
-			fmt.Println("Git (SSH) ........... ok    GitHub SSH key configured")
-		} else if err2 := exec.Command("gh", "auth", "status").Run(); err2 == nil {
-			fmt.Println("Git (HTTPS) ......... ok    gh CLI authenticated")
-		} else {
-			fmt.Println("Git auth ............ WARN  no SSH key or gh CLI auth found")
-			fmt.Println("  Private repos won't clone. Run: gh auth setup-git")
+			drLine("Agent image", "--", agentImage+" not pulled")
 			recommendations++
 		}
 	} else {
-		fmt.Println("Git (SSH) ........... ok    GitHub SSH key configured")
+		drLine("Agent image", "--", agentImage+" not pulled")
+		recommendations++
 	}
 
-	// Agent auth
+	if _, err := exec.Command("systemctl", "--user", "is-active", "pylon").Output(); err == nil {
+		drLine("Service", "ok", "systemd unit active")
+	} else {
+		drLine("Service", "--", "not installed (run pylon service install)")
+		recommendations++
+	}
+
+	// ── Auth ────────────────────────────────────────────────
+	fmt.Println("\nAuth")
+
+	if out, err := exec.Command("ssh", "-T", "git@github.com").CombinedOutput(); err != nil {
+		outStr := string(out)
+		if strings.Contains(outStr, "successfully authenticated") {
+			drLine("Git", "ok", "GitHub SSH key configured")
+		} else if err2 := exec.Command("gh", "auth", "status").Run(); err2 == nil {
+			drLine("Git", "ok", "gh CLI authenticated")
+		} else {
+			drLine("Git", "WARN", "no SSH key or gh CLI auth found")
+			recommendations++
+		}
+	} else {
+		drLine("Git", "ok", "GitHub SSH key configured")
+	}
+
 	switch agentType {
 	case "claude":
 		home, _ := os.UserHomeDir()
 		claudeDir := filepath.Join(home, ".claude")
 		if _, err := os.Stat(claudeDir); err == nil {
-			fmt.Printf("OAuth session ....... ok    %s found\n", claudeDir)
+			drLine("OAuth session", "ok", claudeDir+" found")
 		} else {
-			fmt.Println("OAuth session ....... --    ~/.claude/ not found")
+			drLine("OAuth session", "--", "~/.claude not found")
 			recommendations++
 		}
 	case "opencode":
@@ -204,79 +118,119 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			}
 			envVar := config.ProviderEnvVar(provider)
 			if os.Getenv(envVar) != "" {
-				fmt.Printf("API key ............. ok    %s is set\n", envVar)
+				drLine("API key", "ok", envVar+" is set")
 			} else {
-				fmt.Printf("API key ............. FAIL  %s not set\n", envVar)
+				drLine("API key", "FAIL", envVar+" not set")
 				issues++
 			}
 		} else {
-			fmt.Println("OpenCode auth ....... ok    using built-in (Zen)")
+			drLine("OpenCode auth", "ok", "using built-in (Zen)")
 		}
 	}
 
-	// Port
+	// ── Network ─────────────────────────────────────────────
+	fmt.Println("\nNetwork")
+
 	if global != nil {
+		label := fmt.Sprintf("Port %d", global.Server.Port)
 		addr := fmt.Sprintf(":%d", global.Server.Port)
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
 			ln.Close()
-			fmt.Printf("Port %d ........... ok    available\n", global.Server.Port)
+			drLine(label, "ok", "available")
 		} else {
-			// Check if pylon itself owns the port by hitting the callback route
 			resp, pingErr := http.Get(fmt.Sprintf("http://localhost:%d/callback/doctor-ping", global.Server.Port))
 			if pingErr == nil {
 				resp.Body.Close()
 				if resp.StatusCode == http.StatusMethodNotAllowed {
-					fmt.Printf("Port %d ........... ok    pylon is running\n", global.Server.Port)
+					drLine(label, "ok", "pylon is running")
 				} else {
-					fmt.Printf("Port %d ........... WARN  in use (not by pylon)\n", global.Server.Port)
+					drLine(label, "WARN", "in use (not by pylon)")
 					recommendations++
 				}
 			} else {
-				fmt.Printf("Port %d ........... WARN  in use\n", global.Server.Port)
+				drLine(label, "WARN", "in use")
 				recommendations++
 			}
 		}
 	}
 
-	// Pylons
-	names, _ := config.ListPylons()
-	if len(names) > 0 {
-		fmt.Printf("Pylons .............. %d constructed (%s)\n", len(names), strings.Join(names, ", "))
-	} else {
-		fmt.Println("Pylons .............. 0 constructed")
+	if global != nil && global.Defaults.Channel.Type == "telegram" && global.Defaults.Channel.Telegram != nil {
+		token := os.ExpandEnv(global.Defaults.Channel.Telegram.BotToken)
+		if token == "" || token == global.Defaults.Channel.Telegram.BotToken {
+			drLine("Global channel", "FAIL", "TELEGRAM_BOT_TOKEN not set")
+			issues++
+		} else if username, err := channel.GetBotUsername(token); err == nil {
+			chatID := global.Defaults.Channel.Telegram.ChatID
+			if chatID == 0 {
+				drLine("Global channel", "FAIL", fmt.Sprintf("telegram @%s, chat_id not configured", username))
+				issues++
+			} else if err := channel.CheckChatAccess(token, chatID); err == nil {
+				drLine("Global channel", "ok", fmt.Sprintf("telegram @%s, chat %d", username, chatID))
+			} else {
+				drLine("Global channel", "FAIL", fmt.Sprintf("telegram @%s, chat %d: %v", username, chatID, err))
+				issues++
+			}
+		} else {
+			drLine("Global channel", "FAIL", "could not connect (invalid token?)")
+			issues++
+		}
+	} else if global != nil && global.Defaults.Channel.Type == "slack" && global.Defaults.Channel.Slack != nil {
+		botToken := os.ExpandEnv(global.Defaults.Channel.Slack.BotToken)
+		if botToken == "" || botToken == global.Defaults.Channel.Slack.BotToken {
+			drLine("Global channel", "FAIL", "SLACK_BOT_TOKEN not set")
+			issues++
+		} else if username, err := channel.ValidateSlackToken(botToken); err == nil {
+			channelID := global.Defaults.Channel.Slack.ChannelID
+			if name, err := channel.CheckSlackAccess(botToken, channelID); err == nil {
+				drLine("Global channel", "ok", fmt.Sprintf("slack @%s, #%s", username, name))
+			} else {
+				drLine("Global channel", "FAIL", fmt.Sprintf("slack @%s, %s: %v", username, channelID, err))
+				issues++
+			}
+		} else {
+			drLine("Global channel", "FAIL", "could not connect (invalid token?)")
+			issues++
+		}
+	} else if global != nil {
+		drLine("Global channel", "--", "not configured")
 	}
 
-	// Per-pylon checks
+	// ── Pylons ──────────────────────────────────────────────
+	names, _ := config.ListPylons()
+	if len(names) > 0 {
+		fmt.Printf("\nPylons (%d)\n", len(names))
+	} else {
+		fmt.Println("\nPylons (0)")
+	}
+
 	if global != nil && len(names) > 0 {
 		client := &http.Client{Timeout: 5 * time.Second}
 		for _, name := range names {
+			fmt.Printf("  %s\n", name)
 			pyl, err := config.LoadPylon(name)
 			if err != nil {
-				fmt.Printf("  %s config .... FAIL  %v\n", name, err)
+				drSub("config", "FAIL", fmt.Sprintf("%v", err))
 				issues++
 				continue
 			}
 
-			// Cron schedule validation
 			if pyl.Trigger.Type == "cron" {
 				loc := pyl.ResolveTimezone(global)
 				next := cron.NextFire(pyl.Trigger.Cron, loc)
 				if next.IsZero() {
-					fmt.Printf("  %s cron ...... FAIL  %q did not produce a next fire time\n", name, pyl.Trigger.Cron)
+					drSub("cron", "FAIL", fmt.Sprintf("%q did not produce a next fire time", pyl.Trigger.Cron))
 					issues++
 				} else {
-					fmt.Printf("  %s cron ...... ok    %s [%s] next: %s\n",
-						name, pyl.Trigger.Cron, loc, next.Format("Jan 02 15:04"))
+					drSub("cron", "ok", fmt.Sprintf("%s [%s] next: %s", pyl.Trigger.Cron, loc, next.Format("Jan 02 15:04")))
 				}
 			}
 
-			// Webhook reachability
 			if pyl.Trigger.Type == "webhook" {
 				url := pyl.ResolvePublicURL(global)
 				resp, err := client.Get(url)
 				if err != nil {
-					fmt.Printf("  %s webhook ... FAIL  %s unreachable\n", name, url)
+					drSub("webhook", "FAIL", url+" unreachable")
 					proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
 					issues++
 				} else {
@@ -285,56 +239,41 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 						resp.StatusCode == http.StatusMethodNotAllowed ||
 						resp.StatusCode == http.StatusBadRequest ||
 						resp.StatusCode == http.StatusUnauthorized {
-						fmt.Printf("  %s webhook ... ok    %s reachable\n", name, url)
+						drSub("webhook", "ok", url+" reachable")
 					} else {
-						fmt.Printf("  %s webhook ... WARN  %s returned %d (may not be routed to pylon)\n", name, url, resp.StatusCode)
+						drSub("webhook", "WARN", fmt.Sprintf("%s returned %d (may not be routed to pylon)", url, resp.StatusCode))
 						proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
 						recommendations++
 					}
 				}
 			}
 
-			// Per-pylon channel check
 			if pyl.Channel != nil && pyl.Channel.Type == "telegram" && pyl.Channel.Telegram != nil {
 				tg := pyl.Channel.Telegram
-				token := os.ExpandEnv(tg.BotToken)
+				pylonEnv := config.LoadPylonEnvFile(name)
+				token := config.ExpandWithPylonEnv(tg.BotToken, pylonEnv)
 				if token == "" || token == tg.BotToken {
-					fmt.Printf("  %s channel ... FAIL  bot token not set\n", name)
+					drSub("channel", "FAIL", "bot token not set")
 					issues++
 				} else if username, err := channel.GetBotUsername(token); err == nil {
 					if tg.ChatID == 0 || tg.ChatID == -1 {
-						fmt.Printf("  %s channel ... FAIL  chat_id not configured\n", name)
-						if fixPylonChatID(token, username, pyl) {
-							fmt.Printf("  %s channel ... ok    chat %d saved\n", name, pyl.Channel.Telegram.ChatID)
-						} else {
-							issues++
-						}
+						drSub("channel", "FAIL", fmt.Sprintf("telegram @%s, chat_id not configured", username))
+						issues++
 					} else if err := channel.CheckChatAccess(token, tg.ChatID); err == nil {
-						fmt.Printf("  %s channel ... ok    chat %d accessible\n", name, tg.ChatID)
+						drSub("channel", "ok", fmt.Sprintf("telegram @%s, chat %d", username, tg.ChatID))
 					} else {
-						fmt.Printf("  %s channel ... FAIL  chat %d: %v\n", name, tg.ChatID, err)
-						if fixPylonChatID(token, username, pyl) {
-							fmt.Printf("  %s channel ... ok    chat %d saved\n", name, pyl.Channel.Telegram.ChatID)
-						} else {
-							issues++
-						}
+						drSub("channel", "FAIL", fmt.Sprintf("telegram @%s, chat %d: %v", username, tg.ChatID, err))
+						issues++
 					}
 				} else {
-					fmt.Printf("  %s channel ... FAIL  bot token invalid\n", name)
+					drSub("channel", "FAIL", "bot token invalid")
 					issues++
 				}
 			}
 		}
 	}
 
-	// systemd
-	if _, err := exec.Command("systemctl", "--user", "is-active", "pylon").Output(); err == nil {
-		fmt.Println("systemd service ..... ok    active")
-	} else {
-		fmt.Println("systemd service ..... --    not installed (run `pylon service install`)")
-		recommendations++
-	}
-
+	// ── Summary ─────────────────────────────────────────────
 	fmt.Println()
 	if issues > 0 {
 		fmt.Printf("%d issue(s) found.\n", issues)
@@ -347,53 +286,33 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// offerDetectChatID prompts the user and auto-detects a Telegram chat ID.
-// Returns the detected chat ID, or 0 if skipped/failed.
-func offerDetectChatID(token, username string) int64 {
-	var fix string
-	err := huh.NewSelect[string]().
-		Title("Fix it now?").
-		Options(
-			huh.NewOption("Auto-detect (add bot to group, send a message)", "auto"),
-			huh.NewOption("Skip", "skip"),
-		).
-		Value(&fix).
-		Run()
-	if err != nil || fix != "auto" {
-		return 0
+// drLine prints a top-level doctor check with dot-leader alignment.
+func drLine(label, status, detail string) {
+	const width = 22
+	dots := width - len(label)
+	if dots < 3 {
+		dots = 3
 	}
-	chatID, err := detectChatID(token, username)
-	if err != nil {
-		fmt.Printf("  Detection failed: %v\n", err)
-		return 0
-	}
-	return chatID
+	fmt.Printf("  %s %s %-4s  %s\n", label, strings.Repeat(".", dots), status, detail)
 }
 
-// fixGlobalChatID auto-detects a chat ID and saves it to the global config.
-func fixGlobalChatID(token, username string, global *config.GlobalConfig) bool {
-	chatID := offerDetectChatID(token, username)
-	if chatID == 0 {
-		return false
+// drSub prints a per-pylon sub-check with dot-leader alignment.
+func drSub(label, status, detail string) {
+	const width = 18
+	dots := width - len(label)
+	if dots < 3 {
+		dots = 3
 	}
-	global.Defaults.Channel.Telegram.ChatID = chatID
-	if err := config.SaveGlobal(global); err != nil {
-		fmt.Printf("  Could not save: %v\n", err)
-		return false
-	}
-	return true
+	fmt.Printf("    %s %s %-4s  %s\n", label, strings.Repeat(".", dots), status, detail)
 }
 
-// fixPylonChatID auto-detects a chat ID and saves it to a pylon config.
-func fixPylonChatID(token, username string, pyl *config.PylonConfig) bool {
-	chatID := offerDetectChatID(token, username)
-	if chatID == 0 {
-		return false
+// firstNonEmptyLine returns the first non-empty, non-<none> line from s.
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && line != "<none>" {
+			return line
+		}
 	}
-	pyl.Channel.Telegram.ChatID = chatID
-	if err := config.SavePylon(pyl); err != nil {
-		fmt.Printf("  Could not save: %v\n", err)
-		return false
-	}
-	return true
+	return ""
 }

@@ -666,7 +666,11 @@ func (m detailModel) renderConfig() string {
 	// Webhook URL
 	if pyl.Trigger.Type == "webhook" && global != nil {
 		url := pyl.ResolvePublicURL(global)
-		s += row("Webhook", url+"  "+mutedStyle.Render("[y] copy"))
+		if m.focused {
+			s += row("Webhook", url+"  "+mutedStyle.Render("[y] copy"))
+		} else {
+			s += row("Webhook", url)
+		}
 	}
 
 	// Workspace
@@ -731,7 +735,11 @@ func (m detailModel) renderConfig() string {
 	// Prompt
 	if pyl.Agent != nil && pyl.Agent.Prompt != "" {
 		if m.showFullPrompt {
-			s += row("Prompt", mutedStyle.Render("[p] collapse"))
+			if m.focused {
+				s += row("Prompt", mutedStyle.Render("[p] collapse"))
+			} else {
+				s += row("Prompt", "")
+			}
 			s += indentBlock(subtextStyle.Render(pyl.Agent.Prompt), "  ") + "\n"
 		} else {
 			// Flatten to single line
@@ -740,7 +748,11 @@ func (m detailModel) renderConfig() string {
 			if len(prompt) > maxLen {
 				prompt = prompt[:maxLen-3] + "..."
 			}
-			s += row("Prompt", prompt+"  "+mutedStyle.Render("[p] expand"))
+			if m.focused {
+				s += row("Prompt", prompt+"  "+mutedStyle.Render("[p] expand"))
+			} else {
+				s += row("Prompt", prompt)
+			}
 		}
 	}
 
