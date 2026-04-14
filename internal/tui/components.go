@@ -56,9 +56,9 @@ func NewTextInputStep(title, description, placeholder string, defaultValue strin
 }
 
 func (s *textInputStep) Title() string       { return s.title }
-func (s *textInputStep) Description() string  { return s.description }
-func (s *textInputStep) Value() string        { return s.input.Value() }
-func (s *textInputStep) IsDone() bool         { return s.done }
+func (s *textInputStep) Description() string { return s.description }
+func (s *textInputStep) Value() string       { return s.input.Value() }
+func (s *textInputStep) IsDone() bool        { return s.done }
 
 func (s *textInputStep) Init() tea.Cmd {
 	return textinput.Blink
@@ -711,4 +711,3 @@ func TimezoneOptions() []selectOption {
 	}
 	return opts
 }
-

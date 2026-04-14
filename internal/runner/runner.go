@@ -17,8 +17,8 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 
-	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
+	"github.com/pylonto/pylon/internal/config"
 )
 
 // RunParams holds everything needed to run an agent job.
@@ -36,9 +36,9 @@ type RunParams struct {
 	SessionID     string
 	Repo          string
 	Ref           string
-	WorkspaceType string // "git-clone", "git-worktree", "local", "none"
-	LocalPath     string // for type "local"
-	Volumes       []string // user-configured bind mounts, e.g. "~/.config/gcloud:/home/pylon/.config/gcloud:ro"
+	WorkspaceType string            // "git-clone", "git-worktree", "local", "none"
+	LocalPath     string            // for type "local"
+	Volumes       []string          // user-configured bind mounts, e.g. "~/.config/gcloud:/home/pylon/.config/gcloud:ro"
 	PylonEnv      map[string]string // per-pylon env vars from ~/.pylon/pylons/<name>/.env
 	Channel       channel.Channel
 	TopicID       string
@@ -57,13 +57,13 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		stop := make(chan struct{})
 		defer close(stop)
 		go func() {
-			p.Channel.SendTyping(p.TopicID)
+			p.Channel.SendTyping(p.TopicID) //nolint:errcheck // best-effort typing indicator
 			ticker := time.NewTicker(4 * time.Second)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
-					p.Channel.SendTyping(p.TopicID)
+					p.Channel.SendTyping(p.TopicID) //nolint:errcheck // best-effort typing indicator
 				case <-stop:
 					return
 				}
@@ -228,7 +228,7 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		if ctx.Err() == context.DeadlineExceeded {
 			msg = fmt.Sprintf("Agent timed out after %s", p.Timeout)
 		}
-		p.Channel.SendMessage(p.TopicID, msg)
+		p.Channel.SendMessage(p.TopicID, msg) //nolint:errcheck // best-effort notification
 	}
 	return jobErr
 }
@@ -237,7 +237,6 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 func ResolveTemplate(tmpl string, body map[string]interface{}) string {
 	return resolveTemplateFn(tmpl, body, nil)
 }
-
 
 func resolveTemplateFn(tmpl string, body map[string]interface{}, escapeFn func(string) string) string {
 	// Flatten nested maps into dot-separated keys:

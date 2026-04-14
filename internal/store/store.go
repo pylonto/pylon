@@ -65,9 +65,9 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.Exec("PRAGMA journal_mode=WAL")
-	db.Exec("PRAGMA synchronous=NORMAL")
-	db.Exec("PRAGMA foreign_keys=ON")
+	db.Exec("PRAGMA journal_mode=WAL")   //nolint:errcheck // best-effort tuning
+	db.Exec("PRAGMA synchronous=NORMAL") //nolint:errcheck // best-effort tuning
+	db.Exec("PRAGMA foreign_keys=ON")    //nolint:errcheck // best-effort tuning
 
 	if err := migrate(db); err != nil {
 		db.Close()
@@ -77,7 +77,7 @@ func Open(path string) (*Store, error) {
 }
 
 func migrate(db *sql.DB) error {
-	db.Exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+	db.Exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)") //nolint:errcheck
 
 	var version int
 	if err := db.QueryRow("SELECT version FROM schema_version LIMIT 1").Scan(&version); err != nil {
@@ -87,8 +87,8 @@ func migrate(db *sql.DB) error {
 		if _, err := db.Exec(schema); err != nil {
 			return err
 		}
-		db.Exec("DELETE FROM schema_version")
-		db.Exec("INSERT INTO schema_version (version) VALUES (1)")
+		db.Exec("DELETE FROM schema_version")                      //nolint:errcheck
+		db.Exec("INSERT INTO schema_version (version) VALUES (1)") //nolint:errcheck
 	}
 	return nil
 }
@@ -132,7 +132,7 @@ func (s *Store) Delete(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.jobs, id)
-	s.db.Exec("DELETE FROM jobs WHERE id = ?", id)
+	s.db.Exec("DELETE FROM jobs WHERE id = ?", id) //nolint:errcheck // cache is authoritative
 }
 
 // UpdateStatus updates job status in memory and SQLite.
@@ -142,7 +142,7 @@ func (s *Store) UpdateStatus(id, status string) {
 	if j, ok := s.jobs[id]; ok {
 		j.Status = status
 	}
-	s.db.Exec("UPDATE jobs SET status = ? WHERE id = ?", status, id)
+	s.db.Exec("UPDATE jobs SET status = ? WHERE id = ?", status, id) //nolint:errcheck // cache is authoritative
 }
 
 // UpdateSessionID updates the session ID for follow-up conversations.
@@ -152,7 +152,7 @@ func (s *Store) UpdateSessionID(id, sessionID string) {
 	if j, ok := s.jobs[id]; ok {
 		j.SessionID = sessionID
 	}
-	s.db.Exec("UPDATE jobs SET session_id = ? WHERE id = ?", sessionID, id)
+	s.db.Exec("UPDATE jobs SET session_id = ? WHERE id = ?", sessionID, id) //nolint:errcheck // cache is authoritative
 }
 
 // SetCompleted marks a job as completed with output.
@@ -164,7 +164,7 @@ func (s *Store) SetCompleted(id string, output json.RawMessage) {
 		j.Status = "completed"
 		j.CompletedAt = &now
 	}
-	s.db.Exec("UPDATE jobs SET status = 'completed', agent_output = ?, completed_at = ? WHERE id = ?",
+	s.db.Exec("UPDATE jobs SET status = 'completed', agent_output = ?, completed_at = ? WHERE id = ?", //nolint:errcheck // cache is authoritative
 		string(output), now, id)
 }
 
@@ -178,7 +178,7 @@ func (s *Store) SetFailed(id, errMsg string) {
 		j.Error = errMsg
 		j.CompletedAt = &now
 	}
-	s.db.Exec("UPDATE jobs SET status = 'failed', error = ?, completed_at = ? WHERE id = ?",
+	s.db.Exec("UPDATE jobs SET status = 'failed', error = ?, completed_at = ? WHERE id = ?", //nolint:errcheck // cache is authoritative
 		errMsg, now, id)
 }
 
@@ -268,7 +268,7 @@ func (s *Store) RecoverFromDB() int {
 		}
 		if j.Status == "running" {
 			j.Status = "active"
-			s.db.Exec("UPDATE jobs SET status = 'active' WHERE id = ?", j.ID)
+			s.db.Exec("UPDATE jobs SET status = 'active' WHERE id = ?", j.ID) //nolint:errcheck
 		}
 		s.mu.Lock()
 		s.jobs[j.ID] = j
@@ -280,7 +280,7 @@ func (s *Store) RecoverFromDB() int {
 
 func (s *Store) persist(j *Job) {
 	bodyJSON, _ := json.Marshal(j.Body)
-	s.db.Exec(
+	s.db.Exec( //nolint:errcheck // cache is authoritative
 		`INSERT INTO jobs (id, pylon_name, status, telegram_topic_id, telegram_message_id,
 		                   callback_url, session_id, trigger_payload, error, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

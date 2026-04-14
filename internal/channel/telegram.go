@@ -240,7 +240,7 @@ func (t *Telegram) pollUpdates(ctx context.Context) {
 		for _, u := range result.Result {
 			offset = u.UpdateID + 1
 			if u.CallbackQuery != nil {
-				t.callAPI("answerCallbackQuery", map[string]interface{}{"callback_query_id": u.CallbackQuery.ID})
+				t.callAPI("answerCallbackQuery", map[string]interface{}{"callback_query_id": u.CallbackQuery.ID}) //nolint:errcheck // best-effort ack
 				if !t.isAllowed(u.CallbackQuery.From.ID) {
 					continue
 				}
@@ -279,7 +279,7 @@ func (t *Telegram) setCommands() {
 	for i, c := range BotCommands {
 		cmds[i] = map[string]string{"command": c.Name, "description": c.Description}
 	}
-	t.callAPI("setMyCommands", map[string]interface{}{"commands": cmds})
+	t.callAPI("setMyCommands", map[string]interface{}{"commands": cmds}) //nolint:errcheck // best-effort
 }
 
 func (t *Telegram) Commands() []Command {

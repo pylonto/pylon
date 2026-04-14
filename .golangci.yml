@@ -1,0 +1,75 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errname
+    - errorlint
+    - gocritic
+    - gofmt
+    - gosec
+    - misspell
+    - nilerr
+    - unconvert
+    - unparam
+    - wastedassign
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      # fire-and-forget I/O and encoding
+      - io.Copy
+      - fmt.Scanln
+      - fmt.Sscanf
+      - (net/http.ResponseWriter).Write
+      - os.MkdirAll
+      - os.WriteFile
+      - os.Chmod
+      - (*os/exec.Cmd).Run
+      # docker cleanup in defers and log streaming
+      - (*github.com/docker/docker/client.Client).ContainerRemove
+      - (*github.com/docker/docker/client.Client).ContainerKill
+      - github.com/docker/docker/pkg/stdcopy.StdCopy
+      # encoding -- fire-and-forget response writes and best-effort parsing
+      - (*encoding/json.Encoder).Encode
+      - (*encoding/json.Decoder).Decode
+      - encoding/json.Unmarshal
+      # config persistence -- errors shown in TUI, not propagated
+      - github.com/pylonto/pylon/internal/config.SavePylon
+      - github.com/pylonto/pylon/internal/config.SaveEnvVar
+      # clipboard -- best-effort
+      - (github.com/aymanbagabas/go-osc52/v2.Sequence).WriteTo
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+    disabled-checks:
+      - appendAssign
+      - appendCombine
+      - evalOrder
+      - hugeParam
+      - ifElseChain
+  gosec:
+    excludes:
+      - G107  # HTTP request with variable URL -- expected for daemon API calls
+      - G112  # missing ReadHeaderTimeout -- internal daemon only
+      - G115  # integer overflow on conversion -- false positives on safe narrowing
+      - G204  # subprocess launched with variable -- expected for docker CLI
+      - G304  # file inclusion via variable -- expected for config loading
+      - G306  # poor file permissions -- we use 0644/0755 intentionally
+      - G404  # weak random -- used for non-security purposes (example selection)
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-dirs:
+    - vendor

@@ -33,15 +33,14 @@ const (
 
 // homeModel is the dashboard view showing all pylons.
 type homeModel struct {
-	rows           []pylonRow
-	cursor         int
-	daemonRunning  bool
-	confirmDelete  bool // true when showing delete confirmation
-	focus          focusArea
-	detail         detailModel
-	detailLoaded   bool // true once the first pylon detail has been loaded
-	width, height  int
-	err            error
+	rows          []pylonRow
+	cursor        int
+	daemonRunning bool
+	confirmDelete bool // true when showing delete confirmation
+	focus         focusArea
+	detail        detailModel
+	detailLoaded  bool // true once the first pylon detail has been loaded
+	err           error
 }
 
 func newHomeModel() homeModel {
@@ -350,21 +349,6 @@ func (m homeModel) selectedPylon() string {
 	return m.rows[m.cursor].name
 }
 
-func renderStatus(status string) string {
-	switch status {
-	case "active":
-		return statusActive.Render("active")
-	case "idle":
-		return statusIdle.Render("idle")
-	case "stopped":
-		return statusStopped.Render("stopped")
-	case "failed":
-		return statusFailed.Render("failed")
-	default:
-		return mutedStyle.Render(status)
-	}
-}
-
 func timeAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
@@ -413,4 +397,3 @@ func (m homeModel) footerBindings() []keyBinding {
 	bindings = append(bindings, separator, keyBinding{"q", "quit"})
 	return bindings
 }
-

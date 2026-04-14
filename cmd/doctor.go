@@ -14,8 +14,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/agentimage"
-	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
+	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/proxy"
 )
@@ -304,7 +304,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				} else if username, err := channel.GetBotUsername(token); err == nil {
 					if tg.ChatID == 0 || tg.ChatID == -1 {
 						fmt.Printf("  %s channel ... FAIL  chat_id not configured\n", name)
-						if fixPylonChatID(token, username, name, pyl) {
+						if fixPylonChatID(token, username, pyl) {
 							fmt.Printf("  %s channel ... ok    chat %d saved\n", name, pyl.Channel.Telegram.ChatID)
 						} else {
 							issues++
@@ -313,7 +313,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 						fmt.Printf("  %s channel ... ok    chat %d accessible\n", name, tg.ChatID)
 					} else {
 						fmt.Printf("  %s channel ... FAIL  chat %d: %v\n", name, tg.ChatID, err)
-						if fixPylonChatID(token, username, name, pyl) {
+						if fixPylonChatID(token, username, pyl) {
 							fmt.Printf("  %s channel ... ok    chat %d saved\n", name, pyl.Channel.Telegram.ChatID)
 						} else {
 							issues++
@@ -385,7 +385,7 @@ func fixGlobalChatID(token, username string, global *config.GlobalConfig) bool {
 }
 
 // fixPylonChatID auto-detects a chat ID and saves it to a pylon config.
-func fixPylonChatID(token, username, name string, pyl *config.PylonConfig) bool {
+func fixPylonChatID(token, username string, pyl *config.PylonConfig) bool {
 	chatID := offerDetectChatID(token, username)
 	if chatID == 0 {
 		return false

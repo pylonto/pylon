@@ -23,13 +23,6 @@ const (
 	viewConstruct
 )
 
-// Navigation messages emitted by child views.
-type (
-	navigateMsg      struct{ target viewID }
-	navigateBackMsg  struct{}
-	pylonSelectedMsg struct{ name string }
-)
-
 // daemonStartedMsg is sent after attempting to start/stop the daemon.
 type daemonStartedMsg struct{ err error }
 

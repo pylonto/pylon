@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/agentimage"
-	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
+	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/proxy"
 )
 
@@ -31,10 +31,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nPylon Setup\n\n")
 
 	// Check Docker
-	dockerVersion := "not found"
 	if out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output(); err == nil {
-		dockerVersion = strings.TrimSpace(string(out))
-		fmt.Printf("Docker .............. ok, found (v%s)\n", dockerVersion)
+		fmt.Printf("Docker .............. ok, found (v%s)\n", strings.TrimSpace(string(out)))
 	} else {
 		fmt.Println("Docker .............. NOT FOUND")
 		fmt.Println("  Install: https://docs.docker.com/engine/install/")
@@ -317,9 +315,9 @@ func setupSlack() (*config.SlackConfig, error) {
 			method = "manual"
 		} else {
 			options := make([]huh.Option[string], 0, len(channels))
-			for _, ch := range channels {
-				label := fmt.Sprintf("#%s", ch.Name)
-				options = append(options, huh.NewOption(label, ch.ID))
+			for i := range channels {
+				label := fmt.Sprintf("#%s", channels[i].Name)
+				options = append(options, huh.NewOption(label, channels[i].ID))
 			}
 			err = huh.NewSelect[string]().
 				Title("Select a channel:").

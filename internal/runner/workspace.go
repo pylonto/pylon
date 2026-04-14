@@ -205,7 +205,6 @@ func WriteHooksConfig(workDir, hooksURL string) {
 	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0644)
 }
 
-
 // PeekContainerLogs returns the last few lines of logs from containers
 // matching the given job IDs. Returns a map of jobID -> log tail.
 func PeekContainerLogs(jobIDs []string, tailLines int) map[string]string {
@@ -232,12 +231,12 @@ func PeekContainerLogs(jobIDs []string, tailLines int) map[string]string {
 	}
 
 	tail := fmt.Sprintf("%d", tailLines)
-	for _, c := range containers {
-		jobID, ok := c.Labels["pylon.job"]
+	for i := range containers {
+		jobID, ok := containers[i].Labels["pylon.job"]
 		if !ok || !wanted[jobID] {
 			continue
 		}
-		logReader, err := cli.ContainerLogs(ctx, c.ID, container.LogsOptions{
+		logReader, err := cli.ContainerLogs(ctx, containers[i].ID, container.LogsOptions{
 			ShowStdout: true, ShowStderr: true, Tail: tail,
 		})
 		if err != nil {
@@ -336,14 +335,14 @@ func PruneOrphanedContainers(activeJobIDs map[string]bool) int {
 	}
 
 	pruned := 0
-	for _, c := range containers {
-		jobID, ok := c.Labels["pylon.job"]
+	for i := range containers {
+		jobID, ok := containers[i].Labels["pylon.job"]
 		if !ok {
 			continue
 		}
 		if !activeJobIDs[jobID] {
-			cli.ContainerKill(ctx, c.ID, "SIGKILL")
-			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true})
+			cli.ContainerKill(ctx, containers[i].ID, "SIGKILL")
+			cli.ContainerRemove(ctx, containers[i].ID, container.RemoveOptions{Force: true})
 			pruned++
 		}
 	}

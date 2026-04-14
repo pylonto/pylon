@@ -16,7 +16,7 @@ type pylonGlyph struct {
 type glyphTickMsg struct{}
 type shimmerTickMsg struct{}
 
-const glyphInterval   = 150 * time.Millisecond
+const glyphInterval = 150 * time.Millisecond
 const shimmerInterval = 50 * time.Millisecond
 
 // Crystal-themed spinner frames: diamond forms and pulses.

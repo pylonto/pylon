@@ -184,7 +184,7 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 	}
 	if p.Trigger.Cron != "" {
 		if err := cron.Validate(p.Trigger.Cron); err != nil {
-			return fmt.Errorf("invalid cron expression %q: %v -- update %s or press e to edit", p.Trigger.Cron, err, path)
+			return fmt.Errorf("invalid cron expression %q: %w -- update %s or press e to edit", p.Trigger.Cron, err, path)
 		}
 	}
 	if p.Trigger.Timezone != "" {

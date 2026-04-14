@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/pylonto/pylon/internal/agentimage"
-	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
+	"github.com/pylonto/pylon/internal/config"
 )
 
 // slackAppManifest is the Slack app manifest YAML for users to copy.

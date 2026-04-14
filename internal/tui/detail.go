@@ -38,12 +38,12 @@ type detailModel struct {
 	warning        string // non-blocking config validation warning
 
 	// Alert template builder
-	alertBuilder    bool                // true when in builder mode
-	alertGroups     []alertGroup        // grouped payload fields
-	alertRootFields []alertField        // ungrouped root-level fields
-	alertExpanded   map[string]bool     // which groups are expanded
+	alertBuilder    bool            // true when in builder mode
+	alertGroups     []alertGroup    // grouped payload fields
+	alertRootFields []alertField    // ungrouped root-level fields
+	alertExpanded   map[string]bool // which groups are expanded
 	alertCursor     int
-	alertChecked    map[string]bool     // path -> checked
+	alertChecked    map[string]bool // path -> checked
 }
 
 // maxGroupDepth is the number of levels of collapsible sub-groups.
@@ -586,7 +586,7 @@ func (m detailModel) View(width, height int) string {
 		return mutedStyle.Render("  Loading...")
 	}
 
-	out := m.renderConfig(width)
+	out := m.renderConfig()
 
 	if m.warning != "" {
 		out += "\n" + statusFailed.Render(fmt.Sprintf("  Warning: %s", m.warning))
@@ -597,7 +597,7 @@ func (m detailModel) View(width, height int) string {
 	}
 
 	if m.showJobs {
-		out += "\n" + m.renderJobs(width)
+		out += "\n" + m.renderJobs()
 	}
 
 	flash := m.copyFlash.View()
@@ -607,7 +607,7 @@ func (m detailModel) View(width, height int) string {
 	return out
 }
 
-func (m detailModel) renderConfig(width int) string {
+func (m detailModel) renderConfig() string {
 	pyl := m.pylon
 	global := m.global
 
@@ -747,7 +747,7 @@ func (m detailModel) renderConfig(width int) string {
 	return s
 }
 
-func (m detailModel) renderJobs(width int) string {
+func (m detailModel) renderJobs() string {
 	if len(m.jobs) == 0 {
 		return mutedStyle.Render("  No jobs yet.")
 	}
@@ -825,20 +825,6 @@ func (m detailModel) renderJobs(width int) string {
 	return out
 }
 
-// jobStatusLabel returns the plain display text for a job status.
-func jobStatusLabel(status string) string {
-	switch status {
-	case "active":
-		return "running"
-	case "awaiting_approval":
-		return "approval"
-	case "stale":
-		return "stale"
-	default:
-		return status
-	}
-}
-
 func renderJobStatus(status string) string {
 	switch status {
 	case "completed":
@@ -883,10 +869,6 @@ func (m detailModel) selectedJob() *store.Job {
 
 func isRunningStatus(status string) bool {
 	return status == "running" || status == "active"
-}
-
-func isTerminalStatus(status string) bool {
-	return status == "completed" || status == "failed" || status == "timeout" || status == "dismissed"
 }
 
 // jobKilledMsg is sent after a kill attempt.
@@ -969,7 +951,7 @@ func retryJobCmd(pylonName, jobID string, global *config.GlobalConfig) tea.Cmd {
 		defer s.Close()
 
 		var payload string
-		s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobID).Scan(&payload)
+		s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobID).Scan(&payload) //nolint:errcheck // checked via empty string
 		if payload == "" {
 			return jobRetriedMsg{err: fmt.Errorf("no trigger payload stored for this job")}
 		}
@@ -1041,7 +1023,7 @@ func (m detailModel) loadPayloadPaths() ([]string, map[string]string) {
 		return nil, nil
 	}
 	var payload string
-	s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobs[0].ID).Scan(&payload)
+	s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobs[0].ID).Scan(&payload) //nolint:errcheck // checked via empty string
 	if payload == "" {
 		return nil, nil
 	}

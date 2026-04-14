@@ -53,7 +53,7 @@ var testCmd = &cobra.Command{
 	Short:             "Send a mock webhook to trigger the pipeline",
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completePylonNames,
-	RunE:  runTest,
+	RunE:              runTest,
 }
 
 var destroyCmd = &cobra.Command{

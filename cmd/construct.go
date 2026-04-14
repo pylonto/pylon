@@ -44,7 +44,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 
 	// Check for template
 	if tmpl, _ := cmd.Flags().GetString("from"); tmpl != "" {
-		return constructFromTemplate(name, tmpl, global)
+		return constructFromTemplate(name, tmpl)
 	}
 
 	fmt.Printf("\nConstructing pylon: %s\n\n", name)
@@ -250,10 +250,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	}
 
 	if agentChoice != "default" {
-		switch agentChoice {
-		default:
-			pyl.Agent = &config.PylonAgent{Type: agentChoice}
-		}
+		pyl.Agent = &config.PylonAgent{Type: agentChoice}
 	}
 
 	// Ensure agent image is built
@@ -355,7 +352,7 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func constructFromTemplate(name, tmpl string, global *config.GlobalConfig) error {
+func constructFromTemplate(name, tmpl string) error {
 	pyl := &config.PylonConfig{
 		Name:    name,
 		Created: time.Now().UTC(),

@@ -9,9 +9,7 @@ import (
 )
 
 // wizardCompleteMsg is sent when the wizard finishes all steps.
-type wizardCompleteMsg struct {
-	err error
-}
+type wizardCompleteMsg struct{}
 
 // StepDef defines a wizard step and optional post-step logic.
 type StepDef struct {

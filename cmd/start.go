@@ -12,10 +12,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pylonto/pylon/internal/agentimage"
+	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/cron"
 	"github.com/pylonto/pylon/internal/daemon"
-	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -90,7 +90,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("opening database for %s: %w", name, err)
 		}
-		defer st.Close()
+		defer st.Close() //nolint:gocritic // bounded by pylon count, all close on exit
 		stores[name] = st
 	}
 	st := store.NewMulti(stores)

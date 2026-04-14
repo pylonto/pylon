@@ -17,8 +17,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/channel"
+	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -60,13 +60,13 @@ func (l *AgentLimiter) Active() int {
 
 // Daemon is the main Pylon server.
 type Daemon struct {
-	Global    *config.GlobalConfig
-	Pylons    map[string]*config.PylonConfig
+	Global   *config.GlobalConfig
+	Pylons   map[string]*config.PylonConfig
 	Store    *store.MultiStore
 	Channel  channel.Channel            // global default
 	Channels map[string]channel.Channel // per-pylon overrides
-	Limiter   *AgentLimiter
-	Mux       *http.ServeMux
+	Limiter  *AgentLimiter
+	Mux      *http.ServeMux
 
 	pylonsMu sync.RWMutex
 	hooksMu  sync.Mutex
@@ -81,9 +81,9 @@ func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st 
 		Store:    st,
 		Channel:  ch,
 		Channels: perPylon,
-		Limiter:   NewAgentLimiter(global.Docker.MaxConcurrent),
-		Mux:       http.NewServeMux(),
-		hookLog: make(map[string][]string),
+		Limiter:  NewAgentLimiter(global.Docker.MaxConcurrent),
+		Mux:      http.NewServeMux(),
+		hookLog:  make(map[string][]string),
 	}
 	d.registerRoutes()
 	return d
@@ -191,7 +191,7 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 			var topicID string
 			if n != nil && pyl.Channel != nil && pyl.Channel.Message != "" {
 				topicID, _ = n.CreateTopic(topicName)
-				n.SendMessage(topicID, runner.ResolveTemplate(pyl.Channel.Message, body))
+				n.SendMessage(topicID, runner.ResolveTemplate(pyl.Channel.Message, body)) //nolint:errcheck // best-effort notification
 			}
 			d.runJob(name, pyl, jobID, body, callbackURL, topicID, "", "")
 		}
@@ -253,7 +253,7 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 	if !d.Limiter.Acquire() {
 		log.Printf("[pylon] [%s] at capacity (%d), queued", jobID[:8], d.Global.Docker.MaxConcurrent)
 		if n != nil && topicID != "" {
-			n.SendMessage(topicID,
+			n.SendMessage(topicID, //nolint:errcheck // best-effort notification
 				fmt.Sprintf("Queued -- %d/%d agent slots in use.", d.Limiter.Active(), d.Global.Docker.MaxConcurrent))
 		}
 		// TODO: implement proper queue. For now, reject.
@@ -345,11 +345,11 @@ func (d *Daemon) registerApprovalHandler() {
 		case "investigate":
 			log.Printf("[pylon] [%s] approved", jobID[:8])
 			d.Store.UpdateStatus(jobID, "running")
-			n.EditMessage(job.TopicID, job.MessageID, "Spinning up agent...")
+			n.EditMessage(job.TopicID, job.MessageID, "Spinning up agent...") //nolint:errcheck // best-effort
 			d.runJob(job.PylonName, pyl, jobID, job.Body, job.CallbackURL, job.TopicID, "", job.SessionID)
 		case "ignore":
 			log.Printf("[pylon] [%s] dismissed", jobID[:8])
-			n.EditMessage(job.TopicID, job.MessageID, "Dismissed")
+			n.EditMessage(job.TopicID, job.MessageID, "Dismissed") //nolint:errcheck // best-effort
 			d.Store.UpdateStatus(jobID, "dismissed")
 			d.Store.Delete(jobID)
 		}
@@ -361,7 +361,7 @@ func (d *Daemon) registerApprovalHandler() {
 			cmd := strings.TrimPrefix(strings.TrimSpace(text), "/")
 
 			if cmd == "help" || strings.HasPrefix(text, "/help@") {
-				source.ReplyMessage(topicID, commandHint(source), incomingMsgID)
+				source.ReplyMessage(topicID, commandHint(source), incomingMsgID) //nolint:errcheck // best-effort
 				return
 			}
 
@@ -375,7 +375,7 @@ func (d *Daemon) registerApprovalHandler() {
 					}
 					msg = b.String()
 				}
-				source.ReplyMessage(topicID, msg, incomingMsgID)
+				source.ReplyMessage(topicID, msg, incomingMsgID) //nolint:errcheck // best-effort
 				return
 			}
 
@@ -388,7 +388,7 @@ func (d *Daemon) registerApprovalHandler() {
 					}
 				}
 				if len(running) == 0 {
-					source.ReplyMessage(topicID, "No agents currently running.", incomingMsgID)
+					source.ReplyMessage(topicID, "No agents currently running.", incomingMsgID) //nolint:errcheck // best-effort
 					return
 				}
 				d.hooksMu.Lock()
@@ -413,7 +413,7 @@ func (d *Daemon) registerApprovalHandler() {
 					}
 					b.WriteString("\n")
 				}
-				source.ReplyMessage(topicID, strings.TrimSpace(b.String()), incomingMsgID)
+				source.ReplyMessage(topicID, strings.TrimSpace(b.String()), incomingMsgID) //nolint:errcheck // best-effort
 				return
 			}
 
@@ -431,14 +431,14 @@ func (d *Daemon) registerApprovalHandler() {
 
 			if cmd == "done" || strings.HasPrefix(text, "/done@") {
 				runner.CleanupWorkspace(job.ID)
-				n.ReplyMessage(topicID, "Job closed.", incomingMsgID)
-				n.CloseTopic(topicID)
+				n.ReplyMessage(topicID, "Job closed.", incomingMsgID) //nolint:errcheck // best-effort
+				n.CloseTopic(topicID)                                 //nolint:errcheck // best-effort
 				d.Store.Delete(job.ID)
 				return
 			}
 
 			if job.Status == "running" {
-				n.ReplyMessage(topicID, "Agent is still working, please wait.", incomingMsgID)
+				n.ReplyMessage(topicID, "Agent is still working, please wait.", incomingMsgID) //nolint:errcheck // best-effort
 				return
 			}
 			if job.Status == "active" || job.Status == "completed" || job.Status == "failed" {
@@ -568,7 +568,7 @@ func (d *Daemon) registerCallbackRoute() {
 					msg = "Agent error: " + result.Error
 				}
 				if msg != "" {
-					n.SendMessage(job.TopicID, msg)
+					n.SendMessage(job.TopicID, msg) //nolint:errcheck // best-effort notification
 				}
 			}
 		}

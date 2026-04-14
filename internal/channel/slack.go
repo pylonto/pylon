@@ -211,8 +211,7 @@ func (s *Slack) handleEvent(evt socketmode.Event) {
 		}
 
 		if apiEvent.Type == slackevents.CallbackEvent {
-			switch ev := apiEvent.InnerEvent.Data.(type) {
-			case *slackevents.MessageEvent:
+			if ev, ok := apiEvent.InnerEvent.Data.(*slackevents.MessageEvent); ok {
 				if ev.BotID != "" || ev.SubType != "" {
 					return
 				}

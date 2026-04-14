@@ -1,9 +1,12 @@
-.PHONY: build run fmt image clean setup test
+.PHONY: build run fmt lint image clean setup test
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 fmt:
 	gofmt -w .
+
+lint:
+	golangci-lint run ./...
 
 build: fmt
 	go build -ldflags "-X github.com/pylonto/pylon/cmd.Version=$(VERSION)" -o pylon .
