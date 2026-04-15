@@ -527,7 +527,7 @@ func (s *cronInputStep) View(width int) string {
 	val := strings.TrimSpace(s.input.Value())
 	if val != "" {
 		if err := cron.Validate(val); err != nil {
-			view += "\n" + statusFailed.Render("  invalid expression")
+			view += "\n" + statusFailed.Render("  invalid expression -- format: min hour dom mon dow (e.g. */5 * * * *)")
 		} else if desc := describeCronExpr(val); desc != val {
 			view += "\n" + mutedStyle.Render(desc)
 		}
