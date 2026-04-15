@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -107,6 +108,28 @@ func PylonDBPath(name string) string {
 	return filepath.Join(PylonDir(name), "jobs.db")
 }
 
+// knownTopLevelKeys lists every valid top-level YAML key in pylon.yaml.
+// Anything else is either misplaced (indentation error) or a typo.
+var knownTopLevelKeys = map[string]bool{
+	"name": true, "description": true, "disabled": true, "created": true,
+	"trigger": true, "channel": true, "workspace": true, "agent": true,
+}
+
+// misplacedKeyHints maps sub-keys to the section they likely belong under.
+var misplacedKeyHints = map[string]string{
+	// channel sub-keys
+	"telegram": "channel", "slack": "channel",
+	"topic": "channel", "message": "channel", "approval": "channel",
+	// trigger sub-keys
+	"cron": "trigger", "timezone": "trigger", "secret": "trigger",
+	"signature_header": "trigger", "public_url": "trigger",
+	// agent sub-keys
+	"prompt": "agent", "volumes": "agent", "timeout": "agent",
+	"auth": "agent", "api_key": "agent", "provider": "agent",
+	// workspace sub-keys
+	"repo": "workspace", "ref": "workspace",
+}
+
 var validTriggerTypes = map[string]bool{
 	"webhook": true, "cron": true, "": true,
 }
@@ -166,12 +189,47 @@ func validateVolume(v string) error {
 	return nil
 }
 
+// CheckMisplacedKeys reads the raw YAML at path and reports any top-level
+// keys that don't belong there (likely indentation errors). For keys that
+// match a known sub-section, the error tells the user which section to nest
+// them under. Returns nil when all top-level keys are valid.
+func CheckMisplacedKeys(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil // let normal loading surface the read error
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil // let normal loading surface the parse error
+	}
+
+	var msgs []string
+	for key := range raw {
+		if knownTopLevelKeys[key] {
+			continue
+		}
+		if parent, ok := misplacedKeyHints[key]; ok {
+			msgs = append(msgs, fmt.Sprintf("found top-level %q key -- it should be nested under %q", key, parent))
+		} else {
+			msgs = append(msgs, fmt.Sprintf("unknown top-level key %q -- check indentation", key))
+		}
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	sort.Strings(msgs)
+	return fmt.Errorf("%s -- update %s or press e to edit", strings.Join(msgs, "; "), path)
+}
+
 // Validate checks the pylon config for invalid values.
 // loadedFrom is the file path the config was loaded from (used in error messages).
 func (p *PylonConfig) Validate(loadedFrom string) error {
 	path := loadedFrom
 	if path == "" {
 		path = PylonPath(p.Name)
+	}
+	if err := CheckMisplacedKeys(path); err != nil {
+		return err
 	}
 	if p.Name == "" {
 		return fmt.Errorf("pylon name is required -- update %s or press e to edit", path)
