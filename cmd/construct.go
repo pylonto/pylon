@@ -210,6 +210,12 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 
 	if channelChoice != "default" {
 		switch channelChoice {
+		case "telegram":
+			tg, err := setupTelegram()
+			if err != nil {
+				return err
+			}
+			pyl.Channel = &config.PylonChannel{Type: "telegram", Telegram: tg}
 		case "slack":
 			sl, err := setupSlack()
 			if err != nil {
@@ -285,10 +291,17 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prompt
-	prompt := "Investigate this error and suggest a fix: {{ .body.error }}"
+	var prompt, promptDesc string
+	if triggerType == "cron" {
+		prompt = "Run your scheduled task."
+		promptDesc = "The prompt sent to the agent on each scheduled run."
+	} else {
+		prompt = "Investigate this error and suggest a fix: {{ .body.error }}"
+		promptDesc = "Use {{ .body.X }} to inject webhook payload fields.\nExamples: {{ .body.issue.title }}, {{ .body.error }}, {{ .body.pull_request.head.ref }}"
+	}
 	if err := huh.NewText().
 		Title("Default prompt:").
-		Description("Use {{ .body.X }} to inject webhook payload fields.\nExamples: {{ .body.issue.title }}, {{ .body.error }}, {{ .body.pull_request.head.ref }}").
+		Description(promptDesc).
 		Value(&prompt).Run(); err != nil {
 		return err
 	}
@@ -298,10 +311,16 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 	pyl.Agent.Prompt = prompt
 
 	// Approval
+	var approvalDesc string
+	if triggerType == "cron" {
+		approvalDesc = "Yes = you get a notification with Investigate/Ignore buttons\nNo = agent runs immediately on every scheduled run"
+	} else {
+		approvalDesc = "Yes = you get a notification with Investigate/Ignore buttons (recommended for Sentry)\nNo = agent runs immediately on every webhook"
+	}
 	var approval bool
 	if err := huh.NewConfirm().
 		Title("Require human approval before agent runs?").
-		Description("Yes = you get a notification with Investigate/Ignore buttons (recommended for Sentry)\nNo = agent runs immediately on every webhook").
+		Description(approvalDesc).
 		Value(&approval).Run(); err != nil {
 		return err
 	}
