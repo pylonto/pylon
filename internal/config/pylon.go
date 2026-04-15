@@ -201,7 +201,8 @@ func CheckMisplacedKeys(path string) error {
 		return nil
 	}
 	var raw map[string]interface{}
-	if yaml.Unmarshal(data, &raw) != nil {
+	_ = yaml.Unmarshal(data, &raw)
+	if len(raw) == 0 {
 		return nil
 	}
 
