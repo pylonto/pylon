@@ -59,13 +59,10 @@ func (s *Slack) CreateTopic(name string) (string, error) {
 const slackMaxLen = 40000
 
 func (s *Slack) SendMessage(topicID, text string) (string, error) {
-	if len(text) <= slackMaxLen {
-		return s.postMessage(topicID, text)
-	}
-	chunks := splitMessage(text, slackMaxLen)
+	chunks := splitAndFormat(text, slackMaxLen, MarkdownToSlackMrkdwn)
 	var lastTS string
 	for _, chunk := range chunks {
-		ts, err := s.postMessage(topicID, chunk)
+		ts, err := s.postMessage(topicID, chunk.Formatted)
 		if err != nil {
 			return lastTS, err
 		}
@@ -91,6 +88,8 @@ func (s *Slack) ReplyMessage(topicID, text, replyTo string) (string, error) {
 }
 
 func (s *Slack) SendApproval(topicID, text, jobID string) (string, error) {
+	formatted := MarkdownToSlackMrkdwn(text)
+
 	investigateBtn := slack.NewButtonBlockElement(
 		"investigate:"+jobID, "investigate",
 		slack.NewTextBlockObject(slack.PlainTextType, "Investigate", false, false),
@@ -103,7 +102,7 @@ func (s *Slack) SendApproval(topicID, text, jobID string) (string, error) {
 
 	actionBlock := slack.NewActionBlock("approval:"+jobID, investigateBtn, ignoreBtn)
 	textBlock := slack.NewSectionBlock(
-		slack.NewTextBlockObject(slack.MarkdownType, text, false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, formatted, false, false),
 		nil, nil,
 	)
 
@@ -120,15 +119,16 @@ func (s *Slack) SendApproval(topicID, text, jobID string) (string, error) {
 }
 
 func (s *Slack) EditMessage(topicID, messageID, text string) error {
+	formatted := MarkdownToSlackMrkdwn(text)
 	_, _, _, err := s.api.UpdateMessage(s.channelID, messageID,
-		slack.MsgOptionText(text, false),
+		slack.MsgOptionText(formatted, false),
 		slack.MsgOptionBlocks(), // clear Block Kit blocks (removes stale buttons)
 	)
 	return err
 }
 
 func (s *Slack) FormatText(text string) string {
-	return MarkdownToSlackMrkdwn(text)
+	return text // formatting is now handled inside send methods
 }
 
 func (s *Slack) SendTyping(topicID string) error {

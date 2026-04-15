@@ -27,6 +27,9 @@ type Telegram struct {
 	actionFn     func(jobID string, action string)
 	messageFn    func(topicID string, text string, messageID string)
 
+	// baseURL overrides the Telegram API base URL (for testing).
+	baseURL string
+
 	// Auto-detection: when chatID starts as 0, these handle one-shot detection.
 	detectOnce     sync.Once
 	onChatDetected func(chatID int64)
@@ -75,7 +78,11 @@ func (t *Telegram) OnChatDetected(cb func(chatID int64)) {
 }
 
 func (t *Telegram) callAPI(method string, params map[string]interface{}) (json.RawMessage, error) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/%s", t.token, method)
+	base := t.baseURL
+	if base == "" {
+		base = fmt.Sprintf("https://api.telegram.org/bot%s", t.token)
+	}
+	url := base + "/" + method
 	body, _ := json.Marshal(params)
 	resp, err := t.client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -119,16 +126,24 @@ func (t *Telegram) CreateTopic(name string) (string, error) {
 	return strconv.FormatInt(topic.MessageThreadID, 10), nil
 }
 
-func (t *Telegram) sendMsg(topicID, text string, replyMarkup interface{}) (string, error) {
+// sendTelegram sends a message via the Telegram API with the given parse mode.
+// When parseMode is empty, the message is sent as plaintext.
+func (t *Telegram) sendTelegram(topicID, text, parseMode, replyTo string, replyMarkup interface{}) (string, error) {
 	chatID, err := t.getChatID()
 	if err != nil {
 		return "", err
 	}
 	params := map[string]interface{}{
-		"chat_id": chatID, "text": text, "parse_mode": "MarkdownV2",
+		"chat_id": chatID, "text": text,
+	}
+	if parseMode != "" {
+		params["parse_mode"] = parseMode
 	}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
+	}
+	if mid, _ := strconv.ParseInt(replyTo, 10, 64); mid != 0 {
+		params["reply_to_message_id"] = mid
 	}
 	if replyMarkup != nil {
 		params["reply_markup"] = replyMarkup
@@ -144,17 +159,25 @@ func (t *Telegram) sendMsg(topicID, text string, replyMarkup interface{}) (strin
 	return strconv.FormatInt(msg.MessageID, 10), nil
 }
 
+// sendWithFallback sends a formatted chunk with MarkdownV2 parse mode. If
+// Telegram rejects the formatting, it retries with the raw text as plaintext.
+func (t *Telegram) sendWithFallback(topicID string, chunk formattedChunk, replyTo string, replyMarkup interface{}) (string, error) {
+	id, err := t.sendTelegram(topicID, chunk.Formatted, "MarkdownV2", replyTo, replyMarkup)
+	if err != nil {
+		log.Printf("[telegram] MarkdownV2 rejected, retrying as plaintext: %v", err)
+		return t.sendTelegram(topicID, chunk.Raw, "", replyTo, replyMarkup)
+	}
+	return id, nil
+}
+
 // telegramMaxLen is the maximum text length for a single Telegram message.
 const telegramMaxLen = 4096
 
 func (t *Telegram) SendMessage(topicID, text string) (string, error) {
-	if len(text) <= telegramMaxLen {
-		return t.sendMsg(topicID, text, nil)
-	}
-	chunks := splitMessage(text, telegramMaxLen)
+	chunks := splitAndFormat(text, telegramMaxLen, MarkdownToTelegramV2)
 	var lastID string
 	for _, chunk := range chunks {
-		id, err := t.sendMsg(topicID, chunk, nil)
+		id, err := t.sendWithFallback(topicID, chunk, "", nil)
 		if err != nil {
 			return lastID, err
 		}
@@ -164,28 +187,20 @@ func (t *Telegram) SendMessage(topicID, text string) (string, error) {
 }
 
 func (t *Telegram) ReplyMessage(topicID, text, replyTo string) (string, error) {
-	chatID, err := t.getChatID()
-	if err != nil {
-		return "", err
+	chunks := splitAndFormat(text, telegramMaxLen, MarkdownToTelegramV2)
+	var lastID string
+	for i, chunk := range chunks {
+		reply := ""
+		if i == 0 {
+			reply = replyTo // only the first chunk is a reply
+		}
+		id, err := t.sendWithFallback(topicID, chunk, reply, nil)
+		if err != nil {
+			return lastID, err
+		}
+		lastID = id
 	}
-	params := map[string]interface{}{
-		"chat_id": chatID, "text": text, "parse_mode": "MarkdownV2",
-	}
-	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
-		params["message_thread_id"] = tid
-	}
-	if mid, _ := strconv.ParseInt(replyTo, 10, 64); mid != 0 {
-		params["reply_to_message_id"] = mid
-	}
-	raw, err := t.callAPI("sendMessage", params)
-	if err != nil {
-		return "", err
-	}
-	var msg struct {
-		MessageID int64 `json:"message_id"`
-	}
-	json.Unmarshal(raw, &msg)
-	return strconv.FormatInt(msg.MessageID, 10), nil
+	return lastID, nil
 }
 
 func (t *Telegram) SendApproval(topicID, text, jobID string) (string, error) {
@@ -195,7 +210,8 @@ func (t *Telegram) SendApproval(topicID, text, jobID string) (string, error) {
 			{"text": "Ignore", "callback_data": "ignore:" + jobID},
 		}},
 	}
-	return t.sendMsg(topicID, text, keyboard)
+	chunk := formattedChunk{Raw: text, Formatted: MarkdownToTelegramV2(text)}
+	return t.sendWithFallback(topicID, chunk, "", keyboard)
 }
 
 func (t *Telegram) EditMessage(topicID, messageID, text string) error {
@@ -204,14 +220,29 @@ func (t *Telegram) EditMessage(topicID, messageID, text string) error {
 		return err
 	}
 	mid, _ := strconv.ParseInt(messageID, 10, 64)
+	formatted := MarkdownToTelegramV2(text)
+	if len(formatted) > telegramMaxLen {
+		formatted = formatted[:telegramMaxLen]
+	}
 	_, err = t.callAPI("editMessageText", map[string]interface{}{
-		"chat_id": chatID, "message_id": mid, "text": text, "parse_mode": "MarkdownV2",
+		"chat_id": chatID, "message_id": mid, "text": formatted, "parse_mode": "MarkdownV2",
 	})
+	if err != nil {
+		// Fallback to plaintext.
+		log.Printf("[telegram] MarkdownV2 edit rejected, retrying as plaintext: %v", err)
+		plain := text
+		if len(plain) > telegramMaxLen {
+			plain = plain[:telegramMaxLen]
+		}
+		_, err = t.callAPI("editMessageText", map[string]interface{}{
+			"chat_id": chatID, "message_id": mid, "text": plain,
+		})
+	}
 	return err
 }
 
 func (t *Telegram) FormatText(text string) string {
-	return MarkdownToTelegramV2(text)
+	return text // formatting is now handled inside send methods
 }
 
 func (t *Telegram) CloseTopic(topicID string) error {
