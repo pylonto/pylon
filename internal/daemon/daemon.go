@@ -571,7 +571,9 @@ func (d *Daemon) registerCallbackRoute() {
 					msg = "Agent error: " + result.Error
 				}
 				if msg != "" {
-					n.SendMessage(job.TopicID, n.FormatText(msg)) //nolint:errcheck // best-effort notification
+					if _, err := n.SendMessage(job.TopicID, n.FormatText(msg)); err != nil {
+						log.Printf("[pylon] [%s] failed to send result to channel: %v", jobID[:8], err)
+					}
 				}
 			}
 		}

@@ -144,8 +144,23 @@ func (t *Telegram) sendMsg(topicID, text string, replyMarkup interface{}) (strin
 	return strconv.FormatInt(msg.MessageID, 10), nil
 }
 
+// telegramMaxLen is the maximum text length for a single Telegram message.
+const telegramMaxLen = 4096
+
 func (t *Telegram) SendMessage(topicID, text string) (string, error) {
-	return t.sendMsg(topicID, text, nil)
+	if len(text) <= telegramMaxLen {
+		return t.sendMsg(topicID, text, nil)
+	}
+	chunks := splitMessage(text, telegramMaxLen)
+	var lastID string
+	for _, chunk := range chunks {
+		id, err := t.sendMsg(topicID, chunk, nil)
+		if err != nil {
+			return lastID, err
+		}
+		lastID = id
+	}
+	return lastID, nil
 }
 
 func (t *Telegram) ReplyMessage(topicID, text, replyTo string) (string, error) {

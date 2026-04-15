@@ -2,6 +2,7 @@ package channel
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -116,6 +117,61 @@ func TestTelegram_autoDetect(t *testing.T) {
 	mu.Lock()
 	assert.Equal(t, 1, callCount, "callback must fire exactly once")
 	mu.Unlock()
+}
+
+func TestSplitMessage(t *testing.T) {
+	t.Run("short message returns single chunk", func(t *testing.T) {
+		chunks := splitMessage("hello world", telegramMaxLen)
+		require.Len(t, chunks, 1)
+		assert.Equal(t, "hello world", chunks[0])
+	})
+
+	t.Run("exact limit returns single chunk", func(t *testing.T) {
+		text := strings.Repeat("a", telegramMaxLen)
+		chunks := splitMessage(text, telegramMaxLen)
+		require.Len(t, chunks, 1)
+		assert.Equal(t, text, chunks[0])
+	})
+
+	t.Run("splits at newline when possible", func(t *testing.T) {
+		// Build a message just over the limit with a newline in the last 25%.
+		line1 := strings.Repeat("a", 3500)
+		line2 := strings.Repeat("b", 400)
+		line3 := strings.Repeat("c", 300)
+		text := line1 + "\n" + line2 + "\n" + line3
+		chunks := splitMessage(text, telegramMaxLen)
+		require.Len(t, chunks, 2)
+		// First chunk should end right after the newline following line1+line2.
+		assert.True(t, strings.HasSuffix(chunks[0], line2+"\n"))
+		assert.Equal(t, line3, chunks[1])
+	})
+
+	t.Run("hard splits when no newline in range", func(t *testing.T) {
+		text := strings.Repeat("x", 5000)
+		chunks := splitMessage(text, telegramMaxLen)
+		require.Len(t, chunks, 2)
+		assert.Equal(t, telegramMaxLen, len(chunks[0]))
+		assert.Equal(t, 904, len(chunks[1]))
+	})
+
+	t.Run("multiple chunks for very long text", func(t *testing.T) {
+		text := strings.Repeat("z", 10000)
+		chunks := splitMessage(text, telegramMaxLen)
+		require.Len(t, chunks, 3)
+		assert.Equal(t, telegramMaxLen, len(chunks[0]))
+		assert.Equal(t, telegramMaxLen, len(chunks[1]))
+		assert.Equal(t, 1808, len(chunks[2]))
+	})
+
+	t.Run("respects different maxLen", func(t *testing.T) {
+		text := strings.Repeat("x", 100)
+		chunks := splitMessage(text, 30)
+		require.Len(t, chunks, 4)
+		assert.Equal(t, 30, len(chunks[0]))
+		assert.Equal(t, 30, len(chunks[1]))
+		assert.Equal(t, 30, len(chunks[2]))
+		assert.Equal(t, 10, len(chunks[3]))
+	})
 }
 
 func TestTelegram_autoDetect_nilCallback(t *testing.T) {
