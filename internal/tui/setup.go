@@ -131,7 +131,7 @@ func telegramSteps() []StepDef {
 					func() (string, error) {
 						username, err := channel.GetBotUsername(envToken)
 						if err != nil {
-							return "", fmt.Errorf("invalid token: %w", err)
+							return "", fmt.Errorf("invalid token -- create one via @BotFather (https://t.me/BotFather): %w", err)
 						}
 						return fmt.Sprintf("Verified @%s", username), nil
 					},
@@ -205,7 +205,7 @@ func slackSteps() []StepDef {
 					func() (string, error) {
 						username, err := channel.ValidateSlackToken(envBotToken)
 						if err != nil {
-							return "", fmt.Errorf("invalid bot token: %w", err)
+							return "", fmt.Errorf("invalid bot token -- check OAuth & Permissions > Bot User OAuth Token at api.slack.com: %w", err)
 						}
 						return fmt.Sprintf("Verified @%s", username), nil
 					},

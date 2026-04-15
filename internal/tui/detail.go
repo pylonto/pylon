@@ -580,7 +580,8 @@ func (m detailModel) View(width, height int) string {
 		return m.renderAlertBuilder()
 	}
 	if m.err != nil {
-		return statusFailed.Render(fmt.Sprintf("  Error: %v", m.err))
+		return statusFailed.Render(fmt.Sprintf("  Error: %v", m.err)) + "\n" +
+			mutedStyle.Render("  [enter] reload")
 	}
 	if m.pylon == nil {
 		return mutedStyle.Render("  Loading...")
@@ -903,7 +904,7 @@ func findContainerCmd(jobID, action string) tea.Cmd {
 		out, err := exec.Command("docker", "ps", "-a", "--filter",
 			fmt.Sprintf("label=pylon.job=%s", jobID), "--format", "{{.ID}}").Output()
 		if err != nil {
-			return containerFoundMsg{err: fmt.Errorf("docker not reachable: %w", err)}
+			return containerFoundMsg{err: fmt.Errorf("docker not reachable -- is the Docker daemon running? (docker ps to check): %w", err)}
 		}
 		containerID := strings.TrimSpace(string(out))
 		if containerID == "" {
@@ -916,7 +917,7 @@ func findContainerCmd(jobID, action string) tea.Cmd {
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			return containerFoundMsg{err: fmt.Errorf("no logs available for job %s", id)}
+			return containerFoundMsg{err: fmt.Errorf("no logs available for job %s -- container was removed and no log file was saved", id)}
 		}
 		return containerFoundMsg{containerID: containerID, action: action}
 	}
@@ -958,20 +959,20 @@ func retryJobCmd(pylonName, jobID string, global *config.GlobalConfig) tea.Cmd {
 		// Load the original trigger payload from the database.
 		s, err := store.Open(config.PylonDBPath(pylonName))
 		if err != nil {
-			return jobRetriedMsg{err: fmt.Errorf("open db: %w", err)}
+			return jobRetriedMsg{err: fmt.Errorf("cannot open job database (%s): %w", config.PylonDBPath(pylonName), err)}
 		}
 		defer s.Close()
 
 		var payload string
 		s.DB().QueryRow("SELECT trigger_payload FROM jobs WHERE id = ?", jobID).Scan(&payload) //nolint:errcheck // checked via empty string
 		if payload == "" {
-			return jobRetriedMsg{err: fmt.Errorf("no trigger payload stored for this job")}
+			return jobRetriedMsg{err: fmt.Errorf("no trigger payload stored for this job -- only webhook-triggered jobs store payloads for retry")}
 		}
 
 		// Load the pylon config to get the webhook path.
 		pyl, err := config.LoadPylon(pylonName)
 		if err != nil || pyl.Trigger.Path == "" {
-			return jobRetriedMsg{err: fmt.Errorf("cannot resolve webhook path for %s", pylonName)}
+			return jobRetriedMsg{err: fmt.Errorf("cannot resolve webhook path for %q -- check that trigger.path is set in the pylon config", pylonName)}
 		}
 
 		port := 8090
@@ -982,13 +983,13 @@ func retryJobCmd(pylonName, jobID string, global *config.GlobalConfig) tea.Cmd {
 
 		resp, err := http.Post(url, "application/json", strings.NewReader(payload))
 		if err != nil {
-			return jobRetriedMsg{err: fmt.Errorf("POST failed: %w", err)}
+			return jobRetriedMsg{err: fmt.Errorf("retry failed -- is the pylon daemon running? start it with: pylon up\n  %w", err)}
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusAccepted {
 			body, _ := io.ReadAll(resp.Body)
-			return jobRetriedMsg{err: fmt.Errorf("daemon returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
+			return jobRetriedMsg{err: fmt.Errorf("daemon rejected retry (HTTP %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))}
 		}
 
 		return jobRetriedMsg{}
@@ -1009,13 +1010,13 @@ func triggerPylonCmd(pylonName string, global *config.GlobalConfig) tea.Cmd {
 
 		resp, err := http.Post(url, "application/json", strings.NewReader("{}"))
 		if err != nil {
-			return pylonTriggeredMsg{err: fmt.Errorf("POST failed: %w", err)}
+			return pylonTriggeredMsg{err: fmt.Errorf("trigger failed -- is the pylon daemon running? start it with: pylon up\n  %w", err)}
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusAccepted {
 			body, _ := io.ReadAll(resp.Body)
-			return pylonTriggeredMsg{err: fmt.Errorf("daemon returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
+			return pylonTriggeredMsg{err: fmt.Errorf("daemon rejected trigger (HTTP %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))}
 		}
 
 		return pylonTriggeredMsg{}
