@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Pre-push hook: run lint before pushing to catch CI failures locally.
+# Install: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+echo "Running golangci-lint..."
+if ! golangci-lint run ./...; then
+    echo ""
+    echo "Lint failed. Push aborted."
+    echo "Run 'make lint' to see details, fix the issues, then push again."
+    exit 1
+fi

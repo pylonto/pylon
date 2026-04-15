@@ -1,4 +1,4 @@
-.PHONY: build dev run fmt lint image clean setup test cover cover-html smoke
+.PHONY: build dev run fmt lint image clean setup hooks test cover cover-html smoke
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -24,8 +24,11 @@ image:
 run: build
 	./pylon start
 
-setup: build
+setup: build hooks
 	./pylon setup
+
+hooks:
+	git config core.hooksPath .githooks
 
 doctor: build
 	./pylon doctor
