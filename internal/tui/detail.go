@@ -299,7 +299,7 @@ func (m detailModel) Init() tea.Cmd {
 		}
 
 		// Check running/active jobs against live containers.
-		// If the container is gone, mark as stale.
+		// If the container is gone, mark as stale (or bootstrapping if very new).
 		for _, j := range jobs {
 			if !isRunningStatus(j.Status) {
 				continue
@@ -307,7 +307,7 @@ func (m detailModel) Init() tea.Cmd {
 			out, cerr := exec.Command("docker", "ps", "-a", "--filter",
 				fmt.Sprintf("label=pylon.job=%s", j.ID), "--format", "{{.ID}}").Output()
 			if cerr != nil || strings.TrimSpace(string(out)) == "" {
-				j.Status = "stale"
+				j.Status = orphanJobStatus(j.CreatedAt)
 			}
 		}
 
@@ -334,7 +334,7 @@ func (m detailModel) refreshJobs() tea.Cmd {
 			out, cerr := exec.Command("docker", "ps", "-a", "--filter",
 				fmt.Sprintf("label=pylon.job=%s", j.ID), "--format", "{{.ID}}").Output()
 			if cerr != nil || strings.TrimSpace(string(out)) == "" {
-				j.Status = "stale"
+				j.Status = orphanJobStatus(j.CreatedAt)
 			}
 		}
 		return jobsRefreshedMsg{jobs: jobs}
@@ -850,6 +850,8 @@ func renderJobStatus(status string) string {
 		return statusActive.Render("running")
 	case "awaiting_approval":
 		return lipgloss.NewStyle().Foreground(colorWarning).Render("approval")
+	case "bootstrapping":
+		return lipgloss.NewStyle().Foreground(colorAccent).Render("bootstrapping")
 	case "stale":
 		return lipgloss.NewStyle().Foreground(colorWarning).Render("stale")
 	default:
@@ -881,7 +883,17 @@ func (m detailModel) selectedJob() *store.Job {
 }
 
 func isRunningStatus(status string) bool {
-	return status == "running" || status == "active"
+	return status == "running" || status == "active" || status == "bootstrapping"
+}
+
+// orphanJobStatus returns the display status for a running job whose
+// container is not found. Recently created jobs get "bootstrapping";
+// older ones get "stale".
+func orphanJobStatus(createdAt time.Time) string {
+	if time.Since(createdAt) < 2*time.Minute {
+		return "bootstrapping"
+	}
+	return "stale"
 }
 
 // jobKilledMsg is sent after a kill attempt.
