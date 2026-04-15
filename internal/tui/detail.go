@@ -261,6 +261,9 @@ func newDetailModel(name string) detailModel {
 	return detailModel{name: name, showJobs: true}
 }
 
+// detailNavBackMsg signals the parent to switch focus back to the pylon list.
+type detailNavBackMsg struct{}
+
 type detailLoadedMsg struct {
 	pylon   *config.PylonConfig
 	global  *config.GlobalConfig
@@ -562,6 +565,8 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			if j := m.selectedJob(); j != nil && (j.Status == "failed" || j.Status == "timeout") {
 				m.confirmRetry = true
 			}
+		case keyEsc, "h":
+			return m, func() tea.Msg { return detailNavBackMsg{} }
 		}
 	}
 	return m, nil
