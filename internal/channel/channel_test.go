@@ -111,8 +111,7 @@ func TestSplitAndFormat(t *testing.T) {
 	})
 
 	t.Run("raw and formatted differ", func(t *testing.T) {
-		upper := func(s string) string { return strings.ToUpper(s) }
-		chunks := splitAndFormat("hello", 100, upper)
+		chunks := splitAndFormat("hello", 100, strings.ToUpper)
 		require.Len(t, chunks, 1)
 		assert.Equal(t, "hello", chunks[0].Raw)
 		assert.Equal(t, "HELLO", chunks[0].Formatted)
