@@ -26,7 +26,7 @@ func MarkdownToSlackMrkdwn(md string) string {
 	src := []byte(md)
 	r := &slackRenderer{source: src}
 	r.push()
-	ast.Walk(parseMarkdown(src), r.walk)
+	_ = ast.Walk(parseMarkdown(src), r.walk)
 	return strings.TrimRight(r.result(), "\n")
 }
 
@@ -39,7 +39,7 @@ func MarkdownToTelegramV2(md string) string {
 	src := []byte(md)
 	r := &telegramRenderer{source: src}
 	r.push()
-	ast.Walk(parseMarkdown(src), r.walk)
+	_ = ast.Walk(parseMarkdown(src), r.walk)
 	return strings.TrimRight(r.result(), "\n")
 }
 
