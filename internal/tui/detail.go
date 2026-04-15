@@ -766,7 +766,7 @@ func (m detailModel) renderJobs() string {
 	}
 
 	colID := 10
-	colStatus := 12
+	colStatus := 14
 	colTriggered := 14
 
 	header := tableHeaderStyle.Render(
