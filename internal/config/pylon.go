@@ -194,13 +194,15 @@ func validateVolume(v string) error {
 // match a known sub-section, the error tells the user which section to nest
 // them under. Returns nil when all top-level keys are valid.
 func CheckMisplacedKeys(path string) error {
-	data, readErr := os.ReadFile(path)
-	if readErr != nil {
-		return nil // let normal loading surface the read error
+	// Errors here are intentionally ignored -- normal loading surfaces
+	// read/parse failures; this function only adds misplaced-key hints.
+	data, _ := os.ReadFile(path)
+	if len(data) == 0 {
+		return nil
 	}
 	var raw map[string]interface{}
-	if parseErr := yaml.Unmarshal(data, &raw); parseErr != nil {
-		return nil // let normal loading surface the parse error
+	if yaml.Unmarshal(data, &raw) != nil {
+		return nil
 	}
 
 	var msgs []string
