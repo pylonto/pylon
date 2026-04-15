@@ -1,5 +1,7 @@
 package channel
 
+import "strings"
+
 // Command describes a bot command shown to users.
 type Command struct {
 	Name        string // e.g. "done"
@@ -12,6 +14,26 @@ var BotCommands = []Command{
 	{Name: "status", Description: "Peek at what running agents are doing"},
 	{Name: "agents", Description: "List all active agents"},
 	{Name: "help", Description: "Show available commands"},
+}
+
+// splitMessage splits text into chunks of at most maxLen bytes,
+// breaking at newlines when possible to preserve readability.
+func splitMessage(text string, maxLen int) []string {
+	var chunks []string
+	for len(text) > 0 {
+		if len(text) <= maxLen {
+			chunks = append(chunks, text)
+			break
+		}
+		cut := maxLen
+		// Try to break at a newline within the last 25% of the chunk.
+		if idx := strings.LastIndex(text[:cut], "\n"); idx > cut*3/4 {
+			cut = idx + 1
+		}
+		chunks = append(chunks, text[:cut])
+		text = text[cut:]
+	}
+	return chunks
 }
 
 // Channel abstracts a messaging backend that supports topic-based

@@ -55,7 +55,26 @@ func (s *Slack) CreateTopic(name string) (string, error) {
 	return ts, nil
 }
 
+// slackMaxLen is the maximum text length for a single Slack message.
+const slackMaxLen = 40000
+
 func (s *Slack) SendMessage(topicID, text string) (string, error) {
+	if len(text) <= slackMaxLen {
+		return s.postMessage(topicID, text)
+	}
+	chunks := splitMessage(text, slackMaxLen)
+	var lastTS string
+	for _, chunk := range chunks {
+		ts, err := s.postMessage(topicID, chunk)
+		if err != nil {
+			return lastTS, err
+		}
+		lastTS = ts
+	}
+	return lastTS, nil
+}
+
+func (s *Slack) postMessage(topicID, text string) (string, error) {
 	opts := []slack.MsgOption{slack.MsgOptionText(text, false)}
 	if topicID != "" {
 		opts = append(opts, slack.MsgOptionTS(topicID))
