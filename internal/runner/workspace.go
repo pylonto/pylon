@@ -169,7 +169,7 @@ func repoHash(repo string) string {
 func CloneRepo(ctx context.Context, repo, ref, dest string) error {
 	repo = ToSSHURL(repo)
 	os.MkdirAll(filepath.Dir(dest), 0755)
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", ref, repo, dest)
+	cmd := exec.CommandContext(ctx, "git", "clone", "--branch", ref, repo, dest)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

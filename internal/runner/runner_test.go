@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/docker/docker/api/types/mount"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -172,4 +173,136 @@ func TestRepoHash(t *testing.T) {
 		h := repoHash("test")
 		assert.NotContains(t, h, "test", "hash should not contain the input")
 	})
+}
+
+func TestBuildWorkspaceMounts(t *testing.T) {
+	workDir := "/tmp/pylon-test-workspace"
+	repo := "https://github.com/user/repo"
+	expectedBareDir := filepath.Join(ReposDir, repoHash(ToSSHURL(repo)))
+
+	tests := []struct {
+		name      string
+		params    RunParams
+		wantCount int
+		checkBare bool // expect bare repo mount
+		checkVols []mount.Mount
+	}{
+		{
+			name: "git-worktree with repo adds bare repo mount",
+			params: RunParams{
+				WorkspaceType: "git-worktree",
+				Repo:          repo,
+			},
+			wantCount: 2,
+			checkBare: true,
+		},
+		{
+			name: "git-clone does not add bare repo mount",
+			params: RunParams{
+				WorkspaceType: "git-clone",
+				Repo:          repo,
+			},
+			wantCount: 1,
+		},
+		{
+			name: "git-worktree without repo skips bare repo mount",
+			params: RunParams{
+				WorkspaceType: "git-worktree",
+				Repo:          "",
+			},
+			wantCount: 1,
+		},
+		{
+			name: "none workspace",
+			params: RunParams{
+				WorkspaceType: "none",
+			},
+			wantCount: 1,
+		},
+		{
+			name: "empty workspace type",
+			params: RunParams{
+				WorkspaceType: "",
+				Repo:          repo,
+			},
+			wantCount: 1,
+		},
+		{
+			name: "worktree with user volumes",
+			params: RunParams{
+				WorkspaceType: "git-worktree",
+				Repo:          repo,
+				Volumes:       []string{"/usr/bin/gh:/usr/local/bin/gh:ro", "/data:/data:rw"},
+			},
+			wantCount: 4,
+			checkBare: true,
+			checkVols: []mount.Mount{
+				{Type: mount.TypeBind, Source: "/usr/bin/gh", Target: "/usr/local/bin/gh", ReadOnly: true},
+				{Type: mount.TypeBind, Source: "/data", Target: "/data", ReadOnly: false},
+			},
+		},
+		{
+			name: "clone with user volumes",
+			params: RunParams{
+				WorkspaceType: "git-clone",
+				Volumes:       []string{"/usr/bin/gh:/usr/local/bin/gh:ro"},
+			},
+			wantCount: 2,
+			checkVols: []mount.Mount{
+				{Type: mount.TypeBind, Source: "/usr/bin/gh", Target: "/usr/local/bin/gh", ReadOnly: true},
+			},
+		},
+		{
+			name: "malformed volume is skipped",
+			params: RunParams{
+				WorkspaceType: "git-clone",
+				Volumes:       []string{"no-colon-here"},
+			},
+			wantCount: 1,
+		},
+		{
+			name: "volume defaults to read-only",
+			params: RunParams{
+				WorkspaceType: "git-clone",
+				Volumes:       []string{"/a:/b"},
+			},
+			wantCount: 2,
+			checkVols: []mount.Mount{
+				{Type: mount.TypeBind, Source: "/a", Target: "/b", ReadOnly: true},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mounts := BuildWorkspaceMounts(tt.params, workDir)
+			assert.Len(t, mounts, tt.wantCount)
+
+			// First mount is always the workspace
+			assert.Equal(t, workDir, mounts[0].Source)
+			assert.Equal(t, "/workspace", mounts[0].Target)
+			assert.Equal(t, mount.TypeBind, mounts[0].Type)
+
+			if tt.checkBare {
+				// Second mount should be the bare repo, read-only, same-path
+				bare := mounts[1]
+				assert.Equal(t, expectedBareDir, bare.Source)
+				assert.Equal(t, bare.Source, bare.Target, "bare repo must be mounted at same host path")
+				assert.True(t, bare.ReadOnly, "bare repo mount must be read-only")
+				assert.Equal(t, mount.TypeBind, bare.Type)
+			}
+
+			if tt.checkVols != nil {
+				// User volumes come after workspace (and optionally bare repo)
+				offset := tt.wantCount - len(tt.checkVols)
+				for i, want := range tt.checkVols {
+					got := mounts[offset+i]
+					assert.Equal(t, want.Source, got.Source)
+					assert.Equal(t, want.Target, got.Target)
+					assert.Equal(t, want.ReadOnly, got.ReadOnly)
+					assert.Equal(t, mount.TypeBind, got.Type)
+				}
+			}
+		})
+	}
 }

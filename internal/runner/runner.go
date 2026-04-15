@@ -132,27 +132,7 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		envList = append(envList, k+"="+expand(v))
 	}
 
-	mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: workDir, Target: "/workspace"})
-
-	// User-configured volume mounts
-	for _, v := range p.Volumes {
-		parts := strings.SplitN(v, ":", 3)
-		if len(parts) < 2 {
-			continue
-		}
-		source := config.ExpandHome(parts[0])
-		target := parts[1]
-		readOnly := true // default to read-only
-		if len(parts) == 3 && parts[2] == "rw" {
-			readOnly = false
-		}
-		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
-			Source:   source,
-			Target:   target,
-			ReadOnly: readOnly,
-		})
-	}
+	mounts = append(mounts, BuildWorkspaceMounts(p, workDir)...)
 
 	if p.Channel != nil && p.TopicID != "" {
 		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
@@ -231,6 +211,52 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		p.Channel.SendMessage(p.TopicID, p.Channel.FormatText(msg)) //nolint:errcheck // best-effort notification
 	}
 	return jobErr
+}
+
+// BuildWorkspaceMounts assembles the bind mounts for a job's workspace.
+// It always includes the workspace directory at /workspace. For git-worktree
+// workspaces it adds a read-only mount for the bare repo so the worktree's
+// .git pointer resolves inside the container. User-configured volumes are
+// appended last.
+func BuildWorkspaceMounts(p RunParams, workDir string) []mount.Mount {
+	var mounts []mount.Mount
+
+	mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: workDir, Target: "/workspace"})
+
+	// For git-worktree workspaces, mount the bare repo so the .git pointer
+	// resolves. Mounted at the same absolute host path (read-only) so the
+	// gitdir path in .git matches without rewriting.
+	if p.WorkspaceType == "git-worktree" && p.Repo != "" {
+		bareDir := filepath.Join(ReposDir, repoHash(ToSSHURL(p.Repo)))
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   bareDir,
+			Target:   bareDir,
+			ReadOnly: true,
+		})
+	}
+
+	// User-configured volume mounts
+	for _, v := range p.Volumes {
+		parts := strings.SplitN(v, ":", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		source := config.ExpandHome(parts[0])
+		target := parts[1]
+		readOnly := true // default to read-only
+		if len(parts) == 3 && parts[2] == "rw" {
+			readOnly = false
+		}
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   source,
+			Target:   target,
+			ReadOnly: readOnly,
+		})
+	}
+
+	return mounts
 }
 
 // ResolveTemplate substitutes {{ .body.KEY }} placeholders with values from body.
