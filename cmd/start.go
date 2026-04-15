@@ -130,7 +130,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 						pylName := name
 						pylCfg := pyl
 						ch.OnChatDetected(func(detectedID int64) {
-							if err := persistChatID(pylName, pylCfg, global, detectedID); err != nil {
+							if err := persistChatID(pylName, pylCfg, detectedID); err != nil {
 								log.Printf("[pylon] %q: failed to persist detected chat_id: %v", pylName, err)
 							} else {
 								log.Printf("[pylon] %q: saved detected chat_id %d", pylName, detectedID)
@@ -220,7 +220,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 // persistChatID writes the auto-detected Telegram chat_id back to the
 // appropriate config file (per-pylon if the pylon has its own channel config,
 // otherwise global).
-func persistChatID(pylonName string, pyl *config.PylonConfig, global *config.GlobalConfig, chatID int64) error {
+func persistChatID(pylonName string, pyl *config.PylonConfig, chatID int64) error {
 	if pyl.Channel != nil && pyl.Channel.Telegram != nil {
 		fresh, err := config.LoadPylonRaw(pylonName)
 		if err != nil {
