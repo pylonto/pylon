@@ -186,6 +186,11 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 			m.cursor--
 		}
 		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
+
+	case detailNavBackMsg:
+		m.focus = focusList
+		m.detail.focused = false
+		return m, nil
 	}
 
 	// Non-key messages (detailLoadedMsg, containerFoundMsg, etc.)
@@ -198,25 +203,13 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		}
 	}
 
-	// When detail pane has focus, delegate key presses there
+	// When detail pane has focus, delegate all key presses there.
+	// The detail model sends detailNavBackMsg when it wants to return to the list.
 	if m.focus == focusDetail {
-		if key, ok := msg.(tea.KeyMsg); ok {
-			// Let the detail model handle esc/h when it has an active overlay
-			if m.detail.alertBuilder {
-				var cmd tea.Cmd
-				m.detail, cmd = m.detail.Update(msg)
-				return m, cmd
-			}
-			switch key.String() {
-			case "h", keyEsc:
-				m.focus = focusList
-				m.detail.focused = false
-				return m, nil
-			default:
-				var cmd tea.Cmd
-				m.detail, cmd = m.detail.Update(msg)
-				return m, cmd
-			}
+		if _, ok := msg.(tea.KeyMsg); ok {
+			var cmd tea.Cmd
+			m.detail, cmd = m.detail.Update(msg)
+			return m, cmd
 		}
 		return m, nil
 	}
