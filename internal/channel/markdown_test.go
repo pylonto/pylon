@@ -63,6 +63,11 @@ func TestMarkdownToSlackMrkdwn(t *testing.T) {
 			in:   "First paragraph.\n\nSecond paragraph.",
 			want: "First paragraph.\n\nSecond paragraph.",
 		},
+		{
+			name: "table renders as code block",
+			in:   "| A | B |\n|---|---|\n| 1 | 2 |",
+			want: "```\n| A | B |\n|---|---|\n| 1 | 2 |\n```",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -151,6 +156,16 @@ func TestMarkdownToTelegramV2(t *testing.T) {
 			name: "paragraphs",
 			in:   "First.\n\nSecond.",
 			want: "First\\.\n\nSecond\\.",
+		},
+		{
+			name: "table renders as code block",
+			in:   "| A | B |\n|---|---|\n| 1 | 2 |",
+			want: "```\n| A | B |\n|---|---|\n| 1 | 2 |\n```",
+		},
+		{
+			name: "table with wide columns",
+			in:   "| Issue | Detail |\n|---|---|\n| queued | Does not exist |",
+			want: "```\n| Issue  | Detail         |\n|--------|----------------|\n| queued | Does not exist |\n```",
 		},
 	}
 	for _, tt := range tests {

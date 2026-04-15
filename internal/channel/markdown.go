@@ -12,9 +12,9 @@ import (
 )
 
 // parseMarkdown parses standard markdown into a goldmark AST with GFM
-// strikethrough support enabled.
+// strikethrough and table support enabled.
 func parseMarkdown(source []byte) ast.Node {
-	md := goldmark.New(goldmark.WithExtensions(extension.Strikethrough))
+	md := goldmark.New(goldmark.WithExtensions(extension.Strikethrough, extension.Table))
 	return md.Parser().Parse(text.NewReader(source))
 }
 
@@ -141,6 +141,107 @@ func escapeTelegramURL(s string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// --- table rendering (shared by both renderers) ---
+
+// renderTable formats a goldmark Table node as a plain-text pipe table suitable
+// for embedding inside a code block (where formatting is not available).
+func renderTable(table *east.Table, source []byte) string {
+	var rows [][]string
+
+	for child := table.FirstChild(); child != nil; child = child.NextSibling() {
+		switch section := child.(type) {
+		case *east.TableHeader:
+			// The header contains cells directly.
+			rows = append(rows, collectRow(section.HasChildren(), section.FirstChild(), source))
+		case *east.TableRow:
+			rows = append(rows, collectRow(section.HasChildren(), section.FirstChild(), source))
+		}
+	}
+
+	if len(rows) == 0 {
+		return ""
+	}
+
+	// Determine column count and widths.
+	numCols := 0
+	for _, row := range rows {
+		if len(row) > numCols {
+			numCols = len(row)
+		}
+	}
+	widths := make([]int, numCols)
+	for _, row := range rows {
+		for i, cell := range row {
+			if len(cell) > widths[i] {
+				widths[i] = len(cell)
+			}
+		}
+	}
+
+	var b strings.Builder
+	for i, row := range rows {
+		for j := 0; j < numCols; j++ {
+			b.WriteString("| ")
+			cell := ""
+			if j < len(row) {
+				cell = row[j]
+			}
+			b.WriteString(cell)
+			b.WriteString(strings.Repeat(" ", widths[j]-len(cell)))
+			b.WriteByte(' ')
+		}
+		b.WriteString("|\n")
+
+		// Separator line after header.
+		if i == 0 {
+			for j := 0; j < numCols; j++ {
+				b.WriteByte('|')
+				b.WriteString(strings.Repeat("-", widths[j]+2))
+			}
+			b.WriteString("|\n")
+		}
+	}
+	return b.String()
+}
+
+// collectRow gathers cell text from a row's children.
+func collectRow(hasChildren bool, first ast.Node, source []byte) []string {
+	if !hasChildren {
+		return nil
+	}
+	var cells []string
+	for cell := first; cell != nil; cell = cell.NextSibling() {
+		if tc, ok := cell.(*east.TableCell); ok {
+			cells = append(cells, cellText(tc, source))
+		}
+	}
+	return cells
+}
+
+// cellText extracts the plain-text content of a table cell by walking its
+// inline children recursively.
+func cellText(cell *east.TableCell, source []byte) string {
+	var b strings.Builder
+	collectInlineText(&b, cell, source)
+	return strings.TrimSpace(b.String())
+}
+
+// collectInlineText recursively collects text from inline AST nodes.
+func collectInlineText(b *strings.Builder, node ast.Node, source []byte) {
+	if t, ok := node.(*ast.Text); ok {
+		b.Write(t.Value(source))
+		if t.SoftLineBreak() || t.HardLineBreak() {
+			b.WriteByte(' ')
+		}
+	}
+	if s, ok := node.(*ast.String); ok {
+		b.Write(s.Value)
+	}
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		collectInlineText(b, child, source)
+	}
 }
 
 // ========================= Slack renderer =========================
@@ -290,6 +391,17 @@ func (r *slackRenderer) walk(n ast.Node, entering bool) (ast.WalkStatus, error) 
 			r.w().WriteByte('\n')
 			return ast.WalkSkipChildren, nil
 		}
+
+	case *east.Table:
+		if entering {
+			r.w().WriteString("```\n")
+			r.w().WriteString(renderTable(node, r.source))
+			r.w().WriteString("```\n\n")
+			return ast.WalkSkipChildren, nil
+		}
+
+	case *east.TableHeader, *east.TableRow, *east.TableCell:
+		// Handled by renderTable; skip if reached here.
 	}
 
 	return ast.WalkContinue, nil
@@ -447,6 +559,17 @@ func (r *telegramRenderer) walk(n ast.Node, entering bool) (ast.WalkStatus, erro
 			r.w().WriteByte('\n')
 			return ast.WalkSkipChildren, nil
 		}
+
+	case *east.Table:
+		if entering {
+			r.w().WriteString("```\n")
+			r.w().WriteString(renderTable(node, r.source))
+			r.w().WriteString("```\n\n")
+			return ast.WalkSkipChildren, nil
+		}
+
+	case *east.TableHeader, *east.TableRow, *east.TableCell:
+		// Handled by renderTable; skip if reached here.
 	}
 
 	return ast.WalkContinue, nil
