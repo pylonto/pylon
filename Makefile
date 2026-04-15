@@ -11,15 +11,20 @@ lint:
 build: fmt
 	go build -ldflags "-X github.com/pylonto/pylon/cmd.Version=$(VERSION)" -o pylon .
 
-dev: fmt
+AGENT_SOURCES := $(wildcard agent/*/Dockerfile agent/*/entrypoint.sh)
+
+dev: fmt .image-stamp
 	go build -ldflags "-X github.com/pylonto/pylon/cmd.Version=$(VERSION)" -o $(shell which pylon) .
 	systemctl --user restart pylon
 	@echo "Deployed $(VERSION) to $$(which pylon) and restarted daemon"
 
-image:
+.image-stamp: $(AGENT_SOURCES)
 	docker build -t ghcr.io/pylonto/agent-claude agent/claude/
 	docker build -t ghcr.io/pylonto/agent-opencode agent/opencode/
 	docker build -t pylon/agent-mock agent/mock/
+	@touch .image-stamp
+
+image: .image-stamp
 
 run: build
 	./pylon start

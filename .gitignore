@@ -1,5 +1,6 @@
 pylon
 .env
+.image-stamp
 *.db
 *.db-wal
 *.db-shm
