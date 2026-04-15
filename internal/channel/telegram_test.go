@@ -1,7 +1,11 @@
 package channel
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -172,6 +176,95 @@ func TestSplitMessage(t *testing.T) {
 		assert.Equal(t, 30, len(chunks[2]))
 		assert.Equal(t, 10, len(chunks[3]))
 	})
+}
+
+func TestTelegram_SendMessage_formatsInternally(t *testing.T) {
+	// Start a test server that records requests and responds with success.
+	var mu sync.Mutex
+	var requests []map[string]interface{}
+
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		mu.Lock()
+		requests = append(requests, params)
+		mu.Unlock()
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	_, err := tg.SendMessage("0", "**bold** text")
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "MarkdownV2", requests[0]["parse_mode"])
+	// The text should be MarkdownV2-formatted, not raw markdown.
+	assert.Contains(t, requests[0]["text"], "*bold*")
+	assert.NotContains(t, requests[0]["text"], "**bold**")
+}
+
+func TestTelegram_SendMessage_splitsLongMessages(t *testing.T) {
+	var mu sync.Mutex
+	var requests []map[string]interface{}
+
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		mu.Lock()
+		requests = append(requests, params)
+		mu.Unlock()
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	// Build a message with two paragraphs that exceed the limit when combined.
+	para1 := strings.Repeat("word ", 500) // ~2500 chars
+	para2 := strings.Repeat("text ", 500) // ~2500 chars
+	msg := para1 + "\n\n" + para2
+
+	_, err := tg.SendMessage("0", msg)
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.True(t, len(requests) >= 2, "long message should be split into multiple sends")
+	for i, req := range requests {
+		text, _ := req["text"].(string)
+		assert.LessOrEqual(t, len(text), telegramMaxLen, "chunk %d exceeds limit", i)
+		assert.Equal(t, "MarkdownV2", req["parse_mode"])
+	}
+}
+
+func TestTelegram_FormatText_passthrough(t *testing.T) {
+	tg := newTestTelegram(12345)
+	assert.Equal(t, "**bold**", tg.FormatText("**bold**"), "FormatText should return input unchanged")
+}
+
+// newTestTelegramWithURL creates a Telegram struct that talks to a local test server.
+func newTestTelegramWithURL(chatID int64, baseURL string) *Telegram {
+	return &Telegram{
+		token:        "test-token",
+		chatID:       chatID,
+		allowedUsers: map[int64]bool{},
+		client:       &http.Client{Timeout: 2 * time.Second},
+		baseURL:      baseURL,
+	}
+}
+
+// newTelegramTestServer starts an HTTP server that mimics the Telegram Bot API.
+// The onRequest callback receives the parsed request body for assertions.
+func newTelegramTestServer(t *testing.T, onRequest func(params map[string]interface{})) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var params map[string]interface{}
+		json.Unmarshal(body, &params)
+		if onRequest != nil {
+			onRequest(params)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"ok":true,"result":{"message_id":1}}`)
+	}))
 }
 
 func TestTelegram_autoDetect_nilCallback(t *testing.T) {
