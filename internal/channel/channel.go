@@ -17,6 +17,10 @@ var BotCommands = []Command{
 // Channel abstracts a messaging backend that supports topic-based
 // conversations and inline-action buttons (approve/reject).
 type Channel interface {
+	// Ready reports whether the channel can send messages.
+	// Returns false when the channel is waiting for runtime setup
+	// (e.g. Telegram auto-detecting chat_id from the first inbound message).
+	Ready() bool
 	CreateTopic(name string) (topicID string, err error)
 	SendMessage(topicID string, text string) (messageID string, err error)
 	ReplyMessage(topicID string, text string, replyTo string) (messageID string, err error)

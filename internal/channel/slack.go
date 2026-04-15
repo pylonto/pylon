@@ -42,6 +42,8 @@ func NewSlack(ctx context.Context, botToken, appToken, channelID string, allowed
 	return s
 }
 
+func (s *Slack) Ready() bool { return s.channelID != "" }
+
 func (s *Slack) CreateTopic(name string) (string, error) {
 	_, ts, err := s.api.PostMessage(s.channelID,
 		slack.MsgOptionText(name, false),

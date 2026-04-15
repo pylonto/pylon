@@ -31,6 +31,8 @@ func newMockChannel() *mockChannel {
 	return &mockChannel{}
 }
 
+func (c *mockChannel) Ready() bool { return true }
+
 func (c *mockChannel) CreateTopic(name string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

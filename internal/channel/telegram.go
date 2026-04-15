@@ -14,6 +14,9 @@ import (
 	"time"
 )
 
+// errChatNotDetected is returned by API methods when chat_id is 0 (auto-detect pending).
+var errChatNotDetected = fmt.Errorf("chat_id not yet detected; send a message to the bot to auto-detect")
+
 // Telegram implements Channel using the Telegram Bot API.
 type Telegram struct {
 	token        string
@@ -23,6 +26,10 @@ type Telegram struct {
 	mu           sync.Mutex
 	actionFn     func(jobID string, action string)
 	messageFn    func(topicID string, text string, messageID string)
+
+	// Auto-detection: when chatID starts as 0, these handle one-shot detection.
+	detectOnce     sync.Once
+	onChatDetected func(chatID int64)
 }
 
 func NewTelegram(ctx context.Context, token string, chatID int64, allowedUsers []int64) *Telegram {
@@ -34,9 +41,37 @@ func NewTelegram(ctx context.Context, token string, chatID int64, allowedUsers [
 		token: token, chatID: chatID, allowedUsers: allowed,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
+	if chatID == 0 {
+		log.Printf("[telegram] chat_id is 0; will auto-detect from first inbound message")
+	}
 	go t.pollUpdates(ctx)
 	t.setCommands()
 	return t
+}
+
+func (t *Telegram) Ready() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.chatID != 0
+}
+
+// getChatID returns the current chatID, or an error if still awaiting auto-detection.
+func (t *Telegram) getChatID() (int64, error) {
+	t.mu.Lock()
+	id := t.chatID
+	t.mu.Unlock()
+	if id == 0 {
+		return 0, errChatNotDetected
+	}
+	return id, nil
+}
+
+// OnChatDetected registers a callback that fires once when the chat ID is
+// auto-detected from the first inbound message. Only relevant when chatID is 0.
+func (t *Telegram) OnChatDetected(cb func(chatID int64)) {
+	t.mu.Lock()
+	t.onChatDetected = cb
+	t.mu.Unlock()
 }
 
 func (t *Telegram) callAPI(method string, params map[string]interface{}) (json.RawMessage, error) {
@@ -63,11 +98,15 @@ func (t *Telegram) callAPI(method string, params map[string]interface{}) (json.R
 }
 
 func (t *Telegram) CreateTopic(name string) (string, error) {
+	chatID, err := t.getChatID()
+	if err != nil {
+		return "0", err
+	}
 	if len(name) > 128 {
 		name = name[:128]
 	}
 	raw, err := t.callAPI("createForumTopic", map[string]interface{}{
-		"chat_id": t.chatID, "name": name,
+		"chat_id": chatID, "name": name,
 	})
 	if err != nil {
 		log.Printf("[telegram] topic creation failed, using main chat: %v", err)
@@ -81,8 +120,12 @@ func (t *Telegram) CreateTopic(name string) (string, error) {
 }
 
 func (t *Telegram) sendMsg(topicID, text string, replyMarkup interface{}) (string, error) {
+	chatID, err := t.getChatID()
+	if err != nil {
+		return "", err
+	}
 	params := map[string]interface{}{
-		"chat_id": t.chatID, "text": text, "parse_mode": "MarkdownV2",
+		"chat_id": chatID, "text": text, "parse_mode": "MarkdownV2",
 	}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
@@ -106,8 +149,12 @@ func (t *Telegram) SendMessage(topicID, text string) (string, error) {
 }
 
 func (t *Telegram) ReplyMessage(topicID, text, replyTo string) (string, error) {
+	chatID, err := t.getChatID()
+	if err != nil {
+		return "", err
+	}
 	params := map[string]interface{}{
-		"chat_id": t.chatID, "text": text, "parse_mode": "MarkdownV2",
+		"chat_id": chatID, "text": text, "parse_mode": "MarkdownV2",
 	}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
@@ -137,9 +184,13 @@ func (t *Telegram) SendApproval(topicID, text, jobID string) (string, error) {
 }
 
 func (t *Telegram) EditMessage(topicID, messageID, text string) error {
+	chatID, err := t.getChatID()
+	if err != nil {
+		return err
+	}
 	mid, _ := strconv.ParseInt(messageID, 10, 64)
-	_, err := t.callAPI("editMessageText", map[string]interface{}{
-		"chat_id": t.chatID, "message_id": mid, "text": text, "parse_mode": "MarkdownV2",
+	_, err = t.callAPI("editMessageText", map[string]interface{}{
+		"chat_id": chatID, "message_id": mid, "text": text, "parse_mode": "MarkdownV2",
 	})
 	return err
 }
@@ -149,22 +200,30 @@ func (t *Telegram) FormatText(text string) string {
 }
 
 func (t *Telegram) CloseTopic(topicID string) error {
+	chatID, err := t.getChatID()
+	if err != nil {
+		return err
+	}
 	tid, _ := strconv.ParseInt(topicID, 10, 64)
 	if tid == 0 {
 		return nil
 	}
-	_, err := t.callAPI("closeForumTopic", map[string]interface{}{
-		"chat_id": t.chatID, "message_thread_id": tid,
+	_, err = t.callAPI("closeForumTopic", map[string]interface{}{
+		"chat_id": chatID, "message_thread_id": tid,
 	})
 	return err
 }
 
 func (t *Telegram) SendTyping(topicID string) error {
-	params := map[string]interface{}{"chat_id": t.chatID, "action": "typing"}
+	chatID, err := t.getChatID()
+	if err != nil {
+		return err
+	}
+	params := map[string]interface{}{"chat_id": chatID, "action": "typing"}
 	if tid, _ := strconv.ParseInt(topicID, 10, 64); tid != 0 {
 		params["message_thread_id"] = tid
 	}
-	_, err := t.callAPI("sendChatAction", params)
+	_, err = t.callAPI("sendChatAction", params)
 	return err
 }
 
@@ -223,6 +282,7 @@ func (t *Telegram) pollUpdates(ctx context.Context) {
 					Text            string `json:"text"`
 					MessageThreadID int64  `json:"message_thread_id"`
 					Chat            struct {
+						ID   int64  `json:"id"`
 						Type string `json:"type"`
 					} `json:"chat"`
 					From struct {
@@ -258,6 +318,22 @@ func (t *Telegram) pollUpdates(ctx context.Context) {
 				isGroupMsg := u.Message.Chat.Type == "group" || u.Message.Chat.Type == "supergroup"
 				if !isPrivate && !isGroupMsg {
 					continue
+				}
+				// Auto-detect chat_id from the first inbound message when chatID is 0.
+				t.mu.Lock()
+				needsDetect := t.chatID == 0
+				t.mu.Unlock()
+				if needsDetect && u.Message.Chat.ID != 0 {
+					t.detectOnce.Do(func() {
+						t.mu.Lock()
+						t.chatID = u.Message.Chat.ID
+						cb := t.onChatDetected
+						t.mu.Unlock()
+						log.Printf("[telegram] auto-detected chat_id: %d", u.Message.Chat.ID)
+						if cb != nil {
+							cb(u.Message.Chat.ID)
+						}
+					})
 				}
 				if !t.isAllowed(u.Message.From.ID) {
 					continue
