@@ -139,6 +139,7 @@ func TestVerifySignature(t *testing.T) {
 // simpleChannel implements channel.Channel for commandHint testing.
 type simpleChannel struct{}
 
+func (c *simpleChannel) Ready() bool                                { return true }
 func (c *simpleChannel) CreateTopic(string) (string, error)         { return "", nil }
 func (c *simpleChannel) SendMessage(string, string) (string, error) { return "", nil }
 func (c *simpleChannel) ReplyMessage(string, string, string) (string, error) {

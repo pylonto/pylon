@@ -125,7 +125,19 @@ func runStart(cmd *cobra.Command, args []string) error {
 			if tg != nil {
 				token := expand(tg.BotToken)
 				if token != "" {
-					channels[name] = channel.NewTelegram(ctx, token, tg.ChatID, tg.AllowedUsers)
+					ch := channel.NewTelegram(ctx, token, tg.ChatID, tg.AllowedUsers)
+					if tg.ChatID == 0 {
+						pylName := name
+						pylCfg := pyl
+						ch.OnChatDetected(func(detectedID int64) {
+							if err := persistChatID(pylName, pylCfg, global, detectedID); err != nil {
+								log.Printf("[pylon] %q: failed to persist detected chat_id: %v", pylName, err)
+							} else {
+								log.Printf("[pylon] %q: saved detected chat_id %d", pylName, detectedID)
+							}
+						})
+					}
+					channels[name] = ch
 					log.Printf("[pylon] %q: telegram enabled", name)
 				} else {
 					log.Printf("[pylon] %q: telegram token not set, notifications disabled", name)
@@ -142,6 +154,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 					log.Printf("[pylon] %q: slack tokens not set, notifications disabled", name)
 				}
 			}
+		}
+	}
+	for name, ch := range channels {
+		if !ch.Ready() {
+			log.Printf("[pylon] %q: channel pending -- send a message to the bot to auto-detect", name)
 		}
 	}
 	d := daemon.New(global, pylons, st, nil, channels)
@@ -198,4 +215,30 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	log.Println("[pylon] stopped")
 	return nil
+}
+
+// persistChatID writes the auto-detected Telegram chat_id back to the
+// appropriate config file (per-pylon if the pylon has its own channel config,
+// otherwise global).
+func persistChatID(pylonName string, pyl *config.PylonConfig, global *config.GlobalConfig, chatID int64) error {
+	if pyl.Channel != nil && pyl.Channel.Telegram != nil {
+		fresh, err := config.LoadPylonRaw(pylonName)
+		if err != nil {
+			return fmt.Errorf("reloading pylon config: %w", err)
+		}
+		if fresh.Channel == nil || fresh.Channel.Telegram == nil {
+			return fmt.Errorf("pylon %q channel config disappeared", pylonName)
+		}
+		fresh.Channel.Telegram.ChatID = chatID
+		return config.SavePylon(fresh)
+	}
+	freshGlobal, err := config.LoadGlobal()
+	if err != nil {
+		return fmt.Errorf("reloading global config: %w", err)
+	}
+	if freshGlobal.Defaults.Channel.Telegram != nil {
+		freshGlobal.Defaults.Channel.Telegram.ChatID = chatID
+		return config.SaveGlobal(freshGlobal)
+	}
+	return fmt.Errorf("no telegram config found to persist chat_id")
 }

@@ -163,8 +163,8 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		} else if username, err := channel.GetBotUsername(token); err == nil {
 			chatID := global.Defaults.Channel.Telegram.ChatID
 			if chatID == 0 {
-				drLine("Global channel", "FAIL", fmt.Sprintf("telegram @%s, chat_id not configured", username))
-				issues++
+				drLine("Global channel", "WARN", fmt.Sprintf("telegram @%s, chat_id not set -- will auto-detect on start; send /start to @%s", username, username))
+				recommendations++
 			} else if err := channel.CheckChatAccess(token, chatID); err == nil {
 				drLine("Global channel", "ok", fmt.Sprintf("telegram @%s, chat %d", username, chatID))
 			} else {
@@ -256,9 +256,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 					drSub("channel", "FAIL", "bot token not set")
 					issues++
 				} else if username, err := channel.GetBotUsername(token); err == nil {
-					if tg.ChatID == 0 || tg.ChatID == -1 {
+					if tg.ChatID == -1 {
 						drSub("channel", "FAIL", fmt.Sprintf("telegram @%s, chat_id not configured", username))
 						issues++
+					} else if tg.ChatID == 0 {
+						drSub("channel", "WARN", fmt.Sprintf("telegram @%s, chat_id not set -- will auto-detect on start; send /start to @%s", username, username))
+						recommendations++
 					} else if err := channel.CheckChatAccess(token, tg.ChatID); err == nil {
 						drSub("channel", "ok", fmt.Sprintf("telegram @%s, chat %d", username, tg.ChatID))
 					} else {
