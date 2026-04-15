@@ -130,7 +130,7 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 			return fmt.Errorf("channel type is %q but config has a slack section -- replace with a telegram section"+hint, typ)
 		}
 		if tg == nil {
-			return fmt.Errorf("channel type is %q but telegram config is missing. Add:\n\n  telegram:\n    bot_token: ${TELEGRAM_BOT_TOKEN}\n    chat_id: 123456\n\n"+hint, typ)
+			return fmt.Errorf("channel type is %q but channel.telegram config is missing. Add:\n\n  channel:\n    type: telegram\n    telegram:\n      bot_token: ${TELEGRAM_BOT_TOKEN}\n      chat_id: 123456\n\n"+hint, typ)
 		}
 		if tg.BotToken == "" {
 			return errors.New("telegram.bot_token is required" + hint)
@@ -146,7 +146,7 @@ func validateChannelConfig(typ string, tg *TelegramConfig, sl *SlackConfig, path
 			return fmt.Errorf("channel type is %q but config has a telegram section -- replace with a slack section"+hint, typ)
 		}
 		if sl == nil {
-			return fmt.Errorf("channel type is %q but slack config is missing. Add:\n\n  slack:\n    bot_token: ${SLACK_BOT_TOKEN}\n    app_token: ${SLACK_APP_TOKEN}\n    channel_id: C1234567890\n\n"+hint, typ)
+			return fmt.Errorf("channel type is %q but channel.slack config is missing. Add:\n\n  channel:\n    type: slack\n    slack:\n      bot_token: ${SLACK_BOT_TOKEN}\n      app_token: ${SLACK_APP_TOKEN}\n      channel_id: C1234567890\n\n"+hint, typ)
 		}
 		if sl.BotToken == "" {
 			return errors.New("slack.bot_token is required" + hint)

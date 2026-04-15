@@ -73,7 +73,7 @@ func TestValidateChannelConfig(t *testing.T) {
 	t.Run("telegram missing config", func(t *testing.T) {
 		err := validateChannelConfig("telegram", nil, nil, path, nil, envPath)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "telegram config is missing")
+		assert.Contains(t, err.Error(), "channel.telegram config is missing")
 	})
 
 	t.Run("telegram missing bot token", func(t *testing.T) {
@@ -109,7 +109,7 @@ func TestValidateChannelConfig(t *testing.T) {
 	t.Run("slack missing config", func(t *testing.T) {
 		err := validateChannelConfig("slack", nil, nil, path, nil, envPath)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "slack config is missing")
+		assert.Contains(t, err.Error(), "channel.slack config is missing")
 	})
 
 	t.Run("slack missing bot token", func(t *testing.T) {
@@ -265,6 +265,108 @@ func TestExpandWithPylonEnv(t *testing.T) {
 
 	t.Run("no vars unchanged", func(t *testing.T) {
 		assert.Equal(t, "literal string", ExpandWithPylonEnv("literal string", nil))
+	})
+}
+
+func TestCheckMisplacedKeys(t *testing.T) {
+	dir := t.TempDir()
+
+	writeYAML := func(t *testing.T, content string) string {
+		t.Helper()
+		f, err := os.CreateTemp(dir, "*.yaml")
+		require.NoError(t, err)
+		_, err = f.WriteString(content)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		return f.Name()
+	}
+
+	t.Run("telegram at top level", func(t *testing.T) {
+		path := writeYAML(t, `
+name: test
+channel:
+  type: telegram
+telegram:
+  bot_token: tok
+`)
+		err := CheckMisplacedKeys(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `found top-level "telegram" key`)
+		assert.Contains(t, err.Error(), `"channel"`)
+	})
+
+	t.Run("prompt at top level", func(t *testing.T) {
+		path := writeYAML(t, `
+name: test
+prompt: do stuff
+`)
+		err := CheckMisplacedKeys(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `found top-level "prompt" key`)
+		assert.Contains(t, err.Error(), `"agent"`)
+	})
+
+	t.Run("cron at top level", func(t *testing.T) {
+		path := writeYAML(t, `
+name: test
+cron: "0 3 * * *"
+`)
+		err := CheckMisplacedKeys(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `found top-level "cron" key`)
+		assert.Contains(t, err.Error(), `"trigger"`)
+	})
+
+	t.Run("repo at top level", func(t *testing.T) {
+		path := writeYAML(t, `
+name: test
+repo: git@github.com:foo/bar.git
+`)
+		err := CheckMisplacedKeys(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `found top-level "repo" key`)
+		assert.Contains(t, err.Error(), `"workspace"`)
+	})
+
+	t.Run("unknown key without hint", func(t *testing.T) {
+		path := writeYAML(t, `
+name: test
+foobar: baz
+`)
+		err := CheckMisplacedKeys(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `unknown top-level key "foobar"`)
+		assert.Contains(t, err.Error(), "check indentation")
+	})
+
+	t.Run("multiple misplaced keys", func(t *testing.T) {
+		path := writeYAML(t, `
+name: test
+telegram:
+  bot_token: tok
+prompt: do stuff
+`)
+		err := CheckMisplacedKeys(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "telegram")
+		assert.Contains(t, err.Error(), "prompt")
+	})
+
+	t.Run("no misplaced keys", func(t *testing.T) {
+		path := writeYAML(t, `
+name: test
+channel:
+  type: telegram
+  telegram:
+    bot_token: tok
+`)
+		err := CheckMisplacedKeys(path)
+		assert.NoError(t, err)
+	})
+
+	t.Run("file not found", func(t *testing.T) {
+		err := CheckMisplacedKeys("/nonexistent/path.yaml")
+		assert.NoError(t, err) // silently ignored, normal loading surfaces the error
 	})
 }
 
