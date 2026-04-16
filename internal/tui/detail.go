@@ -375,17 +375,22 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		}
 		switch msg.action {
 		case "logs":
+			pager := os.Getenv("PAGER")
+			if pager == "" {
+				pager = "less"
+			}
 			if msg.containerID != "" {
-				c := exec.Command("docker", "logs", "-f", "--tail", "50", msg.containerID)
+				// Container still running -- open the persistent log file
+				// in follow mode. The log file receives both container
+				// output (via the runner) and tool-use events (via the
+				// hooks endpoint). "less +F" starts in tail mode; press
+				// Ctrl+C to scroll, then F to resume following.
+				c := exec.Command(pager, "+F", msg.logFile)
 				return m, tea.ExecProcess(c, func(err error) tea.Msg {
 					return detailEditorDoneMsg{err: err}
 				})
 			}
 			// Container gone -- show persistent log file.
-			pager := os.Getenv("PAGER")
-			if pager == "" {
-				pager = "less"
-			}
 			c := exec.Command(pager, msg.logFile)
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {
 				return detailEditorDoneMsg{err: err}
@@ -924,9 +929,9 @@ func findContainerCmd(jobID, action string) tea.Cmd {
 			return containerFoundMsg{err: fmt.Errorf("docker not reachable -- is the Docker daemon running? (docker ps to check): %w", err)}
 		}
 		containerID := strings.TrimSpace(string(out))
+		logPath := runner.LogPath(jobID)
 		if containerID == "" {
 			// Container gone -- check for persistent log file.
-			logPath := runner.LogPath(jobID)
 			if _, err := os.Stat(logPath); err == nil {
 				return containerFoundMsg{logFile: logPath, action: action}
 			}
@@ -936,7 +941,7 @@ func findContainerCmd(jobID, action string) tea.Cmd {
 			}
 			return containerFoundMsg{err: fmt.Errorf("no logs available for job %s -- container was removed and no log file was saved", id)}
 		}
-		return containerFoundMsg{containerID: containerID, action: action}
+		return containerFoundMsg{containerID: containerID, logFile: logPath, action: action}
 	}
 }
 

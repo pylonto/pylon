@@ -267,4 +267,74 @@ func TestHooksHandler(t *testing.T) {
 		d.hooksMu.Unlock()
 		assert.Len(t, events, 8)
 	})
+
+	// Stream-processor style payloads: the NDJSON processors in both agent
+	// entrypoints POST tool events with the raw tool.input object from the
+	// agent's stream output.
+	t.Run("claude stream-json tool payloads", func(t *testing.T) {
+		jobID := "claude-stream-job"
+
+		// Edit with nested input
+		body := `{"tool_name":"Edit","tool_input":{"file_path":"/workspace/main.go","old_string":"foo","new_string":"bar"}}`
+		req := httptest.NewRequest(http.MethodPost, "/hooks/"+jobID, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		d.Mux.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		// Bash with command
+		body = `{"tool_name":"Bash","tool_input":{"command":"go test ./..."}}`
+		req = httptest.NewRequest(http.MethodPost, "/hooks/"+jobID, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+		d.Mux.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		// Grep with pattern
+		body = `{"tool_name":"Grep","tool_input":{"pattern":"handleSubmit","path":"/workspace"}}`
+		req = httptest.NewRequest(http.MethodPost, "/hooks/"+jobID, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+		d.Mux.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		d.hooksMu.Lock()
+		events := d.hookLog[jobID]
+		d.hooksMu.Unlock()
+		require.Len(t, events, 3)
+		assert.Equal(t, "Editing /workspace/main.go", events[0])
+		assert.Equal(t, "$ go test ./...", events[1])
+		assert.Equal(t, "Grep handleSubmit", events[2])
+	})
+
+	t.Run("rapid events from same job", func(t *testing.T) {
+		jobID := "rapid-job"
+		tools := []struct {
+			name  string
+			input string
+			want  string
+		}{
+			{"Read", `{"file_path":"/a.go"}`, "Reading /a.go"},
+			{"Read", `{"file_path":"/b.go"}`, "Reading /b.go"},
+			{"Glob", `{"pattern":"*.ts"}`, "Glob *.ts"},
+			{"Edit", `{"file_path":"/a.go"}`, "Editing /a.go"},
+			{"Bash", `{"command":"npm test"}`, "$ npm test"},
+		}
+		for _, tool := range tools {
+			body := `{"tool_name":"` + tool.name + `","tool_input":` + tool.input + `}`
+			req := httptest.NewRequest(http.MethodPost, "/hooks/"+jobID, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			d.Mux.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+		}
+
+		d.hooksMu.Lock()
+		events := d.hookLog[jobID]
+		d.hooksMu.Unlock()
+		require.Len(t, events, len(tools))
+		for i, tool := range tools {
+			assert.Equal(t, tool.want, events[i])
+		}
+	})
 }

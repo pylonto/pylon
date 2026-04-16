@@ -19,9 +19,9 @@ dev: fmt .image-stamp
 	@echo "Deployed $(VERSION) to $$(which pylon) and restarted daemon"
 
 .image-stamp: $(AGENT_SOURCES)
-	docker build -t ghcr.io/pylonto/agent-claude agent/claude/
-	docker build -t ghcr.io/pylonto/agent-opencode agent/opencode/
-	docker build -t pylon/agent-mock agent/mock/
+	docker build --no-cache -t ghcr.io/pylonto/agent-claude agent/claude/
+	docker build --no-cache -t ghcr.io/pylonto/agent-opencode agent/opencode/
+	docker build --no-cache -t pylon/agent-mock agent/mock/
 	@touch .image-stamp
 
 image: .image-stamp

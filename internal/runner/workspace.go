@@ -217,8 +217,10 @@ func WriteHooksConfig(workDir, hooksURL string) {
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit",
-        "hooks": [{"type": "http", "url": %q}]
+        "matcher": ".*",
+        "hooks": [
+          {"type": "command", "command": "curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d @- '%s'"}
+        ]
       }
     ]
   }

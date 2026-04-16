@@ -37,6 +37,10 @@ opencode "${OPENCODE_ARGS[@]}" 2>&1 | tee "$RAW_FILE" | node -e "
   rl.on('line', (line) => {
     try {
       const obj = JSON.parse(line);
+      if (obj.type === 'text' && obj.part && obj.part.text) {
+        const preview = obj.part.text.length > 200 ? obj.part.text.slice(0, 200) + '...' : obj.part.text;
+        process.stderr.write('[agent] [${SHORT_ID}] ' + preview + '\n');
+      }
       if (obj.type === 'tool_use' && obj.part) {
         const tool = obj.part.tool || 'unknown';
         const input = obj.part.state?.input || {};

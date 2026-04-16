@@ -6,12 +6,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/runner"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFormatToolEvent(t *testing.T) {
@@ -37,6 +41,82 @@ func TestFormatToolEvent(t *testing.T) {
 			assert.Equal(t, tt.want, formatToolEvent(tt.toolName, json.RawMessage(tt.input)))
 		})
 	}
+}
+
+// TestFormatToolEvent_hookPayloads verifies formatToolEvent handles the
+// payloads that agent hook processors POST to the /hooks/ endpoint from
+// both Claude and OpenCode agents.
+func TestFormatToolEvent_hookPayloads(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		input    string
+		want     string
+	}{
+		// Claude stream-json style payloads (tool.input fields)
+		{"claude read", "Read", `{"file_path":"/workspace/src/main.go"}`, "Reading /workspace/src/main.go"},
+		{"claude edit", "Edit", `{"file_path":"/workspace/src/main.go","old_string":"foo","new_string":"bar"}`, "Editing /workspace/src/main.go"},
+		{"claude write", "Write", `{"file_path":"/workspace/new.go","content":"package main"}`, "Writing /workspace/new.go"},
+		{"claude bash", "Bash", `{"command":"go test ./..."}`, "$ go test ./..."},
+		{"claude glob", "Glob", `{"pattern":"**/*.go"}`, "Glob **/*.go"},
+		{"claude grep", "Grep", `{"pattern":"TODO","path":"/workspace"}`, "Grep TODO"},
+		{"claude multiedit", "MultiEdit", `{"file_path":"/workspace/main.go"}`, "Editing /workspace/main.go"},
+
+		// OpenCode style payloads
+		{"opencode read", "Read", `{"file_path":"/workspace/pkg/api.go"}`, "Reading /workspace/pkg/api.go"},
+		{"opencode bash", "Bash", `{"command":"npm test"}`, "$ npm test"},
+
+		// Edge cases from stream processors
+		{"empty input object", "Read", `{}`, "Reading "},
+		{"null input", "Bash", `null`, "$ "},
+		{"agent tool", "Agent", `{"prompt":"do something"}`, "Agent"},
+		{"todowrite tool", "TodoWrite", `{"todos":[]}`, "TodoWrite"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatToolEvent(tt.toolName, json.RawMessage(tt.input)))
+		})
+	}
+}
+
+func TestAppendEventToLog(t *testing.T) {
+	// Override JobsDir so LogPath writes to a temp directory.
+	origDir := runner.JobsDir
+	runner.JobsDir = t.TempDir()
+	t.Cleanup(func() { runner.JobsDir = origDir })
+
+	jobID := "test-job-append-1234"
+
+	// Create the log file (runner normally creates it when the container starts).
+	logPath := runner.LogPath(jobID)
+	require.NoError(t, os.WriteFile(logPath, []byte("--- run ---\n"), 0644))
+
+	appendEventToLog(jobID, "$ git status")
+	appendEventToLog(jobID, "Reading /workspace/main.go")
+	appendEventToLog(jobID, "Editing /workspace/main.go")
+
+	data, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "--- run ---")
+	assert.Contains(t, content, "[agent] [test-job] > $ git status")
+	assert.Contains(t, content, "[agent] [test-job] > Reading /workspace/main.go")
+	assert.Contains(t, content, "[agent] [test-job] > Editing /workspace/main.go")
+
+	// Verify each event is on its own line
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	assert.Len(t, lines, 4) // header + 3 events
+}
+
+func TestAppendEventToLog_noFile(t *testing.T) {
+	// Override JobsDir to a non-existent directory.
+	origDir := runner.JobsDir
+	runner.JobsDir = filepath.Join(t.TempDir(), "nonexistent")
+	t.Cleanup(func() { runner.JobsDir = origDir })
+
+	// Should not panic when the log file doesn't exist.
+	appendEventToLog("no-such-job-12345678", "$ ls")
 }
 
 func TestExtractSessionID(t *testing.T) {
