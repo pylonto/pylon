@@ -14,6 +14,7 @@ const (
 	keyEnter    = "enter"
 	keyEsc      = "esc"
 	keyG        = "g"
+	keyH        = "h"
 	keyJ        = "j"
 	keyK        = "k"
 	keyL        = "l"

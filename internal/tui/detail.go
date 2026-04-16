@@ -433,6 +433,27 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 		return m, tea.Batch(cmd, m.Init())
 
 	case tea.KeyMsg:
+		// Unified esc handler -- runs before any overlay so it always closes the
+		// topmost layer regardless of how the terminal encodes the key.
+		if msg.Type == tea.KeyEsc || msg.String() == keyEsc {
+			switch {
+			case m.confirmKill || m.confirmDismiss || m.confirmRetry || m.confirmFire:
+				m.confirmKill = false
+				m.confirmDismiss = false
+				m.confirmRetry = false
+				m.confirmFire = false
+				return m, nil
+			case m.err != nil:
+				m.err = nil
+				return m, m.Init()
+			case m.alertBuilder:
+				m.alertBuilder = false
+				return m, nil
+			default:
+				return m, func() tea.Msg { return detailNavBackMsg{} }
+			}
+		}
+
 		// Confirmation mode intercepts all keys
 		if m.confirmKill || m.confirmDismiss || m.confirmRetry || m.confirmFire {
 			switch msg.String() {
@@ -474,6 +495,13 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 
 		// Alert builder mode
 		if m.alertBuilder {
+			// q closes the builder without saving (bare esc is unreliable
+			// in mouse-tracking mode because bubbletea can parse \x1b as the
+			// start of a CSI sequence).
+			if msg.String() == keyQ {
+				m.alertBuilder = false
+				return m, nil
+			}
 			items := m.alertVisibleItems()
 			switch msg.String() {
 			case keyUp, keyK:
@@ -509,8 +537,6 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 				}
 				m.alertBuilder = false
 				return m, m.Init()
-			case keyEsc:
-				m.alertBuilder = false
 			}
 			return m, nil
 		}
@@ -553,6 +579,10 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 				if m.pylon != nil && m.pylon.Channel != nil {
 					preCheckFields(groups, rootFields, m.pylon.Channel.Message, m.alertChecked)
 				}
+			} else if m.pylon != nil && m.pylon.Trigger.Type == "webhook" {
+				var cmd tea.Cmd
+				m.copyFlash, cmd = m.copyFlash.show("no payload available")
+				return m, cmd
 			}
 		case keyL:
 			if j := m.selectedJob(); j != nil {
@@ -570,7 +600,7 @@ func (m detailModel) Update(msg tea.Msg) (detailModel, tea.Cmd) {
 			if j := m.selectedJob(); j != nil && (j.Status == "failed" || j.Status == "timeout") {
 				m.confirmRetry = true
 			}
-		case keyEsc, "h":
+		case keyH:
 			return m, func() tea.Msg { return detailNavBackMsg{} }
 		}
 	}
@@ -1305,7 +1335,7 @@ func (m detailModel) renderAlertBuilder() string {
 		}
 	}
 
-	b.WriteString("\n  " + mutedStyle.Render("space toggle/expand  enter save  esc cancel"))
+	b.WriteString("\n  " + mutedStyle.Render("space toggle/expand  enter save  q cancel"))
 	return b.String()
 }
 
@@ -1346,7 +1376,9 @@ func (m detailModel) footerBindings() []keyBinding {
 		bindings = append(bindings, keyBinding{"f", "fire"})
 	}
 	bindings = append(bindings, keyBinding{"e", "edit"})
-	bindings = append(bindings, keyBinding{"a", "message builder"})
+	if m.pylon != nil && m.pylon.Trigger.Type == "webhook" {
+		bindings = append(bindings, keyBinding{"a", "message builder"})
+	}
 
 	// View toggles
 	bindings = append(bindings, separator)

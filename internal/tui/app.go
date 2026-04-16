@@ -155,7 +155,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		if m.activeView == viewHome {
+		if m.activeView == viewHome && !m.home.detail.alertBuilder {
 			// Stop daemon confirmation intercepts all keys
 			if m.confirmStop {
 				switch msg.String() {
