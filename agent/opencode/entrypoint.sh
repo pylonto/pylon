@@ -15,8 +15,8 @@ log "prompt: $PROMPT"
 
 cd /workspace
 
-# --- Build hooks URL from callback URL ---
-HOOKS_URL="${CALLBACK_URL/callback/hooks}"
+# --- Hooks URL (set by runner, fall back to deriving from callback URL) ---
+HOOKS_URL="${HOOKS_URL:-${CALLBACK_URL/callback/hooks}}"
 
 # --- Run OpenCode ---
 OPENCODE_ARGS=(run "$PROMPT" --format json)

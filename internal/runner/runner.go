@@ -136,11 +136,10 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 
 	if p.Channel != nil && p.TopicID != "" {
 		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
-		switch p.AgentType {
-		case "opencode":
-			// OpenCode hooks are handled by the entrypoint's NDJSON stream
-			// processor, which POSTs tool events to the hooks URL directly.
-		default:
+		envList = append(envList, "HOOKS_URL="+hooksURL)
+		if p.AgentType != "opencode" {
+			// Claude Code needs a settings file to trigger PostToolUse hooks.
+			// Other agents can use the HOOKS_URL env var directly.
 			WriteHooksConfig(workDir, hooksURL)
 		}
 	}
