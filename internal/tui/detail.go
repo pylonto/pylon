@@ -608,7 +608,20 @@ func (m detailModel) View(width, height int) string {
 	}
 
 	if m.showJobs {
-		out += "\n" + m.renderJobs()
+		usedLines := countLines(out)
+		jobsMaxRows := height - usedLines - 1 // -1 for the "\n" joining jobs to config
+		flash := m.copyFlash.View()
+		if flash != "" {
+			jobsMaxRows-- // reserve for flash line
+		}
+		if jobsMaxRows < 3 {
+			jobsMaxRows = 3 // minimum: header + 1 job + indicator
+		}
+		out += "\n" + m.renderJobs(jobsMaxRows)
+		if flash != "" {
+			out += "\n  " + flash
+		}
+		return out
 	}
 
 	flash := m.copyFlash.View()
@@ -770,7 +783,28 @@ func (m detailModel) renderConfig() string {
 	return s
 }
 
-func (m detailModel) renderJobs() string {
+// jobWindow computes the [start, end) slice range to display, keeping
+// the cursor visible and roughly centered in the window.
+func jobWindow(cursor, total, windowSize int) (int, int) {
+	if windowSize >= total {
+		return 0, total
+	}
+	start := cursor - windowSize/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + windowSize
+	if end > total {
+		end = total
+		start = end - windowSize
+		if start < 0 {
+			start = 0
+		}
+	}
+	return start, end
+}
+
+func (m detailModel) renderJobs(maxRows int) string {
 	if len(m.jobs) == 0 {
 		return mutedStyle.Render("  No jobs yet.")
 	}
@@ -786,8 +820,57 @@ func (m detailModel) renderJobs() string {
 			colTriggered, "TRIGGERED",
 			"DURATION"))
 
+	// Reserve lines for fixed elements within the jobs section.
+	reserved := 1 // header
+	if m.confirmKill || m.confirmDismiss || m.confirmRetry {
+		reserved += 2 // blank line + confirmation
+	}
+	if m.cursor >= 0 && m.cursor < len(m.jobs) && m.focused && m.jobs[m.cursor].Error != "" {
+		reserved++ // error line below selected job
+	}
+
+	availableForJobs := maxRows - reserved
+	if availableForJobs < 1 {
+		availableForJobs = 1
+	}
+
+	total := len(m.jobs)
+	visibleCount := availableForJobs
+	if visibleCount > total {
+		visibleCount = total
+	}
+
+	// Iteratively compute window and account for scroll indicator lines.
+	// Shrinking the window can shift it off an edge, creating a new
+	// indicator that wasn't needed before. At most 3 rounds to stabilize
+	// (indicators go 0 -> 1 -> 2 -> stable).
+	var start, end int
+	for range 3 {
+		start, end = jobWindow(m.cursor, total, visibleCount)
+		needed := 0
+		if start > 0 {
+			needed++
+		}
+		if end < total {
+			needed++
+		}
+		newCount := availableForJobs - needed
+		if newCount < 1 {
+			newCount = 1
+		}
+		if newCount > total {
+			newCount = total
+		}
+		if newCount == visibleCount {
+			break
+		}
+		visibleCount = newCount
+	}
+	start, end = jobWindow(m.cursor, total, visibleCount)
+
 	var rows string
-	for i, j := range m.jobs {
+	for i := start; i < end; i++ {
+		j := m.jobs[i]
 		id := j.ID
 		if len(id) > 8 {
 			id = id[:8]
@@ -800,12 +883,12 @@ func (m detailModel) renderJobs() string {
 		}
 		duration := "-"
 		if j.CompletedAt != nil && !j.CompletedAt.IsZero() {
-			start := j.CreatedAt
+			jobStart := j.CreatedAt
 			if j.StartedAt != nil && !j.StartedAt.IsZero() {
-				start = *j.StartedAt
+				jobStart = *j.StartedAt
 			}
-			if !start.IsZero() {
-				d := j.CompletedAt.Sub(start)
+			if !jobStart.IsZero() {
+				d := j.CompletedAt.Sub(jobStart)
 				if d >= 0 {
 					duration = formatDuration(d)
 				}
@@ -833,7 +916,14 @@ func (m detailModel) renderJobs() string {
 		}
 	}
 
-	out := header + "\n" + rows
+	out := header + "\n"
+	if start > 0 {
+		out += mutedStyle.Render(fmt.Sprintf("  ... %d more above", start)) + "\n"
+	}
+	out += rows
+	if end < total {
+		out += mutedStyle.Render(fmt.Sprintf("  ... %d more below", total-end)) + "\n"
+	}
 
 	if m.confirmKill {
 		out += "\n  " + statusFailed.Render("Kill this job?") + " " + mutedStyle.Render("y/n")
