@@ -190,7 +190,7 @@ func TestTelegram_SendMessage_formatsInternally(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	_, err := tg.SendMessage("0", "**bold** text")
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestTelegram_SendMessage_splitsLongMessages(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	// Build a message with two paragraphs that exceed the limit when combined.
 	para1 := strings.Repeat("word ", 500) // ~2500 chars
@@ -241,10 +241,10 @@ func TestTelegram_FormatText_passthrough(t *testing.T) {
 }
 
 // newTestTelegramWithURL creates a Telegram struct that talks to a local test server.
-func newTestTelegramWithURL(chatID int64, baseURL string) *Telegram {
+func newTestTelegramWithURL(baseURL string) *Telegram {
 	return &Telegram{
 		token:        "test-token",
-		chatID:       chatID,
+		chatID:       12345,
 		allowedUsers: map[int64]bool{},
 		client:       &http.Client{Timeout: 2 * time.Second},
 		baseURL:      baseURL,
@@ -353,7 +353,7 @@ func TestTelegram_CreateTopic(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	topicID, err := tg.CreateTopic("Test Topic")
 	require.NoError(t, err)
@@ -368,7 +368,7 @@ func TestTelegram_CreateTopic_truncatesLongNames(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	longName := strings.Repeat("a", 200)
 	_, err := tg.CreateTopic(longName)
@@ -388,7 +388,7 @@ func TestTelegram_ReplyMessage(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	_, err := tg.ReplyMessage("42", "reply text", "100")
 	require.NoError(t, err)
@@ -408,7 +408,7 @@ func TestTelegram_SendApproval(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	_, err := tg.SendApproval("42", "Approve this?", "job-123")
 	require.NoError(t, err)
@@ -428,7 +428,7 @@ func TestTelegram_EditMessage(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	err := tg.EditMessage("42", "100", "updated text")
 	assert.NoError(t, err)
@@ -451,7 +451,7 @@ func TestTelegram_EditMessage_fallsBackToPlaintext(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	err := tg.EditMessage("0", "100", "**broken** markdown")
 	assert.NoError(t, err)
@@ -465,7 +465,7 @@ func TestTelegram_CloseTopic(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	err := tg.CloseTopic("42")
 	assert.NoError(t, err)
@@ -479,7 +479,7 @@ func TestTelegram_CloseTopic_zeroIsNoop(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 	err := tg.CloseTopic("0")
 	assert.NoError(t, err)
 }
@@ -491,7 +491,7 @@ func TestTelegram_SendTyping(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	err := tg.SendTyping("42")
 	assert.NoError(t, err)
@@ -506,7 +506,7 @@ func TestTelegram_SendTyping_noTopic(t *testing.T) {
 	})
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	err := tg.SendTyping("0")
 	assert.NoError(t, err)
@@ -519,7 +519,7 @@ func TestTelegram_TestConnection(t *testing.T) {
 	ts := newTelegramTestServer(t, nil)
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 	assert.NoError(t, tg.TestConnection())
 }
 
@@ -530,7 +530,7 @@ func TestTelegram_TestConnection_failure(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 	assert.Error(t, tg.TestConnection())
 }
 
@@ -541,14 +541,14 @@ func TestTelegram_callAPI_failure(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 	_, err := tg.callAPI("sendMessage", map[string]interface{}{"chat_id": 99999})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "chat not found")
 }
 
 func TestTelegram_callAPI_networkError(t *testing.T) {
-	tg := newTestTelegramWithURL(12345, "http://localhost:1") // nothing listening
+	tg := newTestTelegramWithURL("http://localhost:1") // nothing listening
 	_, err := tg.callAPI("getMe", map[string]interface{}{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "calling getMe")
@@ -560,7 +560,7 @@ func TestTelegram_callAPI_invalidJSON(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 	_, err := tg.callAPI("getMe", map[string]interface{}{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing")
@@ -581,7 +581,7 @@ func TestTelegram_SendMessage_fallsBackToPlaintext(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tg := newTestTelegramWithURL(12345, ts.URL)
+	tg := newTestTelegramWithURL(ts.URL)
 
 	_, err := tg.SendMessage("0", "test message")
 	assert.NoError(t, err)

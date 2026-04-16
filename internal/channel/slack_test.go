@@ -195,10 +195,10 @@ func TestSlack_handleEvent_message(t *testing.T) {
 			Type: slackevents.CallbackEvent,
 			InnerEvent: slackevents.EventsAPIInnerEvent{
 				Data: &slackevents.MessageEvent{
-					User:             "U123",
-					Text:             "hello pylon",
-					TimeStamp:        "1234567890.123456",
-					ThreadTimeStamp:  "1234567890.000000",
+					User:            "U123",
+					Text:            "hello pylon",
+					TimeStamp:       "1234567890.123456",
+					ThreadTimeStamp: "1234567890.000000",
 				},
 			},
 		},

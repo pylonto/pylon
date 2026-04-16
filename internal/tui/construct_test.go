@@ -13,15 +13,15 @@ import (
 // trigger: "webhook", "cron"
 func makeConstructValues(name, channel, trigger string) map[string]string {
 	v := map[string]string{
-		"name":         name,
-		"description":  "Test pylon for " + channel + " " + trigger,
-		"trigger":      trigger,
-		"workspace":    "none",
+		"name":           name,
+		"description":    "Test pylon for " + channel + " " + trigger,
+		"trigger":        trigger,
+		"workspace":      "none",
 		"channel_choice": channel,
-		"agent_choice": "default",
-		"prompt":       "Test prompt: {{ .body.error }}",
-		"approval":     "yes",
-		"confirm":      "yes",
+		"agent_choice":   "default",
+		"prompt":         "Test prompt: {{ .body.error }}",
+		"approval":       "yes",
+		"confirm":        "yes",
 	}
 
 	switch trigger {
