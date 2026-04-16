@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types/mount"
+	"github.com/pylonto/pylon/internal/channel"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -305,4 +306,133 @@ func TestBuildWorkspaceMounts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// stubChannel is a minimal channel.Channel for testing env construction.
+type stubChannel struct{}
+
+func (c *stubChannel) Ready() bool                                          { return true }
+func (c *stubChannel) CreateTopic(string) (string, error)                   { return "", nil }
+func (c *stubChannel) SendMessage(string, string) (string, error)           { return "", nil }
+func (c *stubChannel) ReplyMessage(string, string, string) (string, error)  { return "", nil }
+func (c *stubChannel) SendApproval(string, string, string) (string, error)  { return "", nil }
+func (c *stubChannel) EditMessage(string, string, string) error             { return nil }
+func (c *stubChannel) FormatText(s string) string                           { return s }
+func (c *stubChannel) SendTyping(string) error                              { return nil }
+func (c *stubChannel) CloseTopic(string) error                              { return nil }
+func (c *stubChannel) OnAction(func(string, string))                        {}
+func (c *stubChannel) OnMessage(func(string, string, string))               {}
+func (c *stubChannel) Commands() []channel.Command                          { return nil }
+
+func envContains(envList []string, key string) (string, bool) {
+	for _, e := range envList {
+		if len(e) > len(key) && e[:len(key)+1] == key+"=" {
+			return e[len(key)+1:], true
+		}
+	}
+	return "", false
+}
+
+func TestBuildAgentEnv(t *testing.T) {
+	workDir := t.TempDir()
+
+	t.Run("base env always present", func(t *testing.T) {
+		envList, _ := BuildAgentEnv(RunParams{
+			Prompt:      "do stuff",
+			JobID:       "job-123",
+			CallbackURL: "http://localhost:8080/callback/job-123",
+		}, workDir)
+
+		v, ok := envContains(envList, "PROMPT")
+		assert.True(t, ok)
+		assert.Equal(t, "do stuff", v)
+
+		v, ok = envContains(envList, "JOB_ID")
+		assert.True(t, ok)
+		assert.Equal(t, "job-123", v)
+
+		v, ok = envContains(envList, "CALLBACK_URL")
+		assert.True(t, ok)
+		assert.Equal(t, "http://localhost:8080/callback/job-123", v)
+	})
+
+	t.Run("SESSION_ID included when set", func(t *testing.T) {
+		envList, _ := BuildAgentEnv(RunParams{
+			Prompt:      "follow up",
+			JobID:       "job-456",
+			CallbackURL: "http://localhost:8080/callback/job-456",
+			SessionID:   "sess-abc",
+		}, workDir)
+
+		v, ok := envContains(envList, "SESSION_ID")
+		assert.True(t, ok)
+		assert.Equal(t, "sess-abc", v)
+	})
+
+	t.Run("SESSION_ID omitted when empty", func(t *testing.T) {
+		envList, _ := BuildAgentEnv(RunParams{
+			Prompt:      "new task",
+			JobID:       "job-789",
+			CallbackURL: "http://localhost:8080/callback/job-789",
+		}, workDir)
+
+		_, ok := envContains(envList, "SESSION_ID")
+		assert.False(t, ok)
+	})
+
+	t.Run("HOOKS_URL set when channel present", func(t *testing.T) {
+		envList, _ := BuildAgentEnv(RunParams{
+			Prompt:      "with hooks",
+			JobID:       "job-hooks",
+			CallbackURL: "http://localhost:8080/callback/job-hooks",
+			Channel:     &stubChannel{},
+			TopicID:     "topic-1",
+		}, workDir)
+
+		v, ok := envContains(envList, "HOOKS_URL")
+		assert.True(t, ok)
+		assert.Equal(t, "http://localhost:8080/hooks/job-hooks", v)
+	})
+
+	t.Run("HOOKS_URL omitted without channel", func(t *testing.T) {
+		envList, _ := BuildAgentEnv(RunParams{
+			Prompt:      "no channel",
+			JobID:       "job-nohook",
+			CallbackURL: "http://localhost:8080/callback/job-nohook",
+		}, workDir)
+
+		_, ok := envContains(envList, "HOOKS_URL")
+		assert.False(t, ok)
+	})
+
+	t.Run("HOOKS_URL omitted without topic", func(t *testing.T) {
+		envList, _ := BuildAgentEnv(RunParams{
+			Prompt:      "channel but no topic",
+			JobID:       "job-notopic",
+			CallbackURL: "http://localhost:8080/callback/job-notopic",
+			Channel:     &stubChannel{},
+		}, workDir)
+
+		_, ok := envContains(envList, "HOOKS_URL")
+		assert.False(t, ok)
+	})
+
+	t.Run("HOOKS_URL set for all agent types", func(t *testing.T) {
+		for _, agentType := range []string{"claude", "opencode", "custom-future-agent"} {
+			t.Run(agentType, func(t *testing.T) {
+				envList, _ := BuildAgentEnv(RunParams{
+					AgentType:   agentType,
+					Prompt:      "test",
+					JobID:       "job-" + agentType,
+					CallbackURL: "http://localhost:8080/callback/job-" + agentType,
+					Channel:     &stubChannel{},
+					TopicID:     "topic-1",
+				}, workDir)
+
+				v, ok := envContains(envList, "HOOKS_URL")
+				assert.True(t, ok, "HOOKS_URL should be set for agent type %q", agentType)
+				assert.Contains(t, v, "/hooks/")
+			})
+		}
+	})
 }
