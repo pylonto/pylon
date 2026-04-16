@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -605,9 +606,30 @@ func (d *Daemon) registerHooksRoute() {
 				d.hookLog[jobID] = d.hookLog[jobID][len(d.hookLog[jobID])-8:]
 			}
 			d.hooksMu.Unlock()
+
+			// Append to the persistent log file so events appear in the
+			// "l" (tail) view alongside container output.
+			appendEventToLog(jobID, msg)
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+// appendEventToLog appends a formatted tool event to the persistent log file
+// for a job. This lets the TUI "l" (tail) view show tool events alongside
+// container output in real time.
+func appendEventToLog(jobID, msg string) {
+	logPath := runner.LogPath(jobID)
+	f, err := os.OpenFile(filepath.Clean(logPath), os.O_WRONLY|os.O_APPEND, 0644) //nolint:gosec // jobID is server-generated UUID, not user input
+	if err != nil {
+		return // log file may not exist yet; best-effort
+	}
+	defer f.Close()
+	short := jobID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	fmt.Fprintf(f, "[agent] [%s] > %s\n", short, msg)
 }
 
 func verifySignature(trigger config.TriggerConfig, header http.Header, body []byte) bool {

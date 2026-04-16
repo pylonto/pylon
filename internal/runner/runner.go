@@ -83,64 +83,13 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		pullOut.Close()
 	}
 
-	envList := []string{
-		"PROMPT=" + p.Prompt,
-		"JOB_ID=" + p.JobID,
-		"CALLBACK_URL=" + p.CallbackURL,
-	}
-	if p.SessionID != "" {
-		envList = append(envList, "SESSION_ID="+p.SessionID)
-	}
-
-	var mounts []mount.Mount
-	expand := func(s string) string {
-		return config.ExpandWithPylonEnv(s, p.PylonEnv)
-	}
-
-	switch p.AgentType {
-	case "opencode":
-		apiKey := expand(p.APIKey)
-		envVar := config.ProviderEnvVar(p.Provider)
-		if apiKey == "" {
-			apiKey = os.Getenv(envVar)
-		}
-		if apiKey != "" {
-			envList = append(envList, envVar+"="+apiKey)
-		}
-		if p.Provider != "" {
-			envList = append(envList, "OPENCODE_PROVIDER="+p.Provider)
-		}
-	default: // claude
-		if p.Auth == "oauth" {
-			homeDir, _ := os.UserHomeDir()
-			mounts = append(mounts,
-				mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude"), Target: "/home/pylon/.claude"},
-				mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude.json"), Target: "/home/pylon/.claude.json"},
-			)
-		} else {
-			apiKey := expand(p.APIKey)
-			if apiKey == "" {
-				apiKey = os.Getenv("ANTHROPIC_API_KEY")
-			}
-			if apiKey != "" {
-				envList = append(envList, "ANTHROPIC_API_KEY="+apiKey)
-			}
-		}
-	}
-
-	for k, v := range p.ExtraEnv {
-		envList = append(envList, k+"="+expand(v))
-	}
-
-	mounts = append(mounts, BuildWorkspaceMounts(p, workDir)...)
+	envList, mounts := BuildAgentEnv(p, workDir)
 
 	if p.Channel != nil && p.TopicID != "" {
-		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
-		switch p.AgentType {
-		case "opencode":
-			// OpenCode hooks are handled by the entrypoint's NDJSON stream
-			// processor, which POSTs tool events to the hooks URL directly.
-		default:
+		if p.AgentType != "opencode" {
+			// Claude Code needs a settings file to trigger PostToolUse hooks.
+			// Other agents can use the HOOKS_URL env var directly.
+			hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
 			WriteHooksConfig(workDir, hooksURL)
 		}
 	}
@@ -211,6 +160,69 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 		p.Channel.SendMessage(p.TopicID, p.Channel.FormatText(msg)) //nolint:errcheck // best-effort notification
 	}
 	return jobErr
+}
+
+// BuildAgentEnv constructs the environment variable list and auth mounts for
+// a job. Extracted from RunAgentJob so the env/mount logic is unit-testable
+// without Docker.
+func BuildAgentEnv(p RunParams, workDir string) ([]string, []mount.Mount) {
+	envList := []string{
+		"PROMPT=" + p.Prompt,
+		"JOB_ID=" + p.JobID,
+		"CALLBACK_URL=" + p.CallbackURL,
+	}
+	if p.SessionID != "" {
+		envList = append(envList, "SESSION_ID="+p.SessionID)
+	}
+
+	var mounts []mount.Mount
+	expand := func(s string) string {
+		return config.ExpandWithPylonEnv(s, p.PylonEnv)
+	}
+
+	switch p.AgentType {
+	case "opencode":
+		apiKey := expand(p.APIKey)
+		envVar := config.ProviderEnvVar(p.Provider)
+		if apiKey == "" {
+			apiKey = os.Getenv(envVar)
+		}
+		if apiKey != "" {
+			envList = append(envList, envVar+"="+apiKey)
+		}
+		if p.Provider != "" {
+			envList = append(envList, "OPENCODE_PROVIDER="+p.Provider)
+		}
+	default: // claude
+		if p.Auth == "oauth" {
+			homeDir, _ := os.UserHomeDir()
+			mounts = append(mounts,
+				mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude"), Target: "/home/pylon/.claude"},
+				mount.Mount{Type: mount.TypeBind, Source: filepath.Join(homeDir, ".claude.json"), Target: "/home/pylon/.claude.json"},
+			)
+		} else {
+			apiKey := expand(p.APIKey)
+			if apiKey == "" {
+				apiKey = os.Getenv("ANTHROPIC_API_KEY")
+			}
+			if apiKey != "" {
+				envList = append(envList, "ANTHROPIC_API_KEY="+apiKey)
+			}
+		}
+	}
+
+	for k, v := range p.ExtraEnv {
+		envList = append(envList, k+"="+expand(v))
+	}
+
+	mounts = append(mounts, BuildWorkspaceMounts(p, workDir)...)
+
+	if p.Channel != nil && p.TopicID != "" {
+		hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
+		envList = append(envList, "HOOKS_URL="+hooksURL)
+	}
+
+	return envList, mounts
 }
 
 // BuildWorkspaceMounts assembles the bind mounts for a job's workspace.

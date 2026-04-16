@@ -33,9 +33,20 @@ func TestWriteHooksConfig(t *testing.T) {
 	var parsed map[string]interface{}
 	require.NoError(t, json.Unmarshal(data, &parsed))
 
+	content := string(data)
+
 	// Verify the hooks URL is in the settings
-	assert.Contains(t, string(data), hooksURL)
-	assert.Contains(t, string(data), "PostToolUse")
+	assert.Contains(t, content, hooksURL)
+	assert.Contains(t, content, "PostToolUse")
+
+	// Verify command-type hook with curl (not http type, which silently fails)
+	assert.Contains(t, content, `"type": "command"`)
+	assert.Contains(t, content, "curl")
+	assert.Contains(t, content, "-d @-")
+	assert.NotContains(t, content, `"type": "http"`)
+
+	// Verify catch-all matcher
+	assert.Contains(t, content, `"matcher": ".*"`)
 }
 
 func TestCleanupWorkspace(t *testing.T) {
