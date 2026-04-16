@@ -7,27 +7,74 @@ Pylon uses a single machine-level config file at `~/.pylon/config.yaml` to defin
 
 ## Secrets files
 
-Pylon supports two levels of secrets files:
+Pylon reads secrets from two `.env` files and substitutes them into config fields that use `${VAR_NAME}` syntax. Config files stay free of raw secrets, and you can commit them to a repo without leaking credentials.
 
-**Global** -- `~/.pylon/.env` for secrets shared across all pylons:
+### File locations
+
+| File | Scope | Purpose |
+|---|---|---|
+| `~/.pylon/.env` | Global | Secrets shared across every pylon. Loaded once when `pylon start` boots the daemon. |
+| `~/.pylon/pylons/<name>/.env` | Per-pylon | Secrets scoped to one pylon. Loaded fresh for each job so edits take effect without restarting the daemon. |
+
+### File format
+
+One `KEY=VALUE` pair per line. Lines starting with `#` are comments. Do not wrap values in quotes and do not use a shell `export` prefix.
 
 ```bash
+# ~/.pylon/.env
 ANTHROPIC_API_KEY=sk-ant-...
+TELEGRAM_BOT_TOKEN=7123456789:AAF...
 ```
-
-**Per-pylon** -- `~/.pylon/pylons/<name>/.env` for secrets scoped to a single pylon:
 
 ```bash
-TELEGRAM_BOT_TOKEN=7123456789:AAF...
+# ~/.pylon/pylons/sentry-triage/.env
+SENTRY_WEBHOOK_SECRET=whsec_...
 SENTRY_AUTH_TOKEN=sntrys_...
-GH_TOKEN=ghp_...
 ```
 
-Per-pylon secrets take priority over global ones when the same variable name appears in both files. Reference these values in `config.yaml` or `pylon.yaml` using `${VAR_NAME}` syntax. Pylon expands them at startup, so the config files never contain raw secrets.
+<Warning>
+Set restrictive permissions on every `.env` file: `chmod 600 ~/.pylon/.env`. `pylon setup` writes new files with mode `0600` automatically, but files you create by hand start with your umask default.
+</Warning>
+
+### Referencing secrets in YAML
+
+Use `${VAR_NAME}` anywhere a string value is accepted:
+
+```yaml
+# config.yaml
+defaults:
+  channel:
+    telegram:
+      bot_token: "${TELEGRAM_BOT_TOKEN}"
+
+# pylon.yaml
+trigger:
+  secret: "${SENTRY_WEBHOOK_SECRET}"
+  signature_header: "Sentry-Hook-Signature"
+agent:
+  api_key: "${ANTHROPIC_API_KEY}"
+  env:
+    DATABASE_URL: "${DATABASE_URL}"
+```
+
+Fields that commonly hold secrets: `trigger.secret`, `channel.telegram.bot_token`, `channel.slack.bot_token`, `channel.slack.app_token`, `agent.api_key`, and any value under `agent.env`.
+
+### Resolution order
+
+When Pylon expands `${VAR_NAME}` for a given pylon it checks sources in this order:
+
+1. The pylon's own `~/.pylon/pylons/<name>/.env`
+2. The process environment (which includes anything the global `~/.pylon/.env` loaded at startup, plus whatever was already exported in your shell)
+
+Per-pylon values win. Shell-exported values win over the global `.env` file -- the global loader only sets a variable if it is not already defined.
 
 <Tip>
-Use per-pylon `.env` files to keep secrets organized. Each pylon can use clean, generic variable names like `TELEGRAM_BOT_TOKEN` without worrying about collisions with other pylons.
+Per-pylon `.env` files let each pylon use clean, generic names like `TELEGRAM_BOT_TOKEN` without worrying about collisions. When the same pylon needs two different tokens (for example, one Telegram bot for alerts and another for debug messages), suffix the names: `TELEGRAM_BOT_TOKEN_ALERTS`, `TELEGRAM_BOT_TOKEN_DEBUG`.
 </Tip>
+
+<Note>
+If a referenced variable is unset, Pylon rejects the config at startup with a message like `telegram.bot_token references ${TELEGRAM_BOT_TOKEN} but it is not set`. Run `pylon doctor` to surface these errors before you rely on the pylon at runtime.
+</Note>
 
 ## Annotated config.yaml
 
