@@ -340,6 +340,57 @@ func TestPruneWorktreeMetadata_noReposDir(t *testing.T) {
 	PruneWorktreeMetadata()
 }
 
+// requireGitHubSSH skips the test if SSH access to github.com is unavailable.
+// ToSSHURL converts HTTPS GitHub URLs to SSH, so these tests need SSH keys.
+func requireGitHubSSH(t *testing.T) {
+	t.Helper()
+	cmd := exec.Command("git", "ls-remote", "git@github.com:kelseyhightower/nocode.git")
+	if err := cmd.Run(); err != nil {
+		t.Skip("skipping: SSH access to github.com unavailable")
+	}
+}
+
+const nocodeRepo = "https://github.com/kelseyhightower/nocode.git"
+
+func TestSetupClone_remote(t *testing.T) {
+	requireGitHubSSH(t)
+	withTempJobsDir(t)
+
+	jobID := "00000000-0000-0000-0000-remote-clone1"
+	workDir, err := setupClone(context.Background(), RunParams{
+		JobID: jobID,
+		Repo:  nocodeRepo,
+		Ref:   "master",
+	})
+	require.NoError(t, err)
+
+	// The nocode repo should have a README
+	_, err = os.Stat(filepath.Join(workDir, "README.md"))
+	assert.NoError(t, err, "cloned nocode repo should contain README.md")
+}
+
+func TestSetupWorktree_remote(t *testing.T) {
+	requireGitHubSSH(t)
+	withTempJobsDir(t)
+	withTempReposDir(t)
+
+	jobID := "00000000-0000-0000-0000-remote-wt001"
+	workDir, err := setupWorktree(context.Background(), RunParams{
+		JobID: jobID,
+		Repo:  nocodeRepo,
+		Ref:   "master",
+	})
+	require.NoError(t, err)
+
+	// Worktree should have repo contents
+	_, err = os.Stat(filepath.Join(workDir, "README.md"))
+	assert.NoError(t, err, "worktree of nocode repo should contain README.md")
+
+	// Bare repo cache should be populated
+	entries, _ := os.ReadDir(ReposDir)
+	assert.True(t, len(entries) > 0, "bare repo cache should exist")
+}
+
 // runGit executes a git command in the given directory.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
