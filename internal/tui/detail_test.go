@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/pylonto/pylon/internal/store"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -129,6 +130,72 @@ func TestEscClosesAlertBuilder(t *testing.T) {
 	assert.False(t, updated.alertBuilder, "alertBuilder should be cleared")
 	msg := execCmd(cmd)
 	assert.Nil(t, msg, "expected no nav-back when closing alert builder")
+}
+
+func TestJobWindow(t *testing.T) {
+	tests := []struct {
+		name      string
+		cursor    int
+		total     int
+		window    int
+		wantStart int
+		wantEnd   int
+	}{
+		{"all fit", 0, 5, 10, 0, 5},
+		{"cursor at top", 0, 20, 5, 0, 5},
+		{"cursor at bottom", 19, 20, 5, 15, 20},
+		{"cursor centered", 10, 20, 5, 8, 13},
+		{"cursor near top", 1, 20, 5, 0, 5},
+		{"cursor near bottom", 18, 20, 5, 15, 20},
+		{"window size 1", 5, 20, 1, 5, 6},
+		{"single job", 0, 1, 5, 0, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, end := jobWindow(tt.cursor, tt.total, tt.window)
+			assert.Equal(t, tt.wantStart, start, "start")
+			assert.Equal(t, tt.wantEnd, end, "end")
+		})
+	}
+}
+
+func TestRenderJobsRespectsMaxRows(t *testing.T) {
+	// Regression: when the first-pass window starts at 0 but shrinking it
+	// shifts it off the edge, a new "above" indicator appears that wasn't
+	// budgeted, pushing the total 1 line over maxRows.
+	makeJobs := func(n int) []*store.Job {
+		jobs := make([]*store.Job, n)
+		for i := range n {
+			jobs[i] = &store.Job{ID: fmt.Sprintf("job-%04d", i), Status: "completed", CreatedAt: time.Now()}
+		}
+		return jobs
+	}
+
+	tests := []struct {
+		name    string
+		cursor  int
+		total   int
+		maxRows int
+	}{
+		{"cursor near edge triggers extra indicator", 4, 20, 9},
+		{"cursor at top", 0, 20, 9},
+		{"cursor at bottom", 19, 20, 9},
+		{"all fit", 0, 5, 20},
+		{"tight fit", 3, 10, 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := detailModel{
+				jobs:    makeJobs(tt.total),
+				cursor:  tt.cursor,
+				focused: true,
+			}
+			out := m.renderJobs(tt.maxRows)
+			lines := strings.Count(out, "\n")
+			assert.LessOrEqual(t, lines, tt.maxRows,
+				"renderJobs output %d lines, max allowed %d", lines, tt.maxRows)
+		})
+	}
 }
 
 func TestRenderJobStatus(t *testing.T) {
