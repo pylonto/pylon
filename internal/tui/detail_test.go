@@ -198,6 +198,26 @@ func TestRenderJobsRespectsMaxRows(t *testing.T) {
 	}
 }
 
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name string
+		dur  time.Duration
+		want string
+	}{
+		{"seconds", 45 * time.Second, "45s"},
+		{"one minute", 60 * time.Second, "1m0s"},
+		{"minutes and seconds", 3*time.Minute + 15*time.Second, "3m15s"},
+		{"one hour", 60 * time.Minute, "1h0m"},
+		{"hours and minutes", 2*time.Hour + 30*time.Minute, "2h30m"},
+		{"sub-second rounds to 0", 500 * time.Millisecond, "0s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatDuration(tt.dur))
+		})
+	}
+}
+
 func TestRenderJobStatus(t *testing.T) {
 	tests := []struct {
 		status   string

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,6 +16,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestMain sets runner.JobsDir once for all daemon tests. Individual tests
+// must NOT mutate runner.JobsDir because integration/cron tests spawn
+// background goroutines (via runJob) that read it concurrently.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "daemon-test-jobs-*")
+	if err != nil {
+		panic(err)
+	}
+	runner.JobsDir = dir
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestFormatToolEvent(t *testing.T) {
 	tests := []struct {
@@ -80,16 +93,13 @@ func TestFormatToolEvent_hookPayloads(t *testing.T) {
 }
 
 func TestAppendEventToLog(t *testing.T) {
-	// Override JobsDir so LogPath writes to a temp directory.
-	origDir := runner.JobsDir
-	runner.JobsDir = t.TempDir()
-	t.Cleanup(func() { runner.JobsDir = origDir })
-
+	// runner.JobsDir is set once by TestMain -- never mutate it here.
 	jobID := "test-job-append-1234"
 
 	// Create the log file (runner normally creates it when the container starts).
 	logPath := runner.LogPath(jobID)
 	require.NoError(t, os.WriteFile(logPath, []byte("--- run ---\n"), 0644))
+	t.Cleanup(func() { os.Remove(logPath) })
 
 	appendEventToLog(jobID, "$ git status")
 	appendEventToLog(jobID, "Reading /workspace/main.go")
@@ -110,12 +120,8 @@ func TestAppendEventToLog(t *testing.T) {
 }
 
 func TestAppendEventToLog_noFile(t *testing.T) {
-	// Override JobsDir to a non-existent directory.
-	origDir := runner.JobsDir
-	runner.JobsDir = filepath.Join(t.TempDir(), "nonexistent")
-	t.Cleanup(func() { runner.JobsDir = origDir })
-
-	// Should not panic when the log file doesn't exist.
+	// runner.JobsDir is set by TestMain to a valid temp dir, but this jobID
+	// has no log file -- appendEventToLog should silently return.
 	appendEventToLog("no-such-job-12345678", "$ ls")
 }
 

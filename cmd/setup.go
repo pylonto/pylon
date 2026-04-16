@@ -27,6 +27,50 @@ var setupCmd = &cobra.Command{
 	RunE:  runSetup,
 }
 
+// setupInputs holds the collected user inputs from the setup wizard.
+type setupInputs struct {
+	ChannelChoice string
+	Telegram      *config.TelegramConfig
+	Slack         *config.SlackConfig
+	AgentChoice   string
+	Claude        *config.ClaudeDefaults
+	OpenCode      *config.OpenCodeDefaults
+	PublicURL     string
+}
+
+// buildGlobalConfig assembles a GlobalConfig from the user's setup inputs.
+func buildGlobalConfig(in setupInputs) *config.GlobalConfig {
+	cfg := &config.GlobalConfig{
+		Version: 1,
+		Server:  config.ServerConfig{Port: 8080, Host: "0.0.0.0"},
+		Docker:  config.DockerConfig{MaxConcurrent: 3, DefaultTimeout: "15m"},
+	}
+
+	switch in.ChannelChoice {
+	case "telegram":
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: "telegram", Telegram: in.Telegram}
+	case "slack":
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: "slack", Slack: in.Slack}
+	default:
+		cfg.Defaults.Channel = config.ChannelDefaults{Type: in.ChannelChoice}
+	}
+
+	switch in.AgentChoice {
+	case "claude":
+		cfg.Defaults.Agent = config.AgentDefaults{Type: "claude", Claude: in.Claude}
+	case "opencode":
+		cfg.Defaults.Agent = config.AgentDefaults{Type: "opencode", OpenCode: in.OpenCode}
+	default:
+		cfg.Defaults.Agent = config.AgentDefaults{Type: in.AgentChoice}
+	}
+
+	if in.PublicURL != "" {
+		cfg.Server.PublicURL = strings.TrimRight(in.PublicURL, "/")
+	}
+
+	return cfg
+}
+
 func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nPylon Setup\n\n")
 
@@ -40,8 +84,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
+	var in setupInputs
+
 	// Channel selection
-	var channelChoice string
 	err := huh.NewSelect[string]().
 		Title("Default channel -- where should alerts go?").
 		Options(
@@ -50,44 +95,35 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			huh.NewOption("Webhook (generic HTTP POST)", "webhook"),
 			huh.NewOption("stdout (console only)", "stdout"),
 		).
-		Value(&channelChoice).
+		Value(&in.ChannelChoice).
 		Run()
 	if err != nil {
 		return err
 	}
 
-	cfg := &config.GlobalConfig{
-		Version: 1,
-		Server:  config.ServerConfig{Port: 8080, Host: "0.0.0.0"},
-		Docker:  config.DockerConfig{MaxConcurrent: 3, DefaultTimeout: "15m"},
-	}
-
-	switch channelChoice {
+	switch in.ChannelChoice {
 	case "telegram":
 		tg, err := setupTelegram()
 		if err != nil {
 			return err
 		}
-		cfg.Defaults.Channel = config.ChannelDefaults{Type: "telegram", Telegram: tg}
+		in.Telegram = tg
 	case "slack":
 		sl, err := setupSlack()
 		if err != nil {
 			return err
 		}
-		cfg.Defaults.Channel = config.ChannelDefaults{Type: "slack", Slack: sl}
-	case "stdout":
-		cfg.Defaults.Channel = config.ChannelDefaults{Type: "stdout"}
-	case "webhook":
-		cfg.Defaults.Channel = config.ChannelDefaults{Type: "webhook"}
+		in.Slack = sl
 	default:
-		comingSoon(channelChoice)
-		cfg.Defaults.Channel = config.ChannelDefaults{Type: "stdout"}
+		if in.ChannelChoice != "stdout" && in.ChannelChoice != "webhook" {
+			comingSoon(in.ChannelChoice)
+			in.ChannelChoice = "stdout"
+		}
 	}
 
 	fmt.Println()
 
 	// Agent selection
-	var agentChoice string
 	err = huh.NewSelect[string]().
 		Title("Default AI agent for new pylons:").
 		Options(
@@ -95,49 +131,50 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			huh.NewOption("OpenCode", "opencode"),
 			huh.NewOption("Custom", "custom"),
 		).
-		Value(&agentChoice).
+		Value(&in.AgentChoice).
 		Run()
 	if err != nil {
 		return err
 	}
 
-	switch agentChoice {
+	switch in.AgentChoice {
 	case "claude":
 		claude, err := setupClaude()
 		if err != nil {
 			return err
 		}
-		cfg.Defaults.Agent = config.AgentDefaults{Type: "claude", Claude: claude}
+		in.Claude = claude
 	case "opencode":
 		oc, err := setupOpenCode()
 		if err != nil {
 			return err
 		}
-		cfg.Defaults.Agent = config.AgentDefaults{Type: "opencode", OpenCode: oc}
+		in.OpenCode = oc
 	case "custom":
-		cfg.Defaults.Agent = config.AgentDefaults{Type: "custom"}
+		// No extra config needed
 	default:
-		comingSoon(agentChoice)
-		cfg.Defaults.Agent = config.AgentDefaults{Type: "claude", Claude: &config.ClaudeDefaults{
+		comingSoon(in.AgentChoice)
+		in.AgentChoice = "claude"
+		in.Claude = &config.ClaudeDefaults{
 			Image: agentimage.ImageName("claude"), Auth: "oauth",
-		}}
+		}
 	}
 
+	cfg := buildGlobalConfig(in)
 	agentimage.Ensure(cfg.Defaults.Agent.Type)
 
 	fmt.Println()
 
 	// Public URL (optional)
-	var publicURL string
 	if err := huh.NewInput().
 		Title("Public URL (optional):").
 		Description("Base URL where external services (Sentry, GitHub, etc.) can reach pylon.\nLeave blank if you only run locally.").
 		Placeholder("https://agent-arnold.app").
-		Value(&publicURL).Run(); err != nil {
+		Value(&in.PublicURL).Run(); err != nil {
 		return err
 	}
-	if publicURL != "" {
-		cfg.Server.PublicURL = strings.TrimRight(publicURL, "/")
+	if in.PublicURL != "" {
+		cfg.Server.PublicURL = strings.TrimRight(in.PublicURL, "/")
 		fmt.Println()
 		proxy.PrintHints("/<pylon-path>", cfg.Server.Port)
 	}

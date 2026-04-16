@@ -156,3 +156,31 @@ func TestMultiStoreRecoverFromDB(t *testing.T) {
 	_, ok = ms.Get("job-2")
 	assert.False(t, ok)
 }
+
+func TestMultiStoreSetFailed(t *testing.T) {
+	ms, _ := openMultiTestStore(t)
+
+	ms.Put(makeJob("job-1", "pylon-a", "running"))
+	ms.SetFailed("job-1", "container crashed")
+
+	got, ok := ms.Get("job-1")
+	require.True(t, ok)
+	assert.Equal(t, "failed", got.Status)
+	assert.Equal(t, "container crashed", got.Error)
+	assert.NotNil(t, got.CompletedAt)
+}
+
+func TestMultiStoreSavePayloadSample(t *testing.T) {
+	ms, sa := openMultiTestStore(t)
+
+	body := map[string]interface{}{
+		"event": "error",
+		"data":  map[string]interface{}{"title": "NPE"},
+	}
+	ms.SavePayloadSample("pylon-a", body)
+
+	// Verify sample was saved by loading from the underlying store
+	sample := sa.LoadPayloadSample("pylon-a")
+	assert.Contains(t, sample, `"event"`)
+	assert.Contains(t, sample, `"error"`)
+}
