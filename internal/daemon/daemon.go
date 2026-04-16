@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -619,7 +620,7 @@ func (d *Daemon) registerHooksRoute() {
 // container output in real time.
 func appendEventToLog(jobID, msg string) {
 	logPath := runner.LogPath(jobID)
-	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(filepath.Clean(logPath), os.O_WRONLY|os.O_APPEND, 0644) //nolint:gosec // jobID is server-generated UUID, not user input
 	if err != nil {
 		return // log file may not exist yet; best-effort
 	}

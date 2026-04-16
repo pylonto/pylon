@@ -311,18 +311,18 @@ func TestBuildWorkspaceMounts(t *testing.T) {
 // stubChannel is a minimal channel.Channel for testing env construction.
 type stubChannel struct{}
 
-func (c *stubChannel) Ready() bool                                          { return true }
-func (c *stubChannel) CreateTopic(string) (string, error)                   { return "", nil }
-func (c *stubChannel) SendMessage(string, string) (string, error)           { return "", nil }
-func (c *stubChannel) ReplyMessage(string, string, string) (string, error)  { return "", nil }
-func (c *stubChannel) SendApproval(string, string, string) (string, error)  { return "", nil }
-func (c *stubChannel) EditMessage(string, string, string) error             { return nil }
-func (c *stubChannel) FormatText(s string) string                           { return s }
-func (c *stubChannel) SendTyping(string) error                              { return nil }
-func (c *stubChannel) CloseTopic(string) error                              { return nil }
-func (c *stubChannel) OnAction(func(string, string))                        {}
-func (c *stubChannel) OnMessage(func(string, string, string))               {}
-func (c *stubChannel) Commands() []channel.Command                          { return nil }
+func (c *stubChannel) Ready() bool                                         { return true }
+func (c *stubChannel) CreateTopic(string) (string, error)                  { return "", nil }
+func (c *stubChannel) SendMessage(string, string) (string, error)          { return "", nil }
+func (c *stubChannel) ReplyMessage(string, string, string) (string, error) { return "", nil }
+func (c *stubChannel) SendApproval(string, string, string) (string, error) { return "", nil }
+func (c *stubChannel) EditMessage(string, string, string) error            { return nil }
+func (c *stubChannel) FormatText(s string) string                          { return s }
+func (c *stubChannel) SendTyping(string) error                             { return nil }
+func (c *stubChannel) CloseTopic(string) error                             { return nil }
+func (c *stubChannel) OnAction(func(string, string))                       {}
+func (c *stubChannel) OnMessage(func(string, string, string))              {}
+func (c *stubChannel) Commands() []channel.Command                         { return nil }
 
 func envContains(envList []string, key string) (string, bool) {
 	for _, e := range envList {
