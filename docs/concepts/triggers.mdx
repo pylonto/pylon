@@ -27,9 +27,9 @@ trigger:
 | `signature_header` | No | The HTTP header containing the HMAC signature, e.g. `Sentry-Hook-Signature` or `X-Hub-Signature-256`. Required when `secret` is set. |
 | `public_url` | No | Overrides the global `server.public_url` for this pylon's displayed webhook URL. |
 
-### HMAC validation
+### Signature verification
 
-When you set `secret` and `signature_header`, Pylon validates the HMAC signature on every incoming request and rejects requests that fail validation.
+When you set both `secret` and `signature_header`, Pylon computes an HMAC signature for each incoming request, compares it to the header value, and rejects the request with `401 Unauthorized` on mismatch.
 
 ```yaml
 trigger:
@@ -39,7 +39,49 @@ trigger:
   signature_header: Sentry-Hook-Signature
 ```
 
-Store secrets in `~/.pylon/.env` and reference them with `${VAR_NAME}` -- Pylon loads this file on startup.
+Store secrets in `~/.pylon/.env` or `~/.pylon/pylons/<name>/.env` and reference them with `${VAR_NAME}`. See [secrets files](/yaml/config#secrets-files) for the resolution rules.
+
+#### Algorithm
+
+1. Read the raw request body (bytes, unparsed).
+2. Compute `HMAC-SHA256(secret, body)`.
+3. Hex-encode the digest as a lowercase string.
+4. Compare that string to the value of the header named by `signature_header`, using a constant-time comparison.
+
+Pylon expects the signature header value to be a **bare lowercase hex digest** with no prefix or scheme. If the sender wraps the digest (for example, GitHub's `sha256=<hex>` format), Pylon does not strip the prefix and the comparison will fail.
+
+<Warning>
+If you leave `signature_header` empty, Pylon skips verification entirely even when `secret` is set. Always set both fields together.
+</Warning>
+
+#### Provider compatibility
+
+| Sender | Header | Format | Works out of the box? |
+|---|---|---|---|
+| Sentry | `Sentry-Hook-Signature` | bare hex | Yes |
+| Slack (request signing v0) | `X-Slack-Signature` | `v0=<hex>` | No -- Slack prefixes the digest and also requires a timestamped payload |
+| GitHub | `X-Hub-Signature-256` | `sha256=<hex>` | No -- GitHub prefixes the digest |
+| Custom sender | any | bare hex | Yes, when you control the sender |
+
+For providers whose format does not match (GitHub, Slack), put an intermediary (nginx, Caddy, a tiny Go/Node shim) in front of Pylon to validate the native signature first and forward the request without the verification headers. Or skip signature verification at the Pylon layer and rely on network-level isolation.
+
+#### Generating a signature by hand
+
+Useful when scripting a custom sender or re-testing with `curl`:
+
+```bash
+SECRET="whsec_example"
+BODY='{"event":"ping"}'
+
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
+
+curl -X POST https://pylon.example.com/sentry-triage \
+  -H "Content-Type: application/json" \
+  -H "Sentry-Hook-Signature: $SIG" \
+  -d "$BODY"
+```
+
+Field-level reference for `trigger.secret` and `trigger.signature_header` lives in [`pylon.yaml`](/yaml/pylon#trigger).
 
 ### Exposing the webhook publicly
 

@@ -407,6 +407,40 @@ For more complex payloads, pass a path to a JSON file:
 pylon test my-pylon --payload "$(cat sample-sentry-event.json)"
 ```
 
+### Building `channel.message` interactively
+
+Writing message templates by hand means guessing at payload field names. Nexus ships an interactive builder that reads the last real trigger payload for a pylon, shows you its structure, and writes a `channel.message` block directly into `pylon.yaml` when you save.
+
+<Steps>
+
+<Step title="Trigger the pylon at least once">
+Send a real webhook or run `pylon test <name>` so Pylon has a sample payload to read from. The builder refuses to open if the pylon has never fired.
+</Step>
+
+<Step title="Open Nexus and select the pylon">
+Run `pylon nexus`, highlight the pylon in the sidebar, and press `l` or `enter` to focus the detail panel.
+</Step>
+
+<Step title="Press `a` to open the builder">
+Nexus renders the payload as collapsible groups. Navigate with `j`/`k`, expand groups with `space`, and check fields you want in the message with `space`.
+</Step>
+
+<Step title="Save and close">
+Press `enter` to save. Nexus writes labelled Go template expressions into `channel.message`. For example, checking a `title` field under `event` produces:
+
+```yaml
+channel:
+  message: |
+    Title: {{ .body.event.title }}
+```
+
+Press `esc` to cancel without saving.
+</Step>
+
+</Steps>
+
+See [Nexus message template builder](/concepts/nexus#message-template-builder) for the full keybinding reference.
+
 ### Tips
 
 <Tip>
