@@ -267,6 +267,327 @@ func newTelegramTestServer(t *testing.T, onRequest func(params map[string]interf
 	}))
 }
 
+func TestTelegram_isAllowed(t *testing.T) {
+	t.Run("empty allowlist allows everyone", func(t *testing.T) {
+		tg := newTestTelegram(12345)
+		assert.True(t, tg.isAllowed(999))
+		assert.True(t, tg.isAllowed(0))
+	})
+
+	t.Run("non-empty allowlist restricts", func(t *testing.T) {
+		tg := &Telegram{
+			token:        "test-token",
+			chatID:       12345,
+			allowedUsers: map[int64]bool{111: true, 222: true},
+			client:       &http.Client{Timeout: 1 * time.Second},
+		}
+		assert.True(t, tg.isAllowed(111))
+		assert.True(t, tg.isAllowed(222))
+		assert.False(t, tg.isAllowed(333))
+		assert.False(t, tg.isAllowed(0))
+	})
+}
+
+func TestTelegram_OnAction(t *testing.T) {
+	tg := newTestTelegram(12345)
+
+	var gotJobID, gotAction string
+	tg.OnAction(func(jobID, action string) {
+		gotJobID = jobID
+		gotAction = action
+	})
+
+	tg.mu.Lock()
+	fn := tg.actionFn
+	tg.mu.Unlock()
+
+	assert.NotNil(t, fn)
+	fn("job-1", "investigate")
+	assert.Equal(t, "job-1", gotJobID)
+	assert.Equal(t, "investigate", gotAction)
+}
+
+func TestTelegram_OnMessage(t *testing.T) {
+	tg := newTestTelegram(12345)
+
+	var gotTopic, gotText, gotMsgID string
+	tg.OnMessage(func(topicID, text, messageID string) {
+		gotTopic = topicID
+		gotText = text
+		gotMsgID = messageID
+	})
+
+	tg.mu.Lock()
+	fn := tg.messageFn
+	tg.mu.Unlock()
+
+	assert.NotNil(t, fn)
+	fn("topic-1", "hello", "msg-1")
+	assert.Equal(t, "topic-1", gotTopic)
+	assert.Equal(t, "hello", gotText)
+	assert.Equal(t, "msg-1", gotMsgID)
+}
+
+func TestTelegram_Commands(t *testing.T) {
+	tg := newTestTelegram(12345)
+	cmds := tg.Commands()
+	assert.Equal(t, BotCommands, cmds)
+	assert.True(t, len(cmds) > 0)
+}
+
+func TestIsGroup(t *testing.T) {
+	assert.True(t, isGroup("group"))
+	assert.True(t, isGroup("supergroup"))
+	assert.False(t, isGroup("private"))
+	assert.False(t, isGroup("channel"))
+	assert.False(t, isGroup(""))
+}
+
+func TestTelegram_CreateTopic(t *testing.T) {
+	var receivedParams map[string]interface{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &receivedParams)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"ok":true,"result":{"message_thread_id":42}}`)
+	}))
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	topicID, err := tg.CreateTopic("Test Topic")
+	require.NoError(t, err)
+	assert.Equal(t, "42", topicID)
+	assert.Equal(t, "Test Topic", receivedParams["name"])
+}
+
+func TestTelegram_CreateTopic_truncatesLongNames(t *testing.T) {
+	var receivedParams map[string]interface{}
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		receivedParams = params
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	longName := strings.Repeat("a", 200)
+	_, err := tg.CreateTopic(longName)
+	require.NoError(t, err)
+
+	name, _ := receivedParams["name"].(string)
+	assert.Equal(t, 128, len(name), "topic name should be truncated to 128 chars")
+}
+
+func TestTelegram_ReplyMessage(t *testing.T) {
+	var mu sync.Mutex
+	var requests []map[string]interface{}
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		mu.Lock()
+		requests = append(requests, params)
+		mu.Unlock()
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	_, err := tg.ReplyMessage("42", "reply text", "100")
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.True(t, len(requests) >= 1)
+	// First chunk should have reply_to_message_id
+	assert.Equal(t, float64(100), requests[0]["reply_to_message_id"])
+	assert.Equal(t, float64(42), requests[0]["message_thread_id"])
+}
+
+func TestTelegram_SendApproval(t *testing.T) {
+	var receivedParams map[string]interface{}
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		receivedParams = params
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	_, err := tg.SendApproval("42", "Approve this?", "job-123")
+	require.NoError(t, err)
+
+	assert.NotNil(t, receivedParams["reply_markup"], "should include inline keyboard")
+	markup := receivedParams["reply_markup"].(map[string]interface{})
+	keyboard := markup["inline_keyboard"].([]interface{})
+	assert.Len(t, keyboard, 1, "should have one row of buttons")
+	row := keyboard[0].([]interface{})
+	assert.Len(t, row, 2, "should have Investigate and Ignore buttons")
+}
+
+func TestTelegram_EditMessage(t *testing.T) {
+	var receivedParams map[string]interface{}
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		receivedParams = params
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	err := tg.EditMessage("42", "100", "updated text")
+	assert.NoError(t, err)
+	assert.Equal(t, float64(100), receivedParams["message_id"])
+	assert.Equal(t, "MarkdownV2", receivedParams["parse_mode"])
+}
+
+func TestTelegram_EditMessage_fallsBackToPlaintext(t *testing.T) {
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		if callCount == 1 {
+			// First call (MarkdownV2) fails
+			fmt.Fprintf(w, `{"ok":false,"description":"can't parse entities"}`)
+		} else {
+			// Second call (plaintext) succeeds
+			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":100}}`)
+		}
+	}))
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	err := tg.EditMessage("0", "100", "**broken** markdown")
+	assert.NoError(t, err)
+	assert.Equal(t, 2, callCount, "should retry with plaintext after MarkdownV2 failure")
+}
+
+func TestTelegram_CloseTopic(t *testing.T) {
+	var receivedParams map[string]interface{}
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		receivedParams = params
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	err := tg.CloseTopic("42")
+	assert.NoError(t, err)
+	assert.Equal(t, float64(42), receivedParams["message_thread_id"])
+}
+
+func TestTelegram_CloseTopic_zeroIsNoop(t *testing.T) {
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		// Should not be called
+		assert.Fail(t, "API should not be called for topicID 0")
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+	err := tg.CloseTopic("0")
+	assert.NoError(t, err)
+}
+
+func TestTelegram_SendTyping(t *testing.T) {
+	var receivedParams map[string]interface{}
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		receivedParams = params
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	err := tg.SendTyping("42")
+	assert.NoError(t, err)
+	assert.Equal(t, "typing", receivedParams["action"])
+	assert.Equal(t, float64(42), receivedParams["message_thread_id"])
+}
+
+func TestTelegram_SendTyping_noTopic(t *testing.T) {
+	var receivedParams map[string]interface{}
+	ts := newTelegramTestServer(t, func(params map[string]interface{}) {
+		receivedParams = params
+	})
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	err := tg.SendTyping("0")
+	assert.NoError(t, err)
+	assert.Equal(t, "typing", receivedParams["action"])
+	_, hasThreadID := receivedParams["message_thread_id"]
+	assert.False(t, hasThreadID, "should not include message_thread_id for topicID 0")
+}
+
+func TestTelegram_TestConnection(t *testing.T) {
+	ts := newTelegramTestServer(t, nil)
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+	assert.NoError(t, tg.TestConnection())
+}
+
+func TestTelegram_TestConnection_failure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"ok":false,"description":"Unauthorized"}`)
+	}))
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+	assert.Error(t, tg.TestConnection())
+}
+
+func TestTelegram_callAPI_failure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"ok":false,"description":"Bad Request: chat not found"}`)
+	}))
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+	_, err := tg.callAPI("sendMessage", map[string]interface{}{"chat_id": 99999})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "chat not found")
+}
+
+func TestTelegram_callAPI_networkError(t *testing.T) {
+	tg := newTestTelegramWithURL(12345, "http://localhost:1") // nothing listening
+	_, err := tg.callAPI("getMe", map[string]interface{}{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "calling getMe")
+}
+
+func TestTelegram_callAPI_invalidJSON(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("not json"))
+	}))
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+	_, err := tg.callAPI("getMe", map[string]interface{}{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing")
+}
+
+func TestTelegram_SendMessage_fallsBackToPlaintext(t *testing.T) {
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		if callCount == 1 {
+			// MarkdownV2 fails
+			fmt.Fprintf(w, `{"ok":false,"description":"can't parse entities"}`)
+		} else {
+			// Plaintext succeeds
+			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":1}}`)
+		}
+	}))
+	defer ts.Close()
+
+	tg := newTestTelegramWithURL(12345, ts.URL)
+
+	_, err := tg.SendMessage("0", "test message")
+	assert.NoError(t, err)
+	assert.Equal(t, 2, callCount, "should retry with plaintext")
+}
+
 func TestTelegram_autoDetect_nilCallback(t *testing.T) {
 	tg := newTestTelegram(0)
 	// No OnChatDetected registered -- should not panic.

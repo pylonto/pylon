@@ -26,6 +26,106 @@ var constructCmd = &cobra.Command{
 	RunE:  runConstruct,
 }
 
+// constructInputs holds the collected user inputs from the construct wizard.
+type constructInputs struct {
+	Name          string
+	Description   string
+	TriggerType   string
+	TriggerPath   string
+	TriggerCron   string
+	TriggerTZ     string
+	TriggerURL    string
+	WorkspaceType string
+	WorkspaceRepo string
+	WorkspaceRef  string
+	WorkspacePath string
+	ChannelChoice string
+	Telegram      *config.TelegramConfig
+	Slack         *config.SlackConfig
+	AgentChoice   string
+	Volumes       []string
+	Prompt        string
+	Approval      bool
+	TopicTemplate string
+	MsgTemplate   string
+}
+
+// buildPylonConfig assembles a PylonConfig from the user's construct inputs.
+func buildPylonConfig(in constructInputs) *config.PylonConfig {
+	pyl := &config.PylonConfig{
+		Name:        in.Name,
+		Description: in.Description,
+		Created:     time.Now().UTC(),
+	}
+
+	// Trigger
+	pyl.Trigger.Type = in.TriggerType
+	switch in.TriggerType {
+	case "webhook":
+		path := in.TriggerPath
+		if path == "" {
+			path = "/" + in.Name
+		}
+		if path[0] != '/' {
+			path = "/" + path
+		}
+		pyl.Trigger.Path = path
+		if in.TriggerURL != "" {
+			pyl.Trigger.PublicURL = strings.TrimRight(in.TriggerURL, "/")
+		}
+	case "cron":
+		pyl.Trigger.Cron = in.TriggerCron
+		pyl.Trigger.Timezone = in.TriggerTZ
+	}
+
+	// Workspace
+	pyl.Workspace.Type = in.WorkspaceType
+	switch in.WorkspaceType {
+	case "git-clone", "git-worktree":
+		pyl.Workspace.Repo = in.WorkspaceRepo
+		pyl.Workspace.Ref = in.WorkspaceRef
+	case "local":
+		pyl.Workspace.Path = in.WorkspacePath
+	}
+
+	// Channel
+	if in.ChannelChoice != "default" {
+		pyl.Channel = &config.PylonChannel{Type: in.ChannelChoice}
+		switch in.ChannelChoice {
+		case "telegram":
+			pyl.Channel.Telegram = in.Telegram
+		case "slack":
+			pyl.Channel.Slack = in.Slack
+		}
+	}
+
+	// Agent
+	if in.AgentChoice != "default" {
+		pyl.Agent = &config.PylonAgent{Type: in.AgentChoice}
+	}
+
+	// Volumes and prompt
+	if len(in.Volumes) > 0 || in.Prompt != "" {
+		if pyl.Agent == nil {
+			pyl.Agent = &config.PylonAgent{}
+		}
+		pyl.Agent.Volumes = in.Volumes
+		pyl.Agent.Prompt = in.Prompt
+	}
+
+	// Approval
+	if in.Approval {
+		if pyl.Channel == nil {
+			pyl.Channel = &config.PylonChannel{}
+		}
+		pyl.Channel.Approval = true
+		pyl.Channel.Topic = in.TopicTemplate
+		pyl.Channel.Message = in.MsgTemplate
+	}
+
+	return pyl
+}
+
 func runConstruct(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
@@ -49,80 +149,61 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nConstructing pylon: %s\n\n", name)
 
-	var description string
+	in := constructInputs{Name: name}
+
 	if err := huh.NewInput().
 		Title("Description (optional):").
 		Placeholder("Sentry error triage for the nexus project").
-		Value(&description).Run(); err != nil {
+		Value(&in.Description).Run(); err != nil {
 		return err
 	}
 
-	pyl := &config.PylonConfig{
-		Name:        name,
-		Description: description,
-		Created:     time.Now().UTC(),
-	}
-
 	// Trigger
-	var triggerType string
 	if err := huh.NewSelect[string]().
 		Title("Trigger -- what event starts this pylon?").
 		Options(
 			huh.NewOption("Webhook (HTTP POST)", "webhook"),
 			huh.NewOption("Cron (scheduled)", "cron"),
 		).
-		Value(&triggerType).Run(); err != nil {
+		Value(&in.TriggerType).Run(); err != nil {
 		return err
 	}
 
-	pyl.Trigger.Type = triggerType
-	switch triggerType {
+	switch in.TriggerType {
 	case "webhook":
-		path := "/" + name
+		in.TriggerPath = "/" + name
 		if err := huh.NewInput().
 			Title("Webhook path:").
 			Description(fmt.Sprintf("Your server: http://%s:%d", global.Server.Host, global.Server.Port)).
-			Value(&path).Run(); err != nil {
+			Value(&in.TriggerPath).Run(); err != nil {
 			return err
 		}
-		if path == "" {
-			path = "/" + name
-		}
-		if path[0] != '/' {
-			path = "/" + path
-		}
-		pyl.Trigger.Path = path
 
 		// Public URL override (per-pylon)
 		defaultBase := global.Server.PublicURL
 		if defaultBase == "" {
 			defaultBase = fmt.Sprintf("http://%s:%d", global.Server.Host, global.Server.Port)
 		}
-		var publicURL string
 		if err := huh.NewInput().
 			Title("Public URL for this webhook (optional):").
 			Description(fmt.Sprintf("Leave blank to use default: %s", defaultBase)).
 			Placeholder("https://my-service.app").
-			Value(&publicURL).Run(); err != nil {
+			Value(&in.TriggerURL).Run(); err != nil {
 			return err
 		}
-		if publicURL != "" {
-			pyl.Trigger.PublicURL = strings.TrimRight(publicURL, "/")
-		}
 	case "cron":
-		schedule := "0 9 * * 1-5"
+		in.TriggerCron = "0 9 * * 1-5"
 		if err := huh.NewInput().
 			Title("Cron schedule:").
 			Description("e.g. 0 9 * * 1-5").
-			Value(&schedule).Run(); err != nil {
+			Value(&in.TriggerCron).Run(); err != nil {
 			return err
 		}
-		pyl.Trigger.Cron = schedule
-		fmt.Printf("  Schedule: %s (%s)\n", schedule, describeCron(schedule))
+		fmt.Printf("  Schedule: %s (%s)\n", in.TriggerCron, describeCron(in.TriggerCron))
 
 		// Timezone selection
 		detectedTZ := config.DetectSystemTimezone()
-		timezone := detectedTZ
+		in.TriggerTZ = detectedTZ
 		var tzOptions []huh.Option[string]
 		for _, tz := range config.TimezoneList() {
 			label := tz
@@ -135,20 +216,18 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			Title("Timezone:").
 			Description(fmt.Sprintf("Auto-detected: %s", detectedTZ)).
 			Options(tzOptions...).
-			Value(&timezone).
+			Value(&in.TriggerTZ).
 			Height(15).
 			Run(); err != nil {
 			return err
 		}
-		pyl.Trigger.Timezone = timezone
-		fmt.Printf("  Timezone: %s\n", timezone)
+		fmt.Printf("  Timezone: %s\n", in.TriggerTZ)
 	default:
-		comingSoon(triggerType)
+		comingSoon(in.TriggerType)
 		return nil
 	}
 
 	// Workspace
-	var wsType string
 	if err := huh.NewSelect[string]().
 		Title("Workspace -- how should the agent access code?").
 		Options(
@@ -157,35 +236,29 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			huh.NewOption("Local path (mount a directory)", "local"),
 			huh.NewOption("None (no codebase needed)", "none"),
 		).
-		Value(&wsType).Run(); err != nil {
+		Value(&in.WorkspaceType).Run(); err != nil {
 		return err
 	}
 
-	pyl.Workspace.Type = wsType
-	switch wsType {
+	switch in.WorkspaceType {
 	case "git-clone", "git-worktree":
-		var repo string
-		ref := "main"
+		in.WorkspaceRef = "main"
 		if err := huh.NewInput().Title("Repo URL:").
 			Description("Use SSH (git@github.com:user/repo.git) for private repos").
-			Value(&repo).Run(); err != nil {
+			Value(&in.WorkspaceRepo).Run(); err != nil {
 			return err
 		}
-		repo = runner.ToSSHURL(repo)
-		if err := huh.NewInput().Title("Default branch:").Value(&ref).Run(); err != nil {
+		in.WorkspaceRepo = runner.ToSSHURL(in.WorkspaceRepo)
+		if err := huh.NewInput().Title("Default branch:").Value(&in.WorkspaceRef).Run(); err != nil {
 			return err
 		}
-		if ref == "" {
-			ref = "main"
+		if in.WorkspaceRef == "" {
+			in.WorkspaceRef = "main"
 		}
-		pyl.Workspace.Repo = repo
-		pyl.Workspace.Ref = ref
 	case "local":
-		var path string
-		if err := huh.NewInput().Title("Local path:").Value(&path).Run(); err != nil {
+		if err := huh.NewInput().Title("Local path:").Value(&in.WorkspacePath).Run(); err != nil {
 			return err
 		}
-		pyl.Workspace.Path = path
 	}
 
 	// Channel
@@ -194,7 +267,6 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		channelLabel = global.Defaults.Channel.Type
 	}
 
-	var channelChoice string
 	if err := huh.NewSelect[string]().
 		Title("Channel -- where should this pylon send alerts?").
 		Options(
@@ -204,26 +276,24 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			huh.NewOption("Webhook (generic HTTP POST)", "webhook"),
 			huh.NewOption("stdout (console only)", "stdout"),
 		).
-		Value(&channelChoice).Run(); err != nil {
+		Value(&in.ChannelChoice).Run(); err != nil {
 		return err
 	}
 
-	if channelChoice != "default" {
-		switch channelChoice {
+	if in.ChannelChoice != "default" {
+		switch in.ChannelChoice {
 		case "telegram":
 			tg, err := setupTelegram()
 			if err != nil {
 				return err
 			}
-			pyl.Channel = &config.PylonChannel{Type: "telegram", Telegram: tg}
+			in.Telegram = tg
 		case "slack":
 			sl, err := setupSlack()
 			if err != nil {
 				return err
 			}
-			pyl.Channel = &config.PylonChannel{Type: "slack", Slack: sl}
-		default:
-			pyl.Channel = &config.PylonChannel{Type: channelChoice}
+			in.Slack = sl
 		}
 	}
 
@@ -242,7 +312,6 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	var agentChoice string
 	if err := huh.NewSelect[string]().
 		Title("Agent -- which AI agent for this pylon?").
 		Options(
@@ -251,16 +320,12 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 			huh.NewOption("OpenCode (configure new)", "opencode"),
 			huh.NewOption("Custom command", "custom"),
 		).
-		Value(&agentChoice).Run(); err != nil {
+		Value(&in.AgentChoice).Run(); err != nil {
 		return err
 	}
 
-	if agentChoice != "default" {
-		pyl.Agent = &config.PylonAgent{Type: agentChoice}
-	}
-
 	// Ensure agent image is built
-	effectiveType := agentChoice
+	effectiveType := in.AgentChoice
 	if effectiveType == "default" {
 		effectiveType = global.Defaults.Agent.Type
 		if effectiveType == "" {
@@ -279,80 +344,64 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if volumeInput != "" {
-		if pyl.Agent == nil {
-			pyl.Agent = &config.PylonAgent{}
-		}
 		for _, v := range strings.Split(volumeInput, ",") {
 			v = strings.TrimSpace(v)
 			if v != "" {
-				pyl.Agent.Volumes = append(pyl.Agent.Volumes, v)
+				in.Volumes = append(in.Volumes, v)
 			}
 		}
 	}
 
 	// Prompt
-	var prompt, promptDesc string
-	if triggerType == "cron" {
-		prompt = "Run your scheduled task."
-		promptDesc = "The prompt sent to the agent on each scheduled run."
+	if in.TriggerType == "cron" {
+		in.Prompt = "Run your scheduled task."
 	} else {
-		prompt = "Investigate this error and suggest a fix: {{ .body.error }}"
+		in.Prompt = "Investigate this error and suggest a fix: {{ .body.error }}"
+	}
+	promptDesc := "The prompt sent to the agent on each scheduled run."
+	if in.TriggerType != "cron" {
 		promptDesc = "Use {{ .body.X }} to inject webhook payload fields.\nExamples: {{ .body.issue.title }}, {{ .body.error }}, {{ .body.pull_request.head.ref }}"
 	}
 	if err := huh.NewText().
 		Title("Default prompt:").
 		Description(promptDesc).
-		Value(&prompt).Run(); err != nil {
+		Value(&in.Prompt).Run(); err != nil {
 		return err
 	}
-	if pyl.Agent == nil {
-		pyl.Agent = &config.PylonAgent{}
-	}
-	pyl.Agent.Prompt = prompt
 
 	// Approval
 	var approvalDesc string
-	if triggerType == "cron" {
+	if in.TriggerType == "cron" {
 		approvalDesc = "Yes = you get a notification with Investigate/Ignore buttons\nNo = agent runs immediately on every scheduled run"
 	} else {
 		approvalDesc = "Yes = you get a notification with Investigate/Ignore buttons (recommended for Sentry)\nNo = agent runs immediately on every webhook"
 	}
-	var approval bool
 	if err := huh.NewConfirm().
 		Title("Require human approval before agent runs?").
 		Description(approvalDesc).
-		Value(&approval).Run(); err != nil {
+		Value(&in.Approval).Run(); err != nil {
 		return err
 	}
 
-	if pyl.Channel == nil {
-		pyl.Channel = &config.PylonChannel{}
-	}
-	pyl.Channel.Approval = approval
-
-	if approval {
-		topicTemplate := "{{ .body.issue.title }}"
+	if in.Approval {
+		in.TopicTemplate = "{{ .body.issue.title }}"
 		if err := huh.NewInput().
 			Title("Topic name template:").
 			Description("The group/thread subject line. Use {{ .body.X }} for webhook fields.").
-			Value(&topicTemplate).Run(); err != nil {
+			Value(&in.TopicTemplate).Run(); err != nil {
 			return err
 		}
-		if topicTemplate != "" {
-			pyl.Channel.Topic = topicTemplate
-		}
 
-		msgTemplate := "{{ .body.issue.title }}\n{{ .body.error }}"
+		in.MsgTemplate = "{{ .body.issue.title }}\n{{ .body.error }}"
 		if err := huh.NewText().
 			Title("Notification message template:").
 			Description("Shown in Telegram above the Investigate/Ignore buttons.\nUse {{ .body.X }} for webhook fields.").
-			Value(&msgTemplate).Run(); err != nil {
+			Value(&in.MsgTemplate).Run(); err != nil {
 			return err
 		}
-		if msgTemplate != "" {
-			pyl.Channel.Message = msgTemplate
-		}
 	}
+
+	pyl := buildPylonConfig(in)
 
 	// Save
 	if err := config.SavePylon(pyl); err != nil {
