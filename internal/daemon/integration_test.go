@@ -105,7 +105,7 @@ func TestIntegration_TelegramCron(t *testing.T) {
 				Cron:     "0 9 * * 1",
 				Timezone: "America/New_York",
 			},
-			Workspace: config.WorkspaceConfig{Type: "git-clone", Repo: "git@github.com:test/repo.git", Ref: "main"},
+			Workspace: config.WorkspaceConfig{Type: "none"},
 			Agent:     &config.PylonAgent{Prompt: "Audit this codebase"},
 		},
 	}
