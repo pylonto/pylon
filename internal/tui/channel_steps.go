@@ -69,7 +69,7 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 	envBotToken := os.Getenv("SLACK_BOT_TOKEN")
 	envAppToken := os.Getenv("SLACK_APP_TOKEN")
 
-	return []StepDef{
+	steps := []StepDef{
 		{Key: k("slack_manifest"), Create: func(_ map[string]string) Step {
 			return NewCopyBlockStep(
 				"Step 1 of 3: Create a Slack App",
@@ -91,8 +91,29 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 				"Settings > Socket Mode > toggle on.\nGenerate an App-Level Token with connections:write scope.",
 			)
 		}},
-		{Key: k("slack_bot_token"), Create: func(_ map[string]string) Step {
-			if envBotToken != "" {
+	}
+
+	// When SLACK_BOT_TOKEN is already in the env, offer to reuse it. Default
+	// is "enter a new token" so each pylon gets its own, self-contained
+	// secrets in per-pylon .env rather than silently depending on the global.
+	if envBotToken != "" {
+		steps = append(steps, StepDef{
+			Key: k("slack_bot_token_source"),
+			Create: func(_ map[string]string) Step {
+				return NewSelectStep(
+					"Slack bot token",
+					"SLACK_BOT_TOKEN is set in your environment.",
+					[]selectOption{
+						{"Enter a new token (recommended, per-pylon)", "new"},
+						{"Reuse SLACK_BOT_TOKEN from environment", "env"},
+					},
+				)
+			},
+		})
+	}
+	steps = append(steps,
+		StepDef{Key: k("slack_bot_token"), Create: func(values map[string]string) Step {
+			if values[k("slack_bot_token_source")] == "env" && envBotToken != "" {
 				return NewAsyncStep(
 					"Slack bot token",
 					"Using SLACK_BOT_TOKEN from environment",
@@ -113,7 +134,12 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 				false,
 			)
 		}},
-		{Key: k("slack_verify_bot"), Create: func(values map[string]string) Step {
+		StepDef{Key: k("slack_verify_bot"), Create: func(values map[string]string) Step {
+			// When user reused env, the bot_token step already validated.
+			// Skip the redundant round-trip with a silent-pass info step.
+			if values[k("slack_bot_token_source")] == "env" {
+				return NewInfoStep("Bot token verified", "", "(already validated above)")
+			}
 			token := slackBotToken(values, keyPrefix)
 			return NewAsyncStep(
 				"Verifying bot token",
@@ -130,25 +156,44 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 				},
 			)
 		}},
-		{Key: k("slack_app_token"), Create: func(_ map[string]string) Step {
-			if envAppToken != "" {
-				return NewAsyncStep(
+	)
+
+	if envAppToken != "" {
+		steps = append(steps, StepDef{
+			Key: k("slack_app_token_source"),
+			Create: func(_ map[string]string) Step {
+				return NewSelectStep(
 					"Slack app token",
-					"Using SLACK_APP_TOKEN from environment",
-					func() (string, error) {
-						return "Using token from environment", nil
+					"SLACK_APP_TOKEN is set in your environment.",
+					[]selectOption{
+						{"Enter a new token (recommended, per-pylon)", "new"},
+						{"Reuse SLACK_APP_TOKEN from environment", "env"},
 					},
 				)
-			}
-			return NewTextInputStep(
-				"Slack app token (xapp-...)",
-				"Generate at: Settings > Basic Information > App-Level Tokens",
-				"xapp-your-app-token",
-				"",
-				false,
+			},
+		})
+	}
+	steps = append(steps, StepDef{Key: k("slack_app_token"), Create: func(values map[string]string) Step {
+		if values[k("slack_app_token_source")] == "env" && envAppToken != "" {
+			return NewAsyncStep(
+				"Slack app token",
+				"Using SLACK_APP_TOKEN from environment",
+				func() (string, error) {
+					return "Using SLACK_APP_TOKEN (from env)", nil
+				},
 			)
-		}},
-		{Key: k("slack_channel_method"), Create: func(_ map[string]string) Step {
+		}
+		return NewTextInputStep(
+			"Slack app token (xapp-...)",
+			"Generate at: Settings > Basic Information > App-Level Tokens",
+			"xapp-your-app-token",
+			"",
+			false,
+		)
+	}})
+
+	steps = append(steps,
+		StepDef{Key: k("slack_channel_method"), Create: func(_ map[string]string) Step {
 			return NewSelectStep(
 				"Slack channel",
 				"Where should this pylon post?",
@@ -158,7 +203,7 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 				},
 			)
 		}},
-		{Key: k("slack_channel_id"), Create: func(values map[string]string) Step {
+		StepDef{Key: k("slack_channel_id"), Create: func(values map[string]string) Step {
 			method := values[k("slack_channel_method")]
 			token := slackBotToken(values, keyPrefix)
 			if method == "auto" {
@@ -180,7 +225,8 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 				false,
 			)
 		}},
-	}
+	)
+	return steps
 }
 
 // TelegramSteps returns the Telegram onboarding flow: bot token entry +
@@ -195,9 +241,26 @@ func TelegramStepsWith(keyPrefix string, v TelegramValidators) []StepDef {
 
 	envToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
-	return []StepDef{
-		{Key: k("tg_token"), Create: func(_ map[string]string) Step {
-			if envToken != "" {
+	var steps []StepDef
+
+	if envToken != "" {
+		steps = append(steps, StepDef{
+			Key: k("tg_token_source"),
+			Create: func(_ map[string]string) Step {
+				return NewSelectStep(
+					"Telegram bot token",
+					"TELEGRAM_BOT_TOKEN is set in your environment.",
+					[]selectOption{
+						{"Enter a new token (recommended, per-pylon)", "new"},
+						{"Reuse TELEGRAM_BOT_TOKEN from environment", "env"},
+					},
+				)
+			},
+		})
+	}
+	steps = append(steps,
+		StepDef{Key: k("tg_token"), Create: func(values map[string]string) Step {
+			if values[k("tg_token_source")] == "env" && envToken != "" {
 				return NewAsyncStep(
 					"Telegram bot token",
 					"Using TELEGRAM_BOT_TOKEN from environment",
@@ -218,7 +281,10 @@ func TelegramStepsWith(keyPrefix string, v TelegramValidators) []StepDef {
 				false,
 			)
 		}},
-		{Key: k("tg_verify_bot"), Create: func(values map[string]string) Step {
+		StepDef{Key: k("tg_verify_bot"), Create: func(values map[string]string) Step {
+			if values[k("tg_token_source")] == "env" {
+				return NewInfoStep("Bot token verified", "", "(already validated above)")
+			}
 			token := telegramToken(values, keyPrefix)
 			return NewAsyncStep(
 				"Verifying bot token",
@@ -235,7 +301,7 @@ func TelegramStepsWith(keyPrefix string, v TelegramValidators) []StepDef {
 				},
 			)
 		}},
-		{Key: k("tg_chat_method"), Create: func(_ map[string]string) Step {
+		StepDef{Key: k("tg_chat_method"), Create: func(_ map[string]string) Step {
 			return NewSelectStep(
 				"Chat ID detection",
 				"How should pylon find the chat?",
@@ -245,7 +311,7 @@ func TelegramStepsWith(keyPrefix string, v TelegramValidators) []StepDef {
 				},
 			)
 		}},
-		{Key: k("tg_chat_id"), Create: func(values map[string]string) Step {
+		StepDef{Key: k("tg_chat_id"), Create: func(values map[string]string) Step {
 			method := values[k("tg_chat_method")]
 			token := telegramToken(values, keyPrefix)
 			if method == "auto" {
@@ -271,7 +337,8 @@ func TelegramStepsWith(keyPrefix string, v TelegramValidators) []StepDef {
 				false,
 			)
 		}},
-	}
+	)
+	return steps
 }
 
 // slackBotToken returns the effective Slack bot token: the one entered in

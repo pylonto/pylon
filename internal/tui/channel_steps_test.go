@@ -49,18 +49,72 @@ func TestTelegramSteps_ShapeAndKeys(t *testing.T) {
 	}
 }
 
-func TestSlackSteps_EnvTokenReuse(t *testing.T) {
-	// When the env var is pre-set, the first step is an AsyncStep that validates
-	// the existing token rather than prompting for a fresh one.
+func TestSlackSteps_EnvTokenOptIn(t *testing.T) {
+	// Env-reuse must be opt-in: when SLACK_BOT_TOKEN is set, a preceding
+	// source-select step asks the user to pick, defaulting to "new". Only
+	// when the user explicitly picks "env" does the bot_token step become
+	// an async validation of the env token.
 	t.Setenv("SLACK_BOT_TOKEN", "xoxb-from-env")
 	t.Setenv("SLACK_APP_TOKEN", "")
 
 	steps := SlackSteps("prefix")
-	botStep := steps[3].Create(nil)
-	// asyncStep has no textinput -- we can tell it apart by asserting it's
-	// not a *textInputStep.
-	_, isText := botStep.(*textInputStep)
-	assert.False(t, isText, "bot_token step should be async validation when env is set")
+	// 8 default steps + 1 source prompt = 9.
+	require.Len(t, steps, 9)
+	assert.Equal(t, "prefix.slack_bot_token_source", steps[3].Key)
+	assert.Equal(t, "prefix.slack_bot_token", steps[4].Key)
+
+	// Default (no source selected yet) -> text input, forcing the user to
+	// type a fresh token for this pylon.
+	defaultStep := steps[4].Create(nil)
+	_, isText := defaultStep.(*textInputStep)
+	assert.True(t, isText, "default (source unset) must prompt for a new token")
+
+	// Opt-in: source=env -> async validation of env token.
+	optedIn := steps[4].Create(map[string]string{
+		"prefix.slack_bot_token_source": "env",
+	})
+	_, isAsync := optedIn.(*asyncStep)
+	assert.True(t, isAsync, "source=env must reuse and validate env token")
+
+	// verify_bot should be a no-op info step when env was reused (avoids a
+	// redundant auth.test round trip).
+	verifyStep := steps[5].Create(map[string]string{
+		"prefix.slack_bot_token_source": "env",
+	})
+	_, isInfo := verifyStep.(*infoStep)
+	assert.True(t, isInfo, "verify should be a passthrough when env token was reused")
+}
+
+func TestSlackSteps_BothEnvVarsAddBothSourcePrompts(t *testing.T) {
+	t.Setenv("SLACK_BOT_TOKEN", "xoxb-from-env")
+	t.Setenv("SLACK_APP_TOKEN", "xapp-from-env")
+
+	steps := SlackSteps("prefix")
+	require.Len(t, steps, 10)
+	assert.Equal(t, "prefix.slack_bot_token_source", steps[3].Key)
+	assert.Equal(t, "prefix.slack_app_token_source", steps[6].Key)
+}
+
+func TestTelegramSteps_EnvTokenOptIn(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:from-env")
+
+	steps := TelegramSteps("prefix")
+	// 4 default steps + 1 source prompt = 5.
+	require.Len(t, steps, 5)
+	assert.Equal(t, "prefix.tg_token_source", steps[0].Key)
+	assert.Equal(t, "prefix.tg_token", steps[1].Key)
+
+	// Default -> text input.
+	defaultStep := steps[1].Create(nil)
+	_, isText := defaultStep.(*textInputStep)
+	assert.True(t, isText, "default (source unset) must prompt for a new token")
+
+	// Opt-in -> async validation.
+	optedIn := steps[1].Create(map[string]string{
+		"prefix.tg_token_source": "env",
+	})
+	_, isAsync := optedIn.(*asyncStep)
+	assert.True(t, isAsync, "source=env must reuse env token")
 }
 
 // TestSlackStepsWith_ChannelIDAutoDetect exercises the auto-detect branch of
