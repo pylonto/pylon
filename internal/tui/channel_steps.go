@@ -70,11 +70,11 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 	envAppToken := os.Getenv("SLACK_APP_TOKEN")
 
 	steps := []StepDef{
-		{Key: k("slack_manifest"), Create: func(_ map[string]string) Step {
+		{Key: k("slack_manifest"), Create: func(values map[string]string) Step {
 			return NewCopyBlockStep(
 				"Step 1: Create a Slack App",
 				"Go to https://api.slack.com/apps -> Create New App -> From a manifest.\nPaste this YAML manifest:",
-				slackAppManifest,
+				buildSlackAppManifest(values["name"], values["description"]),
 			)
 		}},
 		{Key: k("slack_install"), Create: func(_ map[string]string) Step {

@@ -13,14 +13,24 @@ import (
 	"github.com/pylonto/pylon/internal/config"
 )
 
-// slackAppManifest is the Slack app manifest YAML for users to copy.
-// Duplicated from cmd/setup.go to avoid circular imports.
-const slackAppManifest = `display_information:
-  name: Pylon
-  description: AI agent pipeline runner
+// buildSlackAppManifest returns the Slack app manifest YAML for users to
+// copy into https://api.slack.com/apps. The name/display_name/description
+// fields are templated so each pylon installs as its own recognizable bot;
+// empty inputs fall back to generic Pylon defaults (used by the global
+// `pylon setup` wizard, which has no pylon context).
+func buildSlackAppManifest(appName, description string) string {
+	if appName == "" {
+		appName = "Pylon"
+	}
+	if description == "" {
+		description = "AI agent pipeline runner"
+	}
+	return fmt.Sprintf(`display_information:
+  name: %s
+  description: %s
 features:
   bot_user:
-    display_name: Pylon
+    display_name: %s
     always_online: true
 oauth_config:
   scopes:
@@ -38,7 +48,16 @@ settings:
       - message.groups
   interactivity:
     is_enabled: true
-  socket_mode_enabled: true`
+  socket_mode_enabled: true`, yamlQuote(appName), yamlQuote(description), yamlQuote(appName))
+}
+
+// yamlQuote wraps s as a YAML double-quoted scalar so descriptions with
+// colons, hashes, or other structural characters don't break the manifest.
+func yamlQuote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
 
 func newSetupWizard() wizardModel {
 	steps := []StepDef{
@@ -180,7 +199,7 @@ func slackSteps() []StepDef {
 			return NewCopyBlockStep(
 				"Create a Slack App",
 				"Go to https://api.slack.com/apps > Create New App > From a manifest\nPaste this YAML manifest:",
-				slackAppManifest,
+				buildSlackAppManifest("", ""),
 			)
 		}},
 		{Key: "channel.slack_install", Create: func(_ map[string]string) Step {
