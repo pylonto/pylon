@@ -464,6 +464,13 @@ func CheckChatAccess(token string, chatID int64) error {
 // PollForChat polls Telegram updates until the bot receives a message in a group
 // or a DM, returning the chat ID and title. Used during setup to auto-detect.
 func PollForChat(token string) (int64, string, error) {
+	return PollForChatCtx(context.Background(), token)
+}
+
+// PollForChatCtx is the cancellation-aware version of PollForChat. When the
+// context is canceled the function returns ctx.Err() promptly rather than
+// blocking on the next long-poll round.
+func PollForChatCtx(ctx context.Context, token string) (int64, string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	pollClient := &http.Client{Timeout: 45 * time.Second}
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates", token)
@@ -471,28 +478,46 @@ func PollForChat(token string) (int64, string, error) {
 	// Clear old updates.
 	var offset int64
 	body, _ := json.Marshal(map[string]interface{}{"offset": -1, "limit": 1})
-	if resp, err := client.Post(apiURL, "application/json", bytes.NewReader(body)); err == nil {
-		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		var r struct {
-			Result []struct {
-				UpdateID int64 `json:"update_id"`
-			} `json:"result"`
-		}
-		json.Unmarshal(raw, &r)
-		if len(r.Result) > 0 {
-			offset = r.Result[0].UpdateID + 1
+	if req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body)); err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		if resp, err := client.Do(req); err == nil {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			var r struct {
+				Result []struct {
+					UpdateID int64 `json:"update_id"`
+				} `json:"result"`
+			}
+			json.Unmarshal(raw, &r)
+			if len(r.Result) > 0 {
+				offset = r.Result[0].UpdateID + 1
+			}
 		}
 	}
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return 0, "", err
+		}
 		body, _ := json.Marshal(map[string]interface{}{
 			"offset": offset, "timeout": 30,
 			"allowed_updates": []string{"message", "my_chat_member"},
 		})
-		resp, err := pollClient.Post(apiURL, "application/json", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
 		if err != nil {
-			time.Sleep(2 * time.Second)
+			return 0, "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := pollClient.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return 0, "", ctx.Err()
+			}
+			select {
+			case <-ctx.Done():
+				return 0, "", ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
 			continue
 		}
 		raw, _ := io.ReadAll(resp.Body)

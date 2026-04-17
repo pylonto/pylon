@@ -103,17 +103,19 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	switch in.ChannelChoice {
 	case "telegram":
-		tg, err := setupTelegram()
+		tg, secrets, err := setupTelegram()
 		if err != nil {
 			return err
 		}
 		in.Telegram = tg
+		persistGlobalSecrets(secrets)
 	case "slack":
-		sl, err := setupSlack()
+		sl, secrets, err := setupSlack()
 		if err != nil {
 			return err
 		}
 		in.Slack = sl
+		persistGlobalSecrets(secrets)
 	default:
 		if in.ChannelChoice != "stdout" && in.ChannelChoice != "webhook" {
 			comingSoon(in.ChannelChoice)
@@ -192,7 +194,23 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func setupTelegram() (*config.TelegramConfig, error) {
+// persistGlobalSecrets writes secrets to ~/.pylon/.env and the process env
+// so subsequent operations in this invocation can see them.
+func persistGlobalSecrets(secrets map[string]string) {
+	if len(secrets) == 0 {
+		return
+	}
+	for k, v := range secrets {
+		config.SaveEnvVar(k, v)
+		os.Setenv(k, v)
+	}
+	fmt.Printf("  Secrets saved to %s\n", config.EnvPath())
+}
+
+// setupTelegram prompts for Telegram bot config and returns the config plus
+// any secrets the user entered. The caller decides where to persist the secrets
+// (global .env for `pylon setup`, per-pylon .env for `pylon construct`).
+func setupTelegram() (*config.TelegramConfig, map[string]string, error) {
 	var token string
 	if envToken := os.Getenv("TELEGRAM_BOT_TOKEN"); envToken != "" {
 		fmt.Println("  Using TELEGRAM_BOT_TOKEN from environment")
@@ -206,13 +224,13 @@ func setupTelegram() (*config.TelegramConfig, error) {
 			Value(&token).
 			Run()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	username, err := channel.GetBotUsername(token)
 	if err != nil {
-		return nil, fmt.Errorf("invalid bot token: %w", err)
+		return nil, nil, fmt.Errorf("invalid bot token: %w", err)
 	}
 	fmt.Printf("  Verified: @%s\n\n", username)
 
@@ -226,14 +244,14 @@ func setupTelegram() (*config.TelegramConfig, error) {
 		Value(&method).
 		Run()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var chatID int64
 	if method == "auto" {
 		chatID, err = detectChatID(token, username)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	} else {
 		var chatIDStr string
@@ -243,34 +261,38 @@ func setupTelegram() (*config.TelegramConfig, error) {
 			Value(&chatIDStr).
 			Run()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		fmt.Sscanf(chatIDStr, "%d", &chatID)
 	}
 
-	// Save token to ~/.pylon/.env so pylon start can load it
-	config.SaveEnvVar("TELEGRAM_BOT_TOKEN", token)
-	os.Setenv("TELEGRAM_BOT_TOKEN", token)
-	fmt.Printf("  Token saved to %s\n", config.EnvPath())
-
+	secrets := map[string]string{"TELEGRAM_BOT_TOKEN": token}
 	return &config.TelegramConfig{
 		BotToken: "${TELEGRAM_BOT_TOKEN}",
 		ChatID:   chatID,
-	}, nil
+	}, secrets, nil
 }
 
 func detectChatID(token, username string) (int64, error) {
-	fmt.Println("  Option A: Direct message")
-	fmt.Printf("    Send /start to https://t.me/%s\n", username)
-	fmt.Println()
-	fmt.Println("  Option B: Group chat")
-	fmt.Println("    1. Create a Telegram group (or use an existing one)")
-	fmt.Println("    2. Enable Topics: Group Settings > Topics > toggle on")
-	fmt.Printf("    3. Add the bot as admin: https://t.me/%s?startgroup=setup&admin=manage_topics\n", username)
-	fmt.Println("    4. Send a /command in the group (e.g. /hello)")
-	fmt.Println()
-	fmt.Println("  Waiting for message...")
+	desc := fmt.Sprintf(
+		"Option A: Direct message\n"+
+			"  Send /start to https://t.me/%s\n\n"+
+			"Option B: Group chat\n"+
+			"  1. Create a Telegram group (or use an existing one)\n"+
+			"  2. Enable Topics: Group Settings > Topics > toggle on\n"+
+			"  3. Add the bot as admin: https://t.me/%s?startgroup=setup&admin=manage_topics\n"+
+			"  4. Send a /command in the group (e.g. /hello)",
+		username, username,
+	)
+	if err := huh.NewNote().
+		Title("Set the chat ID").
+		Description(desc).
+		Next(true).
+		Run(); err != nil {
+		return 0, err
+	}
 
+	fmt.Println("  Waiting for message...")
 	chatID, title, err := channel.PollForChat(token)
 	if err != nil {
 		return 0, err
@@ -279,16 +301,31 @@ func detectChatID(token, username string) (int64, error) {
 	return chatID, nil
 }
 
-func setupSlack() (*config.SlackConfig, error) {
-	fmt.Println("  Step 1: Create a Slack App")
-	fmt.Println("    Go to https://api.slack.com/apps > Create New App > From a manifest")
-	fmt.Println("    Paste this YAML manifest:")
-	fmt.Println()
-	fmt.Println(slackAppManifest)
-	fmt.Println("  Step 2: Install the app to your workspace")
-	fmt.Println("  Step 3: Enable Socket Mode (Settings > Socket Mode > toggle on)")
-	fmt.Println("    Generate an App-Level Token with connections:write scope")
-	fmt.Println()
+// setupSlack prompts for Slack app config and returns the config plus any
+// secrets the user entered. The caller decides where to persist the secrets
+// (global .env for `pylon setup`, per-pylon .env for `pylon construct`).
+func setupSlack() (*config.SlackConfig, map[string]string, error) {
+	if err := huh.NewNote().
+		Title("Step 1: Create a Slack App").
+		Description("Go to https://api.slack.com/apps > Create New App > From a manifest.\nPaste this YAML manifest:\n\n" + slackAppManifest).
+		Next(true).
+		Run(); err != nil {
+		return nil, nil, err
+	}
+	if err := huh.NewNote().
+		Title("Step 2: Install the app to your workspace").
+		Description("From the app settings page, click Install to Workspace and approve the scopes.").
+		Next(true).
+		Run(); err != nil {
+		return nil, nil, err
+	}
+	if err := huh.NewNote().
+		Title("Step 3: Enable Socket Mode").
+		Description("Settings > Socket Mode > toggle on.\nGenerate an App-Level Token with connections:write scope.").
+		Next(true).
+		Run(); err != nil {
+		return nil, nil, err
+	}
 
 	var botToken string
 	if envToken := os.Getenv("SLACK_BOT_TOKEN"); envToken != "" {
@@ -302,13 +339,13 @@ func setupSlack() (*config.SlackConfig, error) {
 			Value(&botToken).
 			Run()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	username, err := channel.ValidateSlackToken(botToken)
 	if err != nil {
-		return nil, fmt.Errorf("invalid bot token: %w", err)
+		return nil, nil, fmt.Errorf("invalid bot token: %w", err)
 	}
 	fmt.Printf("  Verified: @%s\n\n", username)
 
@@ -324,7 +361,7 @@ func setupSlack() (*config.SlackConfig, error) {
 			Value(&appToken).
 			Run()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -338,14 +375,14 @@ func setupSlack() (*config.SlackConfig, error) {
 		Value(&method).
 		Run()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var channelID string
 	if method == "auto" {
 		channels, err := channel.ListBotChannels(botToken)
 		if err != nil {
-			return nil, fmt.Errorf("listing channels: %w", err)
+			return nil, nil, fmt.Errorf("listing channels: %w", err)
 		}
 		if len(channels) == 0 {
 			fmt.Println("  No channels found. Invite the bot to a channel first, then enter the ID manually.")
@@ -362,7 +399,7 @@ func setupSlack() (*config.SlackConfig, error) {
 				Value(&channelID).
 				Run()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
@@ -373,21 +410,19 @@ func setupSlack() (*config.SlackConfig, error) {
 			Value(&channelID).
 			Run()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	config.SaveEnvVar("SLACK_BOT_TOKEN", botToken)
-	os.Setenv("SLACK_BOT_TOKEN", botToken)
-	config.SaveEnvVar("SLACK_APP_TOKEN", appToken)
-	os.Setenv("SLACK_APP_TOKEN", appToken)
-	fmt.Printf("  Tokens saved to %s\n", config.EnvPath())
-
+	secrets := map[string]string{
+		"SLACK_BOT_TOKEN": botToken,
+		"SLACK_APP_TOKEN": appToken,
+	}
 	return &config.SlackConfig{
 		BotToken:  "${SLACK_BOT_TOKEN}",
 		AppToken:  "${SLACK_APP_TOKEN}",
 		ChannelID: channelID,
-	}, nil
+	}, secrets, nil
 }
 
 const slackAppManifest = `display_information:

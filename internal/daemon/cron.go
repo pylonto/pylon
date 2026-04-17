@@ -34,7 +34,7 @@ func (d *Daemon) CronScheduler(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[cron] scheduler stopped")
+			log.Printf("[cron] stopped")
 			return
 		case <-ticker.C:
 			d.cronTick(lastFired)

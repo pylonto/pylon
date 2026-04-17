@@ -13,8 +13,10 @@ type wizardCompleteMsg struct{}
 
 // StepDef defines a wizard step and optional post-step logic.
 type StepDef struct {
-	// Create returns a fresh Step instance.
-	Create func() Step
+	// Create returns a fresh Step instance. The values map holds all prior
+	// step results so the step can reference upstream choices at build time
+	// (e.g. an async validator that needs the bot token from a prior input).
+	Create func(values map[string]string) Step
 	// Key is a unique identifier for retrieving the step's value.
 	Key string
 }
@@ -54,22 +56,26 @@ func (m wizardModel) Init() tea.Cmd {
 	if len(m.steps) == 0 {
 		return func() tea.Msg { return wizardCompleteMsg{} }
 	}
-	m.active = m.steps[0].Create()
+	m.active = m.steps[0].Create(m.values)
 	return m.active.Init()
 }
 
 func (m wizardModel) Update(msg tea.Msg) (wizardModel, tea.Cmd) {
 	// Initialize active step if needed
 	if m.active == nil && m.current < len(m.steps) {
-		m.active = m.steps[m.current].Create()
+		m.active = m.steps[m.current].Create(m.values)
 		return m, m.active.Init()
 	}
 
 	// Handle back navigation
 	if key, ok := msg.(tea.KeyMsg); ok {
 		if key.String() == keyShiftTab && m.current > 0 {
+			// Let the step tear down any inflight work (e.g. polling goroutines).
+			if c, ok := m.active.(Cancelable); ok {
+				c.Cancel()
+			}
 			m.current--
-			m.active = m.steps[m.current].Create()
+			m.active = m.steps[m.current].Create(m.values)
 			// Restore previous value if we have it
 			if val, exists := m.values[m.steps[m.current].Key]; exists {
 				_ = val // The step is recreated fresh; we don't restore values for now
@@ -113,7 +119,7 @@ func (m wizardModel) Update(msg tea.Msg) (wizardModel, tea.Cmd) {
 				return m, func() tea.Msg { return wizardCompleteMsg{} }
 			}
 
-			m.active = m.steps[m.current].Create()
+			m.active = m.steps[m.current].Create(m.values)
 			return m, m.active.Init()
 		}
 

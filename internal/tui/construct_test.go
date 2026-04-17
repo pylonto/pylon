@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/pylonto/pylon/internal/config"
@@ -34,11 +36,20 @@ func makeConstructValues(name, channel, trigger string) map[string]string {
 
 	switch channel {
 	case "telegram":
-		v["channel_choice.tg_token"] = "${TELEGRAM_BOT_TOKEN}"
+		// Raw token: wizard now collects real values and writes them to the
+		// per-pylon .env. The YAML still references ${TELEGRAM_BOT_TOKEN}.
+		v["channel_choice.tg_token"] = "123:abc-telegram-test"
+		v["channel_choice.tg_verify_bot"] = "Verified @testbot"
+		v["channel_choice.tg_chat_method"] = "manual"
 		v["channel_choice.tg_chat_id"] = "123456789"
 	case "slack":
-		v["channel_choice.slack_bot_token"] = "${SLACK_BOT_TOKEN}"
-		v["channel_choice.slack_app_token"] = "${SLACK_APP_TOKEN}"
+		v["channel_choice.slack_manifest"] = ""
+		v["channel_choice.slack_install"] = ""
+		v["channel_choice.slack_socket"] = ""
+		v["channel_choice.slack_bot_token"] = "xoxb-test-bot"
+		v["channel_choice.slack_verify_bot"] = "Verified @testbot"
+		v["channel_choice.slack_app_token"] = "xapp-test-app"
+		v["channel_choice.slack_channel_method"] = "manual"
 		v["channel_choice.slack_channel_id"] = "C9876543210"
 	}
 
@@ -178,6 +189,58 @@ func TestConstructOnComplete(t *testing.T) {
 	}
 }
 
+func TestConstructOnComplete_WritesPerPylonEnv(t *testing.T) {
+	// Regression for the unified wizard: construct now collects real tokens
+	// and persists them to the per-pylon .env so the pylon is self-contained.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// Clear env so secretsFromValues doesn't mistake inherited tokens for new ones.
+	t.Setenv("SLACK_BOT_TOKEN", "")
+	t.Setenv("SLACK_APP_TOKEN", "")
+	saveTestGlobal(t)
+
+	values := makeConstructValues("nexus-slack", "slack", "webhook")
+	require.NoError(t, constructOnComplete(values))
+
+	envPath := filepath.Join(home, ".pylon", "pylons", "nexus-slack", ".env")
+	data, err := os.ReadFile(envPath)
+	require.NoError(t, err, "per-pylon .env should be scaffolded")
+	assert.Contains(t, string(data), "SLACK_BOT_TOKEN=xoxb-test-bot")
+	assert.Contains(t, string(data), "SLACK_APP_TOKEN=xapp-test-app")
+
+	// YAML keeps ${VAR} references so runtime resolves tokens through the
+	// .env rather than baking the raw secret into the config file.
+	pyl, err := config.LoadPylonRaw("nexus-slack")
+	require.NoError(t, err)
+	require.NotNil(t, pyl.Channel)
+	require.NotNil(t, pyl.Channel.Slack)
+	assert.Equal(t, "${SLACK_BOT_TOKEN}", pyl.Channel.Slack.BotToken)
+	assert.Equal(t, "${SLACK_APP_TOKEN}", pyl.Channel.Slack.AppToken)
+	assert.Equal(t, "C9876543210", pyl.Channel.Slack.ChannelID)
+}
+
+func TestConstructOnComplete_WritesPerPylonEnv_Telegram(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	saveTestGlobal(t)
+
+	values := makeConstructValues("nexus-tg", "telegram", "cron")
+	require.NoError(t, constructOnComplete(values))
+
+	envPath := filepath.Join(home, ".pylon", "pylons", "nexus-tg", ".env")
+	data, err := os.ReadFile(envPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "TELEGRAM_BOT_TOKEN=123:abc-telegram-test")
+
+	pyl, err := config.LoadPylonRaw("nexus-tg")
+	require.NoError(t, err)
+	require.NotNil(t, pyl.Channel)
+	require.NotNil(t, pyl.Channel.Telegram)
+	assert.Equal(t, "${TELEGRAM_BOT_TOKEN}", pyl.Channel.Telegram.BotToken)
+	assert.Equal(t, int64(123456789), pyl.Channel.Telegram.ChatID)
+}
+
 func TestConstructOnComplete_ApprovalEnabled(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	saveTestGlobal(t)
@@ -197,6 +260,39 @@ func TestConstructOnComplete_ApprovalEnabled(t *testing.T) {
 	assert.True(t, pyl.Channel.Approval)
 	assert.Equal(t, "{{ .body.issue.title }}", pyl.Channel.Topic)
 	assert.Equal(t, "Alert: {{ .body.error }}", pyl.Channel.Message)
+}
+
+func TestConstructWizardModel_ExitState(t *testing.T) {
+	// Contract: Saved is true only when the user confirmed save; Err is set
+	// when constructOnComplete fails. The CLI depends on these flags to
+	// distinguish success, cancel, and failure without scraping stdout.
+	t.Run("Saved=false when confirm=no", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		saveTestGlobal(t)
+
+		m := NewConstructWizard("declined")
+		m.wiz.values = makeConstructValues("declined", "default", "webhook")
+		m.wiz.values["confirm"] = "no"
+		// Synthesize the completion message the wizard would emit after
+		// running onComplete with confirm=no (which returns nil without
+		// saving).
+		_, _ = m.Update(wizardCompleteMsg{})
+		assert.False(t, m.Saved, "confirm=no must not report Saved")
+		assert.NoError(t, m.Err)
+	})
+
+	t.Run("Saved=true when confirm=yes", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		saveTestGlobal(t)
+
+		m := NewConstructWizard("accepted")
+		m.wiz.values = makeConstructValues("accepted", "default", "webhook")
+		_, _ = m.Update(wizardCompleteMsg{})
+		assert.True(t, m.Saved)
+		assert.NoError(t, m.Err)
+	})
 }
 
 func TestConstructOnComplete_ConfirmNo(t *testing.T) {
@@ -306,10 +402,11 @@ func TestConstructOnComplete_AgentOverride(t *testing.T) {
 // --- onStepDone branching tests ---
 
 func TestConstructOnStepDone(t *testing.T) {
-	t.Run("trigger=webhook returns path step", func(t *testing.T) {
+	t.Run("trigger=webhook returns path + public_url steps", func(t *testing.T) {
 		steps := constructOnStepDone("trigger", "webhook", nil)
-		require.Len(t, steps, 1)
+		require.Len(t, steps, 2)
 		assert.Equal(t, "trigger.path", steps[0].Key)
+		assert.Equal(t, "trigger.public_url", steps[1].Key)
 	})
 
 	t.Run("trigger=cron returns cron + timezone steps", func(t *testing.T) {
@@ -344,19 +441,28 @@ func TestConstructOnStepDone(t *testing.T) {
 		assert.Nil(t, steps)
 	})
 
-	t.Run("channel_choice=telegram returns token + chat_id steps", func(t *testing.T) {
+	t.Run("channel_choice=telegram returns full step-by-step flow", func(t *testing.T) {
 		steps := constructOnStepDone("channel_choice", "telegram", nil)
-		require.Len(t, steps, 2)
-		assert.Equal(t, "channel_choice.tg_token", steps[0].Key)
-		assert.Equal(t, "channel_choice.tg_chat_id", steps[1].Key)
+		require.Len(t, steps, 5)
+		assert.Equal(t, "channel_choice.tg_token_info", steps[0].Key)
+		assert.Equal(t, "channel_choice.tg_token", steps[1].Key)
+		assert.Equal(t, "channel_choice.tg_verify_bot", steps[2].Key)
+		assert.Equal(t, "channel_choice.tg_chat_method", steps[3].Key)
+		assert.Equal(t, "channel_choice.tg_chat_id", steps[4].Key)
 	})
 
-	t.Run("channel_choice=slack returns 3 token steps", func(t *testing.T) {
+	t.Run("channel_choice=slack returns full step-by-step flow", func(t *testing.T) {
 		steps := constructOnStepDone("channel_choice", "slack", nil)
-		require.Len(t, steps, 3)
-		assert.Equal(t, "channel_choice.slack_bot_token", steps[0].Key)
-		assert.Equal(t, "channel_choice.slack_app_token", steps[1].Key)
-		assert.Equal(t, "channel_choice.slack_channel_id", steps[2].Key)
+		require.Len(t, steps, 9)
+		assert.Equal(t, "channel_choice.slack_manifest", steps[0].Key)
+		assert.Equal(t, "channel_choice.slack_install", steps[1].Key)
+		assert.Equal(t, "channel_choice.slack_bot_token_info", steps[2].Key)
+		assert.Equal(t, "channel_choice.slack_bot_token", steps[3].Key)
+		assert.Equal(t, "channel_choice.slack_verify_bot", steps[4].Key)
+		assert.Equal(t, "channel_choice.slack_app_token_info", steps[5].Key)
+		assert.Equal(t, "channel_choice.slack_app_token", steps[6].Key)
+		assert.Equal(t, "channel_choice.slack_channel_method", steps[7].Key)
+		assert.Equal(t, "channel_choice.slack_channel_id", steps[8].Key)
 	})
 
 	t.Run("channel_choice=default returns no steps", func(t *testing.T) {
@@ -380,8 +486,8 @@ func TestConstructOnStepDone(t *testing.T) {
 func TestTriggerSteps(t *testing.T) {
 	t.Run("webhook step creates valid instance", func(t *testing.T) {
 		steps := triggerSteps("webhook")
-		require.Len(t, steps, 1)
-		step := steps[0].Create()
+		require.Len(t, steps, 2)
+		step := steps[0].Create(nil)
 		assert.NotNil(t, step)
 		assert.Contains(t, step.Title(), "Webhook")
 	})
@@ -390,7 +496,7 @@ func TestTriggerSteps(t *testing.T) {
 		steps := triggerSteps("cron")
 		require.Len(t, steps, 2)
 		for _, s := range steps {
-			step := s.Create()
+			step := s.Create(nil)
 			assert.NotNil(t, step)
 			assert.NotEmpty(t, step.Title())
 		}
@@ -405,18 +511,18 @@ func TestTriggerSteps(t *testing.T) {
 func TestConstructChannelSteps(t *testing.T) {
 	t.Run("telegram steps create valid instances", func(t *testing.T) {
 		steps := constructChannelSteps("telegram")
-		require.Len(t, steps, 2)
+		require.Len(t, steps, 5)
 		for _, s := range steps {
-			step := s.Create()
+			step := s.Create(nil)
 			assert.NotNil(t, step)
 		}
 	})
 
 	t.Run("slack steps create valid instances", func(t *testing.T) {
 		steps := constructChannelSteps("slack")
-		require.Len(t, steps, 3)
+		require.Len(t, steps, 9)
 		for _, s := range steps {
-			step := s.Create()
+			step := s.Create(nil)
 			assert.NotNil(t, step)
 		}
 	})

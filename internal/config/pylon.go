@@ -13,6 +13,108 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// PylonInputs holds the raw values collected from the construct wizard and
+// converted into a PylonConfig by BuildPylon. Shared between the CLI and TUI
+// so both wizards produce identical pylons.
+type PylonInputs struct {
+	Name          string
+	Description   string
+	TriggerType   string
+	TriggerPath   string
+	TriggerCron   string
+	TriggerTZ     string
+	TriggerURL    string
+	WorkspaceType string
+	WorkspaceRepo string
+	WorkspaceRef  string
+	WorkspacePath string
+	ChannelChoice string
+	Telegram      *TelegramConfig
+	Slack         *SlackConfig
+	AgentChoice   string
+	Volumes       []string
+	Prompt        string
+	Approval      bool
+	TopicTemplate string
+	MsgTemplate   string
+}
+
+// BuildPylon assembles a PylonConfig from user inputs. Pure; no I/O.
+func BuildPylon(in PylonInputs) *PylonConfig {
+	pyl := &PylonConfig{
+		Name:        in.Name,
+		Description: in.Description,
+		Created:     time.Now().UTC(),
+	}
+
+	// Trigger
+	pyl.Trigger.Type = in.TriggerType
+	switch in.TriggerType {
+	case "webhook":
+		path := in.TriggerPath
+		if path == "" {
+			path = "/" + in.Name
+		}
+		if path[0] != '/' {
+			path = "/" + path
+		}
+		pyl.Trigger.Path = path
+		if in.TriggerURL != "" {
+			pyl.Trigger.PublicURL = strings.TrimRight(in.TriggerURL, "/")
+		}
+	case "cron":
+		pyl.Trigger.Cron = in.TriggerCron
+		pyl.Trigger.Timezone = in.TriggerTZ
+	}
+
+	// Workspace
+	pyl.Workspace.Type = in.WorkspaceType
+	switch in.WorkspaceType {
+	case "git-clone", "git-worktree":
+		pyl.Workspace.Repo = in.WorkspaceRepo
+		pyl.Workspace.Ref = in.WorkspaceRef
+	case "local":
+		pyl.Workspace.Path = in.WorkspacePath
+	}
+
+	// Channel
+	if in.ChannelChoice != "default" {
+		pyl.Channel = &PylonChannel{Type: in.ChannelChoice}
+		switch in.ChannelChoice {
+		case "telegram":
+			pyl.Channel.Telegram = in.Telegram
+		case "slack":
+			pyl.Channel.Slack = in.Slack
+		}
+	}
+
+	// Agent
+	if in.AgentChoice != "default" {
+		pyl.Agent = &PylonAgent{Type: in.AgentChoice}
+	}
+
+	// Volumes and prompt
+	if len(in.Volumes) > 0 || in.Prompt != "" {
+		if pyl.Agent == nil {
+			pyl.Agent = &PylonAgent{}
+		}
+		pyl.Agent.Volumes = in.Volumes
+		pyl.Agent.Prompt = in.Prompt
+	}
+
+	// Approval
+	if in.Approval {
+		if pyl.Channel == nil {
+			pyl.Channel = &PylonChannel{}
+		}
+		pyl.Channel.Approval = true
+		pyl.Channel.Topic = in.TopicTemplate
+		pyl.Channel.Message = in.MsgTemplate
+	}
+
+	return pyl
+}
+
 // PylonConfig is the per-pylon config at ~/.pylon/pylons/<name>/pylon.yaml.
 type PylonConfig struct {
 	Name        string    `yaml:"name"`

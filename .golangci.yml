@@ -42,6 +42,8 @@ linters:
         # config persistence -- errors shown in TUI, not propagated
         - github.com/pylonto/pylon/internal/config.SavePylon
         - github.com/pylonto/pylon/internal/config.SaveEnvVar
+        - github.com/pylonto/pylon/internal/config.SavePylonEnvVar
+        - github.com/pylonto/pylon/internal/config.SavePylonSecrets
         # clipboard -- best-effort
         - (github.com/aymanbagabas/go-osc52/v2.Sequence).WriteTo
     gocritic:

@@ -127,9 +127,9 @@ func TestWizardProgression(t *testing.T) {
 	var completed bool
 
 	steps := []StepDef{
-		{Key: "step1", Create: func() Step { return newStubStep("Step 1", "val1") }},
-		{Key: "step2", Create: func() Step { return newStubStep("Step 2", "val2") }},
-		{Key: "step3", Create: func() Step { return newStubStep("Step 3", "val3") }},
+		{Key: "step1", Create: func(_ map[string]string) Step { return newStubStep("Step 1", "val1") }},
+		{Key: "step2", Create: func(_ map[string]string) Step { return newStubStep("Step 2", "val2") }},
+		{Key: "step3", Create: func(_ map[string]string) Step { return newStubStep("Step 3", "val3") }},
 	}
 
 	wiz := newWizardModel("Test", steps, nil, func(values map[string]string) error {
@@ -159,8 +159,8 @@ func TestWizardProgression(t *testing.T) {
 
 func TestWizardBackNavigation(t *testing.T) {
 	steps := []StepDef{
-		{Key: "step1", Create: func() Step { return newStubStep("Step 1", "val1") }},
-		{Key: "step2", Create: func() Step { return newStubStep("Step 2", "val2") }},
+		{Key: "step1", Create: func(_ map[string]string) Step { return newStubStep("Step 1", "val1") }},
+		{Key: "step2", Create: func(_ map[string]string) Step { return newStubStep("Step 2", "val2") }},
 	}
 
 	wiz := newWizardModel("Test", steps, nil, nil)
@@ -183,15 +183,15 @@ func TestWizardBackNavigation(t *testing.T) {
 
 func TestWizardDynamicStepInsertion(t *testing.T) {
 	steps := []StepDef{
-		{Key: "choice", Create: func() Step { return newStubStep("Choice", "option_a") }},
-		{Key: "final", Create: func() Step { return newStubStep("Final", "done") }},
+		{Key: "choice", Create: func(_ map[string]string) Step { return newStubStep("Choice", "option_a") }},
+		{Key: "final", Create: func(_ map[string]string) Step { return newStubStep("Final", "done") }},
 	}
 
 	onStepDone := func(key, value string, values map[string]string) []StepDef {
 		if key == "choice" && value == "option_a" {
 			return []StepDef{
-				{Key: "choice.sub1", Create: func() Step { return newStubStep("Sub 1", "sub_val1") }},
-				{Key: "choice.sub2", Create: func() Step { return newStubStep("Sub 2", "sub_val2") }},
+				{Key: "choice.sub1", Create: func(_ map[string]string) Step { return newStubStep("Sub 1", "sub_val1") }},
+				{Key: "choice.sub2", Create: func(_ map[string]string) Step { return newStubStep("Sub 2", "sub_val2") }},
 			}
 		}
 		return nil

@@ -182,6 +182,24 @@ func TestSetupOnComplete_ConfirmNo(t *testing.T) {
 	assert.False(t, config.GlobalExists(), "config file should not be created when confirm=no")
 }
 
+func TestSetupOnComplete_SlackWritesGlobalEnv(t *testing.T) {
+	// Regression: `pylon nexus` setup flow must continue to write Slack tokens
+	// to the GLOBAL .env (not per-pylon). Per-pylon .env writing is the job
+	// of `pylon construct`, which is a separate flow.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SLACK_BOT_TOKEN", "")
+	t.Setenv("SLACK_APP_TOKEN", "")
+
+	values := makeSetupValues("slack", "claude")
+	require.NoError(t, setupOnComplete(values))
+
+	data, err := os.ReadFile(config.EnvPath())
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "SLACK_BOT_TOKEN=xoxb-test-bot-token")
+	assert.Contains(t, string(data), "SLACK_APP_TOKEN=xapp-test-app-token")
+}
+
 func TestSetupOnComplete_EnvTokenPrecedence(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TELEGRAM_BOT_TOKEN", "env-token-from-env")
@@ -255,7 +273,7 @@ func TestChannelSteps(t *testing.T) {
 		steps := channelSteps("telegram")
 		require.Len(t, steps, 3)
 		for _, s := range steps {
-			step := s.Create()
+			step := s.Create(nil)
 			assert.NotNil(t, step)
 			assert.NotEmpty(t, step.Title())
 		}
@@ -265,7 +283,7 @@ func TestChannelSteps(t *testing.T) {
 		steps := channelSteps("slack")
 		require.Len(t, steps, 7)
 		for _, s := range steps {
-			step := s.Create()
+			step := s.Create(nil)
 			assert.NotNil(t, step)
 			assert.NotEmpty(t, step.Title())
 		}
@@ -276,14 +294,14 @@ func TestAgentSteps(t *testing.T) {
 	t.Run("claude step has correct options", func(t *testing.T) {
 		steps := agentSteps("claude")
 		require.Len(t, steps, 1)
-		step := steps[0].Create()
+		step := steps[0].Create(nil)
 		assert.Contains(t, step.Title(), "Claude")
 	})
 
 	t.Run("opencode step has correct options", func(t *testing.T) {
 		steps := agentSteps("opencode")
 		require.Len(t, steps, 1)
-		step := steps[0].Create()
+		step := steps[0].Create(nil)
 		assert.Contains(t, step.Title(), "OpenCode")
 	})
 

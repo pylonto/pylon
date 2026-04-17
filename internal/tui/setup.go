@@ -13,14 +13,24 @@ import (
 	"github.com/pylonto/pylon/internal/config"
 )
 
-// slackAppManifest is the Slack app manifest YAML for users to copy.
-// Duplicated from cmd/setup.go to avoid circular imports.
-const slackAppManifest = `display_information:
-  name: Pylon
-  description: AI agent pipeline runner
+// buildSlackAppManifest returns the Slack app manifest YAML for users to
+// copy into https://api.slack.com/apps. The name/display_name/description
+// fields are templated so each pylon installs as its own recognizable bot;
+// empty inputs fall back to generic Pylon defaults (used by the global
+// `pylon setup` wizard, which has no pylon context).
+func buildSlackAppManifest(appName, description string) string {
+	if appName == "" {
+		appName = "Pylon"
+	}
+	if description == "" {
+		description = "AI agent pipeline runner"
+	}
+	return fmt.Sprintf(`display_information:
+  name: %s
+  description: %s
 features:
   bot_user:
-    display_name: Pylon
+    display_name: %s
     always_online: true
 oauth_config:
   scopes:
@@ -38,11 +48,20 @@ settings:
       - message.groups
   interactivity:
     is_enabled: true
-  socket_mode_enabled: true`
+  socket_mode_enabled: true`, yamlQuote(appName), yamlQuote(description), yamlQuote(appName))
+}
+
+// yamlQuote wraps s as a YAML double-quoted scalar so descriptions with
+// colons, hashes, or other structural characters don't break the manifest.
+func yamlQuote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
 
 func newSetupWizard() wizardModel {
 	steps := []StepDef{
-		{Key: "docker_check", Create: func() Step {
+		{Key: "docker_check", Create: func(_ map[string]string) Step {
 			return NewAsyncStep(
 				"Docker check",
 				"Checking Docker availability",
@@ -55,7 +74,7 @@ func newSetupWizard() wizardModel {
 				},
 			)
 		}},
-		{Key: "channel", Create: func() Step {
+		{Key: "channel", Create: func(_ map[string]string) Step {
 			return NewSelectStep(
 				"Default channel",
 				"Where should pylons communicate?",
@@ -67,7 +86,7 @@ func newSetupWizard() wizardModel {
 				},
 			)
 		}},
-		{Key: "agent", Create: func() Step {
+		{Key: "agent", Create: func(_ map[string]string) Step {
 			return NewSelectStep(
 				"Default AI agent",
 				"Which agent for new pylons?",
@@ -77,7 +96,7 @@ func newSetupWizard() wizardModel {
 				},
 			)
 		}},
-		{Key: "public_url", Create: func() Step {
+		{Key: "public_url", Create: func(_ map[string]string) Step {
 			return NewTextInputStep(
 				"Public URL (optional)",
 				"Base URL where external services can reach pylon. Leave blank if local only.",
@@ -86,7 +105,7 @@ func newSetupWizard() wizardModel {
 				false,
 			)
 		}},
-		{Key: "confirm", Create: func() Step {
+		{Key: "confirm", Create: func(_ map[string]string) Step {
 			return NewConfirmStep(
 				"Save configuration?",
 				"This will create ~/.pylon/config.yaml",
@@ -123,7 +142,7 @@ func telegramSteps() []StepDef {
 	envToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
 	steps := []StepDef{
-		{Key: "channel.tg_token", Create: func() Step {
+		{Key: "channel.tg_token", Create: func(_ map[string]string) Step {
 			if envToken != "" {
 				return NewAsyncStep(
 					"Telegram bot token",
@@ -145,7 +164,7 @@ func telegramSteps() []StepDef {
 				false,
 			)
 		}},
-		{Key: "channel.tg_verify", Create: func() Step {
+		{Key: "channel.tg_verify", Create: func(_ map[string]string) Step {
 			return NewAsyncStep(
 				"Verifying bot token",
 				"Connecting to Telegram",
@@ -156,7 +175,7 @@ func telegramSteps() []StepDef {
 				},
 			)
 		}},
-		{Key: "channel.tg_chat_method", Create: func() Step {
+		{Key: "channel.tg_chat_method", Create: func(_ map[string]string) Step {
 			return NewSelectStep(
 				"Chat ID detection",
 				"How should we find your group chat?",
@@ -176,28 +195,28 @@ func slackSteps() []StepDef {
 	envAppToken := os.Getenv("SLACK_APP_TOKEN")
 
 	steps := []StepDef{
-		{Key: "channel.slack_manifest", Create: func() Step {
+		{Key: "channel.slack_manifest", Create: func(_ map[string]string) Step {
 			return NewCopyBlockStep(
 				"Create a Slack App",
 				"Go to https://api.slack.com/apps > Create New App > From a manifest\nPaste this YAML manifest:",
-				slackAppManifest,
+				buildSlackAppManifest("", ""),
 			)
 		}},
-		{Key: "channel.slack_install", Create: func() Step {
+		{Key: "channel.slack_install", Create: func(_ map[string]string) Step {
 			return NewInfoStep(
 				"Install the app",
 				"",
 				"Install the app to your workspace from the app settings page.",
 			)
 		}},
-		{Key: "channel.slack_socket", Create: func() Step {
+		{Key: "channel.slack_socket", Create: func(_ map[string]string) Step {
 			return NewInfoStep(
 				"Enable Socket Mode",
 				"",
 				"Settings > Socket Mode > toggle on.\nGenerate an App-Level Token with connections:write scope.",
 			)
 		}},
-		{Key: "channel.slack_bot_token", Create: func() Step {
+		{Key: "channel.slack_bot_token", Create: func(_ map[string]string) Step {
 			if envBotToken != "" {
 				return NewAsyncStep(
 					"Slack bot token",
@@ -219,7 +238,7 @@ func slackSteps() []StepDef {
 				false,
 			)
 		}},
-		{Key: "channel.slack_verify_bot", Create: func() Step {
+		{Key: "channel.slack_verify_bot", Create: func(_ map[string]string) Step {
 			return NewAsyncStep(
 				"Verifying bot token",
 				"Connecting to Slack",
@@ -228,7 +247,7 @@ func slackSteps() []StepDef {
 				},
 			)
 		}},
-		{Key: "channel.slack_app_token", Create: func() Step {
+		{Key: "channel.slack_app_token", Create: func(_ map[string]string) Step {
 			if envAppToken != "" {
 				return NewAsyncStep(
 					"Slack app token",
@@ -246,7 +265,7 @@ func slackSteps() []StepDef {
 				false,
 			)
 		}},
-		{Key: "channel.slack_channel", Create: func() Step {
+		{Key: "channel.slack_channel", Create: func(_ map[string]string) Step {
 			return NewTextInputStep(
 				"Slack channel ID",
 				"The channel where pylon will post. Find it in channel details.",
@@ -265,7 +284,7 @@ func agentSteps(agentType string) []StepDef {
 	case "claude":
 		if runtime.GOOS == "darwin" {
 			return []StepDef{
-				{Key: "agent.claude_auth", Create: func() Step {
+				{Key: "agent.claude_auth", Create: func(_ map[string]string) Step {
 					return NewSelectStep(
 						"Claude Code authentication",
 						"OAuth is not supported on macOS. Credentials are stored in Keychain, which cannot be mounted into Docker containers.",
@@ -277,7 +296,7 @@ func agentSteps(agentType string) []StepDef {
 			}
 		}
 		return []StepDef{
-			{Key: "agent.claude_auth", Create: func() Step {
+			{Key: "agent.claude_auth", Create: func(_ map[string]string) Step {
 				return NewSelectStep(
 					"Claude Code authentication",
 					"",
@@ -290,7 +309,7 @@ func agentSteps(agentType string) []StepDef {
 		}
 	case "opencode":
 		return []StepDef{
-			{Key: "agent.opencode_auth", Create: func() Step {
+			{Key: "agent.opencode_auth", Create: func(_ map[string]string) Step {
 				return NewSelectStep(
 					"OpenCode authentication",
 					"",
