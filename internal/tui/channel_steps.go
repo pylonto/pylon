@@ -72,23 +72,23 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 	steps := []StepDef{
 		{Key: k("slack_manifest"), Create: func(_ map[string]string) Step {
 			return NewCopyBlockStep(
-				"Step 1 of 3: Create a Slack App",
-				"Go to https://api.slack.com/apps > Create New App > From a manifest.\nPaste this YAML manifest:",
+				"Step 1: Create a Slack App",
+				"Go to https://api.slack.com/apps -> Create New App -> From a manifest.\nPaste this YAML manifest:",
 				slackAppManifest,
 			)
 		}},
 		{Key: k("slack_install"), Create: func(_ map[string]string) Step {
 			return NewInfoStep(
-				"Step 2 of 3: Install the app",
+				"Step 2: Install to your workspace",
 				"",
-				"Install the app to your workspace from the app settings page.",
+				"On the app settings page, click Install App in the left sidebar,\nthen Install to Workspace and approve the requested scopes.",
 			)
 		}},
-		{Key: k("slack_socket"), Create: func(_ map[string]string) Step {
+		{Key: k("slack_bot_token_info"), Create: func(_ map[string]string) Step {
 			return NewInfoStep(
-				"Step 3 of 3: Enable Socket Mode",
+				"Step 3: Get the bot token",
 				"",
-				"Settings > Socket Mode > toggle on.\nGenerate an App-Level Token with connections:write scope.",
+				"Open OAuth & Permissions in the left sidebar.\nCopy the Bot User OAuth Token (starts with xoxb-).",
 			)
 		}},
 	}
@@ -158,6 +158,19 @@ func SlackStepsWith(keyPrefix string, v SlackValidators) []StepDef {
 		}},
 	)
 
+	steps = append(steps, StepDef{
+		Key: k("slack_app_token_info"),
+		Create: func(_ map[string]string) Step {
+			return NewInfoStep(
+				"Step 4: Get the app-level token",
+				"",
+				"1. Open Socket Mode in the left sidebar and toggle it on.\n"+
+					"2. Open Basic Information -> App-Level Tokens -> Generate Token and Scopes.\n"+
+					"3. Add the connections:write scope and generate the token.\n"+
+					"4. Copy the token (starts with xapp-).",
+			)
+		},
+	})
 	if envAppToken != "" {
 		steps = append(steps, StepDef{
 			Key: k("slack_app_token_source"),

@@ -11,20 +11,22 @@ import (
 )
 
 func TestSlackSteps_ShapeAndKeys(t *testing.T) {
-	// No env token -> first step is a text input, not async.
+	// No env token -> no source prompts, token inputs follow their own
+	// "where to find it" info steps.
 	t.Setenv("SLACK_BOT_TOKEN", "")
 	t.Setenv("SLACK_APP_TOKEN", "")
 
 	steps := SlackSteps("prefix")
-	require.Len(t, steps, 8)
+	require.Len(t, steps, 9)
 	assert.Equal(t, "prefix.slack_manifest", steps[0].Key)
 	assert.Equal(t, "prefix.slack_install", steps[1].Key)
-	assert.Equal(t, "prefix.slack_socket", steps[2].Key)
+	assert.Equal(t, "prefix.slack_bot_token_info", steps[2].Key)
 	assert.Equal(t, "prefix.slack_bot_token", steps[3].Key)
 	assert.Equal(t, "prefix.slack_verify_bot", steps[4].Key)
-	assert.Equal(t, "prefix.slack_app_token", steps[5].Key)
-	assert.Equal(t, "prefix.slack_channel_method", steps[6].Key)
-	assert.Equal(t, "prefix.slack_channel_id", steps[7].Key)
+	assert.Equal(t, "prefix.slack_app_token_info", steps[5].Key)
+	assert.Equal(t, "prefix.slack_app_token", steps[6].Key)
+	assert.Equal(t, "prefix.slack_channel_method", steps[7].Key)
+	assert.Equal(t, "prefix.slack_channel_id", steps[8].Key)
 
 	// Every step Create closure must produce a non-nil Step with a title.
 	for _, s := range steps {
@@ -58,8 +60,8 @@ func TestSlackSteps_EnvTokenOptIn(t *testing.T) {
 	t.Setenv("SLACK_APP_TOKEN", "")
 
 	steps := SlackSteps("prefix")
-	// 8 default steps + 1 source prompt = 9.
-	require.Len(t, steps, 9)
+	// 9 default steps + 1 source prompt = 10.
+	require.Len(t, steps, 10)
 	assert.Equal(t, "prefix.slack_bot_token_source", steps[3].Key)
 	assert.Equal(t, "prefix.slack_bot_token", steps[4].Key)
 
@@ -90,9 +92,10 @@ func TestSlackSteps_BothEnvVarsAddBothSourcePrompts(t *testing.T) {
 	t.Setenv("SLACK_APP_TOKEN", "xapp-from-env")
 
 	steps := SlackSteps("prefix")
-	require.Len(t, steps, 10)
+	// 9 baseline + 2 source prompts = 11.
+	require.Len(t, steps, 11)
 	assert.Equal(t, "prefix.slack_bot_token_source", steps[3].Key)
-	assert.Equal(t, "prefix.slack_app_token_source", steps[6].Key)
+	assert.Equal(t, "prefix.slack_app_token_source", steps[7].Key)
 }
 
 func TestTelegramSteps_EnvTokenOptIn(t *testing.T) {
@@ -132,7 +135,7 @@ func TestSlackStepsWith_ChannelIDAutoDetect(t *testing.T) {
 	}
 
 	steps := SlackStepsWith("prefix", v)
-	chStep := steps[7] // slack_channel_id
+	chStep := steps[8] // slack_channel_id
 	assert.Equal(t, "prefix.slack_channel_id", chStep.Key)
 
 	values := map[string]string{
@@ -160,7 +163,7 @@ func TestSlackStepsWith_ChannelIDManual(t *testing.T) {
 
 	v := DefaultSlackValidators
 	steps := SlackStepsWith("prefix", v)
-	chStep := steps[7]
+	chStep := steps[8]
 
 	values := map[string]string{
 		"prefix.slack_bot_token":      "xoxb-fresh",

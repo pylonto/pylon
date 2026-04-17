@@ -161,8 +161,8 @@ func newConstructWizard(name string) wizardModel {
 		{Key: "prompt", Create: func(_ map[string]string) Step {
 			return NewEditorStep(
 				"Default prompt",
-				"Use {{ .body.X }} to inject webhook payload fields.\nExamples: {{ .body.issue.title }}, {{ .body.error }}",
-				"Investigate this error and suggest a fix: {{ .body.error }}",
+				"What should the agent do when this pylon fires?\nWebhook payload fields are available via {{ .body.X }} syntax if you have a known schema.",
+				"",
 			)
 		}},
 		{Key: "approval", Create: func(_ map[string]string) Step {
@@ -205,17 +205,17 @@ func constructOnStepDone(key, value string, values map[string]string) []StepDef 
 				{Key: "approval.topic", Create: func(_ map[string]string) Step {
 					return NewTextInputStep(
 						"Topic name template",
-						"The group/thread subject line. Use {{ .body.X }} for webhook fields.",
-						"{{ .body.issue.title }}",
-						"{{ .body.issue.title }}",
+						"The group/thread subject line. Use {{ .body.X }} for webhook fields if you have a known schema.",
+						"{{ .body.X }}",
+						"",
 						false,
 					)
 				}},
 				{Key: "approval.message", Create: func(_ map[string]string) Step {
 					return NewEditorStep(
 						"Notification message template",
-						"Shown above the Investigate/Ignore buttons. Use {{ .body.X }} for webhook fields.",
-						"{{ .body.issue.title }}\n{{ .body.error }}",
+						"Shown above the Investigate/Ignore buttons. Use {{ .body.X }} for webhook fields if you have a known schema.",
+						"",
 					)
 				}},
 			}

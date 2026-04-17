@@ -452,15 +452,16 @@ func TestConstructOnStepDone(t *testing.T) {
 
 	t.Run("channel_choice=slack returns full step-by-step flow", func(t *testing.T) {
 		steps := constructOnStepDone("channel_choice", "slack", nil)
-		require.Len(t, steps, 8)
+		require.Len(t, steps, 9)
 		assert.Equal(t, "channel_choice.slack_manifest", steps[0].Key)
 		assert.Equal(t, "channel_choice.slack_install", steps[1].Key)
-		assert.Equal(t, "channel_choice.slack_socket", steps[2].Key)
+		assert.Equal(t, "channel_choice.slack_bot_token_info", steps[2].Key)
 		assert.Equal(t, "channel_choice.slack_bot_token", steps[3].Key)
 		assert.Equal(t, "channel_choice.slack_verify_bot", steps[4].Key)
-		assert.Equal(t, "channel_choice.slack_app_token", steps[5].Key)
-		assert.Equal(t, "channel_choice.slack_channel_method", steps[6].Key)
-		assert.Equal(t, "channel_choice.slack_channel_id", steps[7].Key)
+		assert.Equal(t, "channel_choice.slack_app_token_info", steps[5].Key)
+		assert.Equal(t, "channel_choice.slack_app_token", steps[6].Key)
+		assert.Equal(t, "channel_choice.slack_channel_method", steps[7].Key)
+		assert.Equal(t, "channel_choice.slack_channel_id", steps[8].Key)
 	})
 
 	t.Run("channel_choice=default returns no steps", func(t *testing.T) {
@@ -518,7 +519,7 @@ func TestConstructChannelSteps(t *testing.T) {
 
 	t.Run("slack steps create valid instances", func(t *testing.T) {
 		steps := constructChannelSteps("slack")
-		require.Len(t, steps, 8)
+		require.Len(t, steps, 9)
 		for _, s := range steps {
 			step := s.Create(nil)
 			assert.NotNil(t, step)
