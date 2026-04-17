@@ -248,29 +248,17 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				}
 			}
 
-			if pyl.Channel != nil && pyl.Channel.Type == "telegram" && pyl.Channel.Telegram != nil {
-				tg := pyl.Channel.Telegram
+			if pyl.Channel != nil {
 				pylonEnv := config.LoadPylonEnvFile(name)
-				token := config.ExpandWithPylonEnv(tg.BotToken, pylonEnv)
-				if token == "" || token == tg.BotToken {
-					drSub("channel", "FAIL", "bot token not set")
-					issues++
-				} else if username, err := channel.GetBotUsername(token); err == nil {
-					if tg.ChatID == -1 {
-						drSub("channel", "FAIL", fmt.Sprintf("telegram @%s, chat_id not configured", username))
+				result := checkChannel(pyl, pylonEnv, defaultChannelProbes{})
+				if result.Status != "" {
+					drSub("channel", result.Status, result.Detail)
+					switch result.Status {
+					case "FAIL":
 						issues++
-					} else if tg.ChatID == 0 {
-						drSub("channel", "WARN", fmt.Sprintf("telegram @%s, chat_id not set -- will auto-detect on start; send /start to @%s", username, username))
+					case "WARN":
 						recommendations++
-					} else if err := channel.CheckChatAccess(token, tg.ChatID); err == nil {
-						drSub("channel", "ok", fmt.Sprintf("telegram @%s, chat %d", username, tg.ChatID))
-					} else {
-						drSub("channel", "FAIL", fmt.Sprintf("telegram @%s, chat %d: %v", username, tg.ChatID, err))
-						issues++
 					}
-				} else {
-					drSub("channel", "FAIL", "bot token invalid")
-					issues++
 				}
 			}
 		}
@@ -287,6 +275,96 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 	return nil
+}
+
+// channelProbes isolates the network calls used by per-pylon channel checks
+// so tests can inject stubs without hitting Slack/Telegram.
+type channelProbes interface {
+	TelegramGetBotUsername(token string) (string, error)
+	TelegramCheckChatAccess(token string, chatID int64) error
+	SlackValidateToken(botToken string) (string, error)
+	SlackCheckAccess(botToken, channelID string) (string, error)
+}
+
+type defaultChannelProbes struct{}
+
+func (defaultChannelProbes) TelegramGetBotUsername(token string) (string, error) {
+	return channel.GetBotUsername(token)
+}
+func (defaultChannelProbes) TelegramCheckChatAccess(token string, chatID int64) error {
+	return channel.CheckChatAccess(token, chatID)
+}
+func (defaultChannelProbes) SlackValidateToken(botToken string) (string, error) {
+	return channel.ValidateSlackToken(botToken)
+}
+func (defaultChannelProbes) SlackCheckAccess(botToken, channelID string) (string, error) {
+	return channel.CheckSlackAccess(botToken, channelID)
+}
+
+// channelCheckResult is the status row to emit for a pylon's channel.
+// An empty Status means "don't print a row".
+type channelCheckResult struct {
+	Status string // "ok", "WARN", "FAIL", or "" to skip
+	Detail string
+}
+
+// checkChannel evaluates a pylon's channel config against live services and
+// returns the row to print. Pure except for the probes, so tests inject stubs.
+func checkChannel(pyl *config.PylonConfig, pylonEnv map[string]string, probes channelProbes) channelCheckResult {
+	if pyl.Channel == nil || pyl.Channel.Type == "" {
+		return channelCheckResult{}
+	}
+	switch pyl.Channel.Type {
+	case "telegram":
+		if pyl.Channel.Telegram == nil {
+			return channelCheckResult{}
+		}
+		tg := pyl.Channel.Telegram
+		token := config.ExpandWithPylonEnv(tg.BotToken, pylonEnv)
+		if token == "" || token == tg.BotToken {
+			return channelCheckResult{Status: "FAIL", Detail: "bot token not set"}
+		}
+		username, err := probes.TelegramGetBotUsername(token)
+		if err != nil {
+			return channelCheckResult{Status: "FAIL", Detail: "bot token invalid"}
+		}
+		switch tg.ChatID {
+		case -1:
+			return channelCheckResult{Status: "FAIL", Detail: fmt.Sprintf("telegram @%s, chat_id not configured", username)}
+		case 0:
+			return channelCheckResult{Status: "WARN", Detail: fmt.Sprintf("telegram @%s, chat_id not set -- will auto-detect on start; send /start to @%s", username, username)}
+		}
+		if err := probes.TelegramCheckChatAccess(token, tg.ChatID); err != nil {
+			return channelCheckResult{Status: "FAIL", Detail: fmt.Sprintf("telegram @%s, chat %d: %v", username, tg.ChatID, err)}
+		}
+		return channelCheckResult{Status: "ok", Detail: fmt.Sprintf("telegram @%s, chat %d", username, tg.ChatID)}
+	case "slack":
+		if pyl.Channel.Slack == nil {
+			return channelCheckResult{}
+		}
+		sl := pyl.Channel.Slack
+		botToken := config.ExpandWithPylonEnv(sl.BotToken, pylonEnv)
+		if botToken == "" || botToken == sl.BotToken {
+			return channelCheckResult{Status: "FAIL", Detail: "bot token not set"}
+		}
+		// Slack needs BOTH tokens at runtime -- buildChannels drops the
+		// channel entirely if either is missing, so an unset app token
+		// means notifications silently won't be delivered. Hard fail.
+		appToken := config.ExpandWithPylonEnv(sl.AppToken, pylonEnv)
+		if appToken == "" || appToken == sl.AppToken {
+			return channelCheckResult{Status: "FAIL", Detail: "app token not set"}
+		}
+		username, err := probes.SlackValidateToken(botToken)
+		if err != nil {
+			return channelCheckResult{Status: "FAIL", Detail: "bot token invalid"}
+		}
+		chName, err := probes.SlackCheckAccess(botToken, sl.ChannelID)
+		if err != nil {
+			return channelCheckResult{Status: "FAIL", Detail: fmt.Sprintf("slack @%s, %s: %v", username, sl.ChannelID, err)}
+		}
+		return channelCheckResult{Status: "ok", Detail: fmt.Sprintf("slack @%s, #%s", username, chName)}
+	}
+	return channelCheckResult{}
 }
 
 // drLine prints a top-level doctor check with dot-leader alignment.

@@ -3,7 +3,9 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -52,7 +54,7 @@ var editCmd = &cobra.Command{
 
 var testCmd = &cobra.Command{
 	Use:               "test <name>",
-	Short:             "Send a mock webhook to trigger the pipeline",
+	Short:             "Fire a pylon on demand (mock webhook for webhook pylons, immediate run for cron)",
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completePylonNames,
 	RunE:              runTest,
@@ -117,9 +119,10 @@ func runList(cmd *cobra.Command, args []string) error {
 
 func runTest(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	pyl, err := config.LoadPylon(name)
+	config.LoadEnv()
+	pyl, err := resolveTestPylon(name)
 	if err != nil {
-		return fmt.Errorf("pylon %q not found: %w", name, err)
+		return err
 	}
 
 	global, err := config.LoadGlobal()
@@ -127,11 +130,22 @@ func runTest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	if pyl.Trigger.Type != "webhook" {
-		return fmt.Errorf("pylon %q uses trigger type %q, not webhook", name, pyl.Trigger.Type)
-	}
-
 	customPayload, _ := cmd.Flags().GetString("payload")
+
+	switch pyl.Trigger.Type {
+	case "webhook":
+		return fireWebhook(pyl, global, customPayload)
+	case "cron":
+		if customPayload != "" {
+			fmt.Fprintln(os.Stderr, "Note: --payload is ignored for cron pylons.")
+		}
+		return fireCron(name, global)
+	default:
+		return fmt.Errorf("pylon %q uses unsupported trigger type %q", name, pyl.Trigger.Type)
+	}
+}
+
+func fireWebhook(pyl *config.PylonConfig, global *config.GlobalConfig, customPayload string) error {
 	var payload []byte
 	if customPayload != "" {
 		payload = []byte(customPayload)
@@ -148,16 +162,16 @@ func runTest(cmd *cobra.Command, args []string) error {
 		mock := map[string]interface{}{
 			"repo":  repo,
 			"ref":   ref,
-			"error": fmt.Sprintf("Test error from pylon test %s", name),
+			"error": fmt.Sprintf("Test error from pylon test %s", pyl.Name),
 			"issue": map[string]interface{}{
-				"title":   fmt.Sprintf("Test issue for %s", name),
+				"title":   fmt.Sprintf("Test issue for %s", pyl.Name),
 				"culprit": "test.go:42",
 			},
 		}
 		payload, _ = json.MarshalIndent(mock, "", "  ")
 	}
 
-	url := fmt.Sprintf("http://%s:%d%s", global.Server.Host, global.Server.Port, pyl.Trigger.Path)
+	url := fmt.Sprintf("http://%s:%d%s", loopbackHost(global.Server.Host), global.Server.Port, pyl.Trigger.Path)
 	fmt.Printf("Sending test webhook to %s\n", url)
 	fmt.Printf("Payload: %s\n\n", string(payload))
 
@@ -172,4 +186,38 @@ func runTest(cmd *cobra.Command, args []string) error {
 	out, _ := json.MarshalIndent(result, "", "  ")
 	fmt.Printf("Response [%d]: %s\n", resp.StatusCode, string(out))
 	return nil
+}
+
+// fireCron triggers a cron pylon immediately by calling the daemon's generic
+// /trigger/{name} endpoint (the same seam the TUI uses).
+func fireCron(name string, global *config.GlobalConfig) error {
+	url := fmt.Sprintf("http://%s:%d/trigger/%s", loopbackHost(global.Server.Host), global.Server.Port, name)
+	fmt.Printf("Firing cron pylon %s via %s\n\n", name, url)
+
+	resp, err := http.Post(url, "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return fmt.Errorf("request failed (is `pylon start` running?): %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	out, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Printf("Response [%d]: %s\n", resp.StatusCode, string(out))
+	return nil
+}
+
+// resolveTestPylon loads a pylon by name and distinguishes "not found" from
+// validation errors so the caller can report them accurately. Prior behavior
+// wrapped every error as "pylon X not found", which was misleading when the
+// pylon existed but had an unset env var in its channel config.
+func resolveTestPylon(name string) (*config.PylonConfig, error) {
+	pyl, err := config.LoadPylon(name)
+	if err == nil {
+		return pyl, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("pylon %q not found", name)
+	}
+	return nil, err
 }

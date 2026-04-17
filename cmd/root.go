@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
@@ -62,4 +64,14 @@ var versionCmd = &cobra.Command{
 // comingSoon prints a standard "coming soon" message for unimplemented features.
 func comingSoon(name string) {
 	fmt.Printf("[%s] support coming soon. Follow https://github.com/pylonto/pylon for updates.\n", name)
+}
+
+// requireTTY returns a clear error if stdin is not an interactive terminal.
+// Used by commands that launch a full-screen bubbletea wizard.
+func requireTTY() error {
+	fd := os.Stdin.Fd()
+	if isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd) {
+		return nil
+	}
+	return errors.New("this command requires an interactive terminal -- for non-interactive use, run `pylon construct <name> --from <template>`")
 }

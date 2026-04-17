@@ -158,6 +158,41 @@ func TestSaveEnvVar(t *testing.T) {
 	})
 }
 
+func TestSavePylonEnvVar(t *testing.T) {
+	home := setTempHome(t)
+
+	t.Run("creates pylon dir and file", func(t *testing.T) {
+		require.NoError(t, SavePylonEnvVar("my-pylon", "SLACK_BOT_TOKEN", "xoxb-abc"))
+
+		path := filepath.Join(home, ".pylon", "pylons", "my-pylon", ".env")
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "SLACK_BOT_TOKEN=xoxb-abc")
+	})
+
+	t.Run("upserts existing key without duplicating", func(t *testing.T) {
+		require.NoError(t, SavePylonEnvVar("my-pylon", "SLACK_BOT_TOKEN", "xoxb-new"))
+		require.NoError(t, SavePylonEnvVar("my-pylon", "SLACK_APP_TOKEN", "xapp-abc"))
+
+		data, err := os.ReadFile(filepath.Join(home, ".pylon", "pylons", "my-pylon", ".env"))
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "SLACK_BOT_TOKEN=xoxb-new")
+		assert.NotContains(t, string(data), "xoxb-abc")
+		assert.Contains(t, string(data), "SLACK_APP_TOKEN=xapp-abc")
+	})
+
+	t.Run("does not touch global .env", func(t *testing.T) {
+		// Seed global .env with a different token
+		require.NoError(t, SaveEnvVar("GLOBAL_TOKEN", "global-val"))
+		require.NoError(t, SavePylonEnvVar("other-pylon", "SLACK_BOT_TOKEN", "xoxb-other"))
+
+		globalData, err := os.ReadFile(filepath.Join(home, ".pylon", ".env"))
+		require.NoError(t, err)
+		assert.Contains(t, string(globalData), "GLOBAL_TOKEN=global-val")
+		assert.NotContains(t, string(globalData), "xoxb-other")
+	})
+}
+
 func TestLoadPylonEnvFile(t *testing.T) {
 	home := setTempHome(t)
 

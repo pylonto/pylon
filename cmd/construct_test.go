@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -13,12 +15,12 @@ import (
 func TestBuildPylonConfig(t *testing.T) {
 	tests := []struct {
 		name  string
-		input constructInputs
+		input config.PylonInputs
 		check func(t *testing.T, pyl *config.PylonConfig)
 	}{
 		{
 			name: "telegram + webhook",
-			input: constructInputs{
+			input: config.PylonInputs{
 				Name:          "tg-webhook",
 				Description:   "telegram webhook pylon",
 				TriggerType:   "webhook",
@@ -45,7 +47,7 @@ func TestBuildPylonConfig(t *testing.T) {
 		},
 		{
 			name: "telegram + cron",
-			input: constructInputs{
+			input: config.PylonInputs{
 				Name:          "tg-cron",
 				TriggerType:   "cron",
 				TriggerCron:   "0 9 * * 1-5",
@@ -70,7 +72,7 @@ func TestBuildPylonConfig(t *testing.T) {
 		},
 		{
 			name: "slack + webhook",
-			input: constructInputs{
+			input: config.PylonInputs{
 				Name:          "sl-webhook",
 				TriggerType:   "webhook",
 				TriggerPath:   "/sl-webhook",
@@ -97,7 +99,7 @@ func TestBuildPylonConfig(t *testing.T) {
 		},
 		{
 			name: "slack + cron",
-			input: constructInputs{
+			input: config.PylonInputs{
 				Name:          "sl-cron",
 				TriggerType:   "cron",
 				TriggerCron:   "*/5 * * * *",
@@ -123,7 +125,7 @@ func TestBuildPylonConfig(t *testing.T) {
 		},
 		{
 			name: "default channel",
-			input: constructInputs{
+			input: config.PylonInputs{
 				Name:          "default-pylon",
 				TriggerType:   "webhook",
 				TriggerPath:   "/default-pylon",
@@ -139,7 +141,7 @@ func TestBuildPylonConfig(t *testing.T) {
 		},
 		{
 			name: "agent override to claude",
-			input: constructInputs{
+			input: config.PylonInputs{
 				Name:          "agent-test",
 				TriggerType:   "webhook",
 				TriggerPath:   "/agent-test",
@@ -157,7 +159,7 @@ func TestBuildPylonConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pyl := buildPylonConfig(tt.input)
+			pyl := config.BuildPylon(tt.input)
 
 			assert.Equal(t, tt.input.Name, pyl.Name)
 			assert.Equal(t, tt.input.Description, pyl.Description)
@@ -170,7 +172,7 @@ func TestBuildPylonConfig(t *testing.T) {
 
 func TestBuildPylonConfig_WebhookPathDefaults(t *testing.T) {
 	t.Run("empty path defaults to /name", func(t *testing.T) {
-		pyl := buildPylonConfig(constructInputs{
+		pyl := config.BuildPylon(config.PylonInputs{
 			Name:          "my-pylon",
 			TriggerType:   "webhook",
 			TriggerPath:   "",
@@ -182,7 +184,7 @@ func TestBuildPylonConfig_WebhookPathDefaults(t *testing.T) {
 	})
 
 	t.Run("path without leading slash gets one", func(t *testing.T) {
-		pyl := buildPylonConfig(constructInputs{
+		pyl := config.BuildPylon(config.PylonInputs{
 			Name:          "my-pylon",
 			TriggerType:   "webhook",
 			TriggerPath:   "webhook",
@@ -194,7 +196,7 @@ func TestBuildPylonConfig_WebhookPathDefaults(t *testing.T) {
 	})
 
 	t.Run("public URL override", func(t *testing.T) {
-		pyl := buildPylonConfig(constructInputs{
+		pyl := config.BuildPylon(config.PylonInputs{
 			Name:          "my-pylon",
 			TriggerType:   "webhook",
 			TriggerPath:   "/my-pylon",
@@ -209,7 +211,7 @@ func TestBuildPylonConfig_WebhookPathDefaults(t *testing.T) {
 
 func TestBuildPylonConfig_Workspace(t *testing.T) {
 	t.Run("git-clone", func(t *testing.T) {
-		pyl := buildPylonConfig(constructInputs{
+		pyl := config.BuildPylon(config.PylonInputs{
 			Name:          "ws-test",
 			TriggerType:   "webhook",
 			TriggerPath:   "/ws-test",
@@ -225,7 +227,7 @@ func TestBuildPylonConfig_Workspace(t *testing.T) {
 	})
 
 	t.Run("local", func(t *testing.T) {
-		pyl := buildPylonConfig(constructInputs{
+		pyl := config.BuildPylon(config.PylonInputs{
 			Name:          "ws-test",
 			TriggerType:   "webhook",
 			TriggerPath:   "/ws-test",
@@ -240,7 +242,7 @@ func TestBuildPylonConfig_Workspace(t *testing.T) {
 }
 
 func TestBuildPylonConfig_Approval(t *testing.T) {
-	pyl := buildPylonConfig(constructInputs{
+	pyl := config.BuildPylon(config.PylonInputs{
 		Name:          "approval-test",
 		TriggerType:   "webhook",
 		TriggerPath:   "/approval-test",
@@ -264,7 +266,7 @@ func TestBuildPylonConfig_Approval(t *testing.T) {
 }
 
 func TestBuildPylonConfig_Volumes(t *testing.T) {
-	pyl := buildPylonConfig(constructInputs{
+	pyl := config.BuildPylon(config.PylonInputs{
 		Name:          "vol-test",
 		TriggerType:   "webhook",
 		TriggerPath:   "/vol-test",
@@ -408,6 +410,58 @@ func TestPersistChatID(t *testing.T) {
 		updated, err := config.LoadGlobal()
 		require.NoError(t, err)
 		assert.Equal(t, int64(88888), updated.Defaults.Channel.Telegram.ChatID)
+	})
+}
+
+func TestPersistPylonSecrets(t *testing.T) {
+	t.Run("writes slack tokens to per-pylon .env", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+
+		secrets := map[string]string{
+			"SLACK_BOT_TOKEN": "xoxb-abc",
+			"SLACK_APP_TOKEN": "xapp-xyz",
+		}
+		require.NoError(t, config.SavePylonSecrets("linear-dev", secrets))
+
+		data, err := os.ReadFile(filepath.Join(home, ".pylon", "pylons", "linear-dev", ".env"))
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "SLACK_BOT_TOKEN=xoxb-abc")
+		assert.Contains(t, string(data), "SLACK_APP_TOKEN=xapp-xyz")
+	})
+
+	t.Run("writes telegram token to per-pylon .env", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+
+		require.NoError(t, config.SavePylonSecrets("alert-bot", map[string]string{
+			"TELEGRAM_BOT_TOKEN": "123:abc",
+		}))
+
+		data, err := os.ReadFile(filepath.Join(home, ".pylon", "pylons", "alert-bot", ".env"))
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "TELEGRAM_BOT_TOKEN=123:abc")
+	})
+
+	t.Run("does not touch global .env", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+
+		// Seed global .env.
+		require.NoError(t, config.SaveEnvVar("GLOBAL_TOKEN", "global-val"))
+		require.NoError(t, config.SavePylonSecrets("p1", map[string]string{
+			"SLACK_BOT_TOKEN": "xoxb-per-pylon",
+		}))
+
+		globalData, err := os.ReadFile(filepath.Join(home, ".pylon", ".env"))
+		require.NoError(t, err)
+		assert.Contains(t, string(globalData), "GLOBAL_TOKEN=global-val")
+		assert.NotContains(t, string(globalData), "xoxb-per-pylon")
+	})
+
+	t.Run("nil map is a no-op", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		require.NoError(t, config.SavePylonSecrets("no-secrets", nil))
 	})
 }
 

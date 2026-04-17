@@ -320,8 +320,29 @@ func LoadEnv() {
 
 // SaveEnvVar appends or updates a key=value pair in ~/.pylon/.env.
 func SaveEnvVar(key, value string) error {
-	os.MkdirAll(Dir(), 0755)
-	envPath := EnvPath()
+	return saveEnvVarAt(EnvPath(), key, value)
+}
+
+// SavePylonEnvVar appends or updates a key=value pair in ~/.pylon/pylons/<name>/.env.
+// Creates the pylon directory if it doesn't exist yet.
+func SavePylonEnvVar(name, key, value string) error {
+	return saveEnvVarAt(PylonEnvPath(name), key, value)
+}
+
+// SavePylonSecrets writes each k=v pair to the per-pylon .env file so the
+// pylon is self-contained. Runtime validation checks per-pylon .env first
+// and falls back to the global .env / process env.
+func SavePylonSecrets(name string, secrets map[string]string) error {
+	for k, v := range secrets {
+		if err := SavePylonEnvVar(name, k, v); err != nil {
+			return fmt.Errorf("writing %s: %w", k, err)
+		}
+	}
+	return nil
+}
+
+func saveEnvVarAt(envPath, key, value string) error {
+	os.MkdirAll(filepath.Dir(envPath), 0755)
 
 	// Read existing
 	existing := make(map[string]string)
