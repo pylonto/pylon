@@ -67,7 +67,11 @@ var destroyCmd = &cobra.Command{
 	ValidArgsFunction: completePylonNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if _, err := config.LoadPylon(name); err != nil {
+		// Check existence on disk, not via LoadPylon -- a pylon with a broken
+		// config (unset env vars, unsupported type) is exactly the kind we
+		// most want to destroy. Using LoadPylon's validation here would wrap
+		// every validation error as "not found" and block cleanup.
+		if _, err := os.Stat(config.PylonPath(name)); err != nil {
 			return fmt.Errorf("pylon %q not found", name)
 		}
 		fmt.Printf("This will delete pylon %q and all its job history.\n", name)
