@@ -406,9 +406,6 @@ func (s *asyncStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		s.running = false
 		s.result = msg.result
 		s.err = msg.err
-		if s.err == nil {
-			s.done = true
-		}
 		return s, nil
 	case spinner.TickMsg:
 		if s.running {
@@ -417,10 +414,13 @@ func (s *asyncStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			return s, cmd
 		}
 	case tea.KeyMsg:
-		if !s.running && s.err != nil && msg.String() == keyEnter {
-			// Allow retry on error
+		if s.running || msg.String() != keyEnter {
+			return s, nil
+		}
+		if s.err != nil {
 			return s, s.Init()
 		}
+		s.done = true
 	}
 	return s, nil
 }
@@ -433,7 +433,8 @@ func (s *asyncStep) View(width int) string {
 		return statusFailed.Render(fmt.Sprintf("Error: %v", s.err)) + "\n" +
 			mutedStyle.Render("  [enter] retry")
 	}
-	return statusActive.Render("OK") + "  " + subtextStyle.Render(s.result)
+	return statusActive.Render("OK") + "  " + subtextStyle.Render(s.result) + "\n\n" +
+		mutedStyle.Render("  [enter] continue")
 }
 
 // --- InfoStep ---
