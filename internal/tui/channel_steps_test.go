@@ -39,11 +39,12 @@ func TestTelegramSteps_ShapeAndKeys(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 
 	steps := TelegramSteps("prefix")
-	require.Len(t, steps, 4)
-	assert.Equal(t, "prefix.tg_token", steps[0].Key)
-	assert.Equal(t, "prefix.tg_verify_bot", steps[1].Key)
-	assert.Equal(t, "prefix.tg_chat_method", steps[2].Key)
-	assert.Equal(t, "prefix.tg_chat_id", steps[3].Key)
+	require.Len(t, steps, 5)
+	assert.Equal(t, "prefix.tg_token_info", steps[0].Key)
+	assert.Equal(t, "prefix.tg_token", steps[1].Key)
+	assert.Equal(t, "prefix.tg_verify_bot", steps[2].Key)
+	assert.Equal(t, "prefix.tg_chat_method", steps[3].Key)
+	assert.Equal(t, "prefix.tg_chat_id", steps[4].Key)
 
 	for _, s := range steps {
 		step := s.Create(map[string]string{"prefix.tg_token": "123:abc"})
@@ -102,18 +103,19 @@ func TestTelegramSteps_EnvTokenOptIn(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:from-env")
 
 	steps := TelegramSteps("prefix")
-	// 4 default steps + 1 source prompt = 5.
-	require.Len(t, steps, 5)
-	assert.Equal(t, "prefix.tg_token_source", steps[0].Key)
-	assert.Equal(t, "prefix.tg_token", steps[1].Key)
+	// 5 default steps (info + token + verify + method + id) + 1 source prompt = 6.
+	require.Len(t, steps, 6)
+	assert.Equal(t, "prefix.tg_token_info", steps[0].Key)
+	assert.Equal(t, "prefix.tg_token_source", steps[1].Key)
+	assert.Equal(t, "prefix.tg_token", steps[2].Key)
 
 	// Default -> text input.
-	defaultStep := steps[1].Create(nil)
+	defaultStep := steps[2].Create(nil)
 	_, isText := defaultStep.(*textInputStep)
 	assert.True(t, isText, "default (source unset) must prompt for a new token")
 
 	// Opt-in -> async validation.
-	optedIn := steps[1].Create(map[string]string{
+	optedIn := steps[2].Create(map[string]string{
 		"prefix.tg_token_source": "env",
 	})
 	_, isAsync := optedIn.(*asyncStep)
@@ -222,7 +224,7 @@ func TestTelegramStepsWith_PollCancel(t *testing.T) {
 	}
 
 	steps := TelegramStepsWith("prefix", v)
-	chatIDDef := steps[3] // tg_chat_id
+	chatIDDef := steps[4] // tg_chat_id
 	assert.Equal(t, "prefix.tg_chat_id", chatIDDef.Key)
 
 	step := chatIDDef.Create(map[string]string{
@@ -247,7 +249,7 @@ func TestTelegramStepsWith_ChatIDManual(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 
 	steps := TelegramSteps("prefix")
-	chatIDDef := steps[3]
+	chatIDDef := steps[4]
 	step := chatIDDef.Create(map[string]string{
 		"prefix.tg_token":       "123:abc",
 		"prefix.tg_chat_method": "manual",

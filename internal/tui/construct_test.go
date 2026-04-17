@@ -443,11 +443,12 @@ func TestConstructOnStepDone(t *testing.T) {
 
 	t.Run("channel_choice=telegram returns full step-by-step flow", func(t *testing.T) {
 		steps := constructOnStepDone("channel_choice", "telegram", nil)
-		require.Len(t, steps, 4)
-		assert.Equal(t, "channel_choice.tg_token", steps[0].Key)
-		assert.Equal(t, "channel_choice.tg_verify_bot", steps[1].Key)
-		assert.Equal(t, "channel_choice.tg_chat_method", steps[2].Key)
-		assert.Equal(t, "channel_choice.tg_chat_id", steps[3].Key)
+		require.Len(t, steps, 5)
+		assert.Equal(t, "channel_choice.tg_token_info", steps[0].Key)
+		assert.Equal(t, "channel_choice.tg_token", steps[1].Key)
+		assert.Equal(t, "channel_choice.tg_verify_bot", steps[2].Key)
+		assert.Equal(t, "channel_choice.tg_chat_method", steps[3].Key)
+		assert.Equal(t, "channel_choice.tg_chat_id", steps[4].Key)
 	})
 
 	t.Run("channel_choice=slack returns full step-by-step flow", func(t *testing.T) {
@@ -510,7 +511,7 @@ func TestTriggerSteps(t *testing.T) {
 func TestConstructChannelSteps(t *testing.T) {
 	t.Run("telegram steps create valid instances", func(t *testing.T) {
 		steps := constructChannelSteps("telegram")
-		require.Len(t, steps, 4)
+		require.Len(t, steps, 5)
 		for _, s := range steps {
 			step := s.Create(nil)
 			assert.NotNil(t, step)

@@ -254,7 +254,17 @@ func TelegramStepsWith(keyPrefix string, v TelegramValidators) []StepDef {
 
 	envToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
-	var steps []StepDef
+	steps := []StepDef{
+		{Key: k("tg_token_info"), Create: func(_ map[string]string) Step {
+			return NewInfoStep(
+				"Step 1: Get the bot token",
+				"",
+				"Open @BotFather in Telegram (https://t.me/BotFather).\n"+
+					"Send /newbot, pick a display name, then pick a unique username.\n"+
+					"BotFather replies with an HTTP API token -- copy it.",
+			)
+		}},
+	}
 
 	if envToken != "" {
 		steps = append(steps, StepDef{
@@ -288,7 +298,7 @@ func TelegramStepsWith(keyPrefix string, v TelegramValidators) []StepDef {
 			}
 			return NewTextInputStep(
 				"Telegram bot token",
-				"Create a bot via @BotFather: https://t.me/BotFather. Send /newbot, pick a name, and copy the token.",
+				"Paste the token BotFather gave you.",
 				"110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw",
 				"",
 				false,
