@@ -345,6 +345,19 @@ func PruneWorktreeMetadata() {
 // PruneOrphanedContainers kills Docker containers labeled pylon.job
 // that don't match any active job.
 func PruneOrphanedContainers(activeJobIDs map[string]bool) int {
+	return killJobContainers(func(jobID string) bool {
+		return !activeJobIDs[jobID]
+	})
+}
+
+// KillAllJobContainers force-removes every container labeled pylon.job
+// regardless of job state. Called during daemon shutdown so running
+// containers don't outlive the supervising process.
+func KillAllJobContainers() int {
+	return killJobContainers(func(string) bool { return true })
+}
+
+func killJobContainers(shouldKill func(jobID string) bool) int {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return 0
@@ -357,17 +370,18 @@ func PruneOrphanedContainers(activeJobIDs map[string]bool) int {
 		return 0
 	}
 
-	pruned := 0
+	killed := 0
 	for i := range containers {
 		jobID, ok := containers[i].Labels["pylon.job"]
 		if !ok {
 			continue
 		}
-		if !activeJobIDs[jobID] {
-			cli.ContainerKill(ctx, containers[i].ID, "SIGKILL")
-			cli.ContainerRemove(ctx, containers[i].ID, container.RemoveOptions{Force: true})
-			pruned++
+		if !shouldKill(jobID) {
+			continue
 		}
+		cli.ContainerKill(ctx, containers[i].ID, "SIGKILL")
+		cli.ContainerRemove(ctx, containers[i].ID, container.RemoveOptions{Force: true})
+		killed++
 	}
-	return pruned
+	return killed
 }
