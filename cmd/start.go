@@ -234,6 +234,15 @@ func runDaemonForeground(global *config.GlobalConfig, filter []string) error {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
 
+	// Reap any running agent containers on the way out. The per-job goroutines
+	// have their own defers, but those only run if the goroutine survives
+	// process teardown, which isn't guaranteed on signal.
+	defer func() {
+		if n := runner.KillAllJobContainers(); n > 0 {
+			log.Printf("[pylon] killed %d running job container(s) on shutdown", n)
+		}
+	}()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
