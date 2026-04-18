@@ -258,11 +258,12 @@ func runDaemonForeground(global *config.GlobalConfig, filter []string) error {
 	// Ensure agent images exist for all active pylons
 	seen := make(map[string]bool)
 	for _, pyl := range pylons {
-		agentType := pyl.ResolveAgentType(global)
-		if !seen[agentType] {
-			seen[agentType] = true
-			agentimage.Ensure(agentType)
+		img := pyl.ResolveAgentImage(global)
+		if seen[img] {
+			continue
 		}
+		seen[img] = true
+		agentimage.EnsureImage(img, pyl.ResolveAgentType(global))
 	}
 
 	fmt.Printf("\nPowering up pylons...\n\n")

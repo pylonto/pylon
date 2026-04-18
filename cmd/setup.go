@@ -163,7 +163,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := buildGlobalConfig(in)
-	agentimage.Ensure(cfg.Defaults.Agent.Type)
+	p := &config.PylonConfig{}
+	agentimage.EnsureImage(p.ResolveAgentImage(cfg), p.ResolveAgentType(cfg))
 
 	fmt.Println()
 

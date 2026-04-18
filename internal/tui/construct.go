@@ -347,7 +347,12 @@ func constructOnComplete(values map[string]string) error {
 			effectiveAgent = "claude"
 		}
 	}
-	agentimage.Ensure(effectiveAgent)
+	if global, err := config.LoadGlobal(); err == nil {
+		p := &config.PylonConfig{Agent: &config.PylonAgent{Type: effectiveAgent}}
+		agentimage.EnsureImage(p.ResolveAgentImage(global), effectiveAgent)
+	} else {
+		agentimage.EnsureImage(agentimage.ImageName(effectiveAgent), effectiveAgent)
+	}
 
 	return nil
 }

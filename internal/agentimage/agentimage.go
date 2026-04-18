@@ -98,11 +98,11 @@ func Rebuild() {
 	}
 }
 
-// Ensure makes sure the agent image is available locally. It first checks
-// for a local copy, then tries pulling from the registry, and falls back
-// to building from the embedded Dockerfile.
-func Ensure(agentType string) {
-	image := ImageName(agentType)
+// EnsureImage makes sure image is available locally. It pulls from the
+// registry, then falls back to building from the embedded Dockerfile only
+// when image is the canonical default for agentType (Build always tags
+// with ImageName(agentType)).
+func EnsureImage(image, agentType string) {
 	if imageExists(image) {
 		return
 	}
@@ -110,9 +110,14 @@ func Ensure(agentType string) {
 	if pull(image) {
 		return
 	}
-	fmt.Printf("  Pull failed, building from embedded Dockerfile...\n")
-	if err := Build(agentType); err != nil {
-		fmt.Printf("  Warning: %v\n", err)
-		fmt.Printf("  Run manually: docker pull %s\n", image)
+	if image == ImageName(agentType) {
+		fmt.Printf("  Pull failed, building from embedded Dockerfile...\n")
+		if err := Build(agentType); err != nil {
+			fmt.Printf("  Warning: %v\n", err)
+			fmt.Printf("  Run manually: docker pull %s\n", image)
+		}
+		return
 	}
+	fmt.Printf("  Warning: could not pull custom image %s\n", image)
+	fmt.Printf("  This image must be available locally or pullable. Run: docker pull %s\n", image)
 }

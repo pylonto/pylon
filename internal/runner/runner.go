@@ -81,6 +81,8 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 	if pullOut, err := cli.ImagePull(ctx, p.Image, image.PullOptions{}); err == nil {
 		io.Copy(io.Discard, pullOut)
 		pullOut.Close()
+	} else {
+		log.Printf("[runner] image pull %s: %v (continuing, may be local-only)", p.Image, err)
 	}
 
 	envList, mounts := BuildAgentEnv(p, workDir)
