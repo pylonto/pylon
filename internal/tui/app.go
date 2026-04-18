@@ -13,6 +13,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/pylonto/pylon/internal/config"
 )
 
 type viewID int
@@ -110,8 +112,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.glyph.Update(msg)
 
 	case wizardCompleteMsg:
+		wasConstruct := m.activeView == viewConstruct
 		m.popView()
-		return m, tea.Batch(loadPylonsCmd(), checkDaemonCmd())
+		cmds := []tea.Cmd{loadPylonsCmd(), checkDaemonCmd()}
+		if wasConstruct {
+			cmds = append(cmds, reloadDaemonCmd())
+		}
+		return m, tea.Batch(cmds...)
 
 	case daemonStartedMsg:
 		if msg.err != nil {
@@ -120,6 +127,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, checkDaemonCmd()
 		}
 		// Keep daemonStarting=true until health check confirms state change
+		return m, checkDaemonCmd()
+
+	case daemonReloadedMsg:
+		if msg.err != nil {
+			m.home.err = msg.err
+		}
 		return m, checkDaemonCmd()
 
 	case upgradeDoneMsg:
@@ -395,6 +408,37 @@ func (m *AppModel) popView() {
 	if len(m.viewStack) > 0 {
 		m.activeView = m.viewStack[len(m.viewStack)-1]
 		m.viewStack = m.viewStack[:len(m.viewStack)-1]
+	}
+}
+
+// daemonReloadedMsg is sent after attempting to reload the running daemon.
+type daemonReloadedMsg struct{ err error }
+
+// reloadDaemonCmd asks the running daemon to restart so it re-scans
+// ~/.pylon/pylons/ and registers newly created or re-enabled pylons. It
+// shells out to `pylon start` (no args) to reuse cmd/start.go's probe +
+// ensureViaRestart logic. No-ops silently when the daemon isn't running.
+func reloadDaemonCmd() tea.Cmd {
+	return func() tea.Msg {
+		global, err := config.LoadGlobal()
+		if err != nil {
+			return daemonReloadedMsg{}
+		}
+		client := &http.Client{Timeout: time.Second}
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/callback/doctor-ping", global.Server.Port))
+		if err != nil {
+			return daemonReloadedMsg{}
+		}
+		running := resp.StatusCode == http.StatusMethodNotAllowed
+		resp.Body.Close()
+		if !running {
+			return daemonReloadedMsg{}
+		}
+		out, err := exec.Command(os.Args[0], "start").CombinedOutput()
+		if err != nil {
+			return daemonReloadedMsg{err: fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))}
+		}
+		return daemonReloadedMsg{}
 	}
 }
 

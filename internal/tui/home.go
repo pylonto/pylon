@@ -173,8 +173,10 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
 
 	case pylonToggledMsg:
-		// Reload after toggling enabled/disabled
-		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor())
+		// Reload UI and ask the daemon to restart so the newly (re-)enabled or
+		// disabled pylon is picked up. A re-enabled pylon was filtered out at
+		// boot, so WatchConfigs alone can't discover it.
+		return m, tea.Batch(loadPylonsCmd(), m.loadDetailForCursor(), reloadDaemonCmd())
 
 	case pylonDeletedMsg:
 		if msg.err != nil {
