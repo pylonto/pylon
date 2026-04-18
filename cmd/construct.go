@@ -79,7 +79,15 @@ func runConstruct(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Webhook: %s\n", pyl.ResolvePublicURL(global))
 		proxy.PrintHints(pyl.Trigger.Path, global.Server.Port)
 	}
-	fmt.Printf("\n  Start it:  pylon start %s\n", name)
+
+	if daemonRunning(global.Server.Host, global.Server.Port) {
+		if err := ensureViaRestart(global, []string{name}); err != nil {
+			fmt.Printf("\nWarning: daemon restart failed: %v\n", err)
+			fmt.Printf("  Run `pylon start %s` manually to pick up the new pylon.\n", name)
+		}
+	} else {
+		fmt.Printf("\n  Start it:  pylon start %s\n", name)
+	}
 	fmt.Printf("  Test it:   pylon test %s\n", name)
 	fmt.Printf("  Edit it:   pylon edit %s\n\n", name)
 	return nil
