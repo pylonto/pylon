@@ -322,4 +322,29 @@ func TestResolveAgentImage(t *testing.T) {
 		global := &GlobalConfig{}
 		assert.Equal(t, "ghcr.io/pylonto/agent-opencode", pyl.ResolveAgentImage(global))
 	})
+
+	t.Run("ignores stale claude literal", func(t *testing.T) {
+		pyl := &PylonConfig{}
+		global := &GlobalConfig{
+			Defaults: DefaultsConfig{
+				Agent: AgentDefaults{
+					Type:   "claude",
+					Claude: &ClaudeDefaults{Image: "pylon/agent-claude"},
+				},
+			},
+		}
+		assert.Equal(t, "ghcr.io/pylonto/agent-claude", pyl.ResolveAgentImage(global))
+	})
+
+	t.Run("ignores stale opencode literal", func(t *testing.T) {
+		pyl := &PylonConfig{Agent: &PylonAgent{Type: "opencode"}}
+		global := &GlobalConfig{
+			Defaults: DefaultsConfig{
+				Agent: AgentDefaults{
+					OpenCode: &OpenCodeDefaults{Image: "pylon/agent-opencode"},
+				},
+			},
+		}
+		assert.Equal(t, "ghcr.io/pylonto/agent-opencode", pyl.ResolveAgentImage(global))
+	})
 }

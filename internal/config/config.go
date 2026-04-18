@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/pylonto/pylon/internal/agentimage"
 )
 
 // GlobalConfig is the machine-level config at ~/.pylon/config.yaml.
@@ -202,6 +205,13 @@ func LoadGlobal() (*GlobalConfig, error) {
 		return nil, fmt.Errorf("parsing global config: %w", err)
 	}
 	cfg.applyDefaults()
+	if cfg.migrate() {
+		if err := SaveGlobal(&cfg); err != nil {
+			log.Printf("pylon: migrated stale agent image defaults in memory; could not persist to %s: %v", GlobalPath(), err)
+		} else {
+			log.Printf("pylon: migrated stale agent image defaults in %s", GlobalPath())
+		}
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid global config: %w", err)
 	}
@@ -224,6 +234,42 @@ func (c *GlobalConfig) applyDefaults() {
 	if c.Docker.DefaultTimeout == "" {
 		c.Docker.DefaultTimeout = "15m"
 	}
+}
+
+// staleAgentImages maps obsolete image literals to their current replacements.
+// Populated lazily to avoid an init-time dependency on agentimage.
+func staleAgentImages() map[string]string {
+	return map[string]string{
+		"pylon/agent-claude":   agentimage.ImageName("claude"),
+		"pylon/agent-opencode": agentimage.ImageName("opencode"),
+	}
+}
+
+// isStaleAgentImage reports whether img is a known-obsolete literal default
+// that should be treated as unset.
+func isStaleAgentImage(img string) bool {
+	_, ok := staleAgentImages()[img]
+	return ok
+}
+
+// migrate rewrites known-obsolete literal values in place. Returns true if
+// anything changed, so the caller can persist.
+func (c *GlobalConfig) migrate() bool {
+	stale := staleAgentImages()
+	changed := false
+	if c.Defaults.Agent.Claude != nil {
+		if repl, ok := stale[c.Defaults.Agent.Claude.Image]; ok {
+			c.Defaults.Agent.Claude.Image = repl
+			changed = true
+		}
+	}
+	if c.Defaults.Agent.OpenCode != nil {
+		if repl, ok := stale[c.Defaults.Agent.OpenCode.Image]; ok {
+			c.Defaults.Agent.OpenCode.Image = repl
+			changed = true
+		}
+	}
+	return changed
 }
 
 // DefaultTimeout parses the default timeout duration.

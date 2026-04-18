@@ -214,6 +214,141 @@ func TestLoadPylonEnvFile(t *testing.T) {
 	})
 }
 
+func TestLoadGlobal_MigratesStaleClaudeImage(t *testing.T) {
+	home := setTempHome(t)
+
+	raw := "version: 1\n" +
+		"defaults:\n" +
+		"  channel:\n" +
+		"    type: telegram\n" +
+		"    telegram:\n" +
+		"      bot_token: tok\n" +
+		"      chat_id: 1\n" +
+		"  agent:\n" +
+		"    type: claude\n" +
+		"    claude:\n" +
+		"      image: pylon/agent-claude\n" +
+		"      auth: oauth\n"
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".pylon", "config.yaml"), []byte(raw), 0644))
+
+	loaded, err := LoadGlobal()
+	require.NoError(t, err)
+	assert.Equal(t, "ghcr.io/pylonto/agent-claude", loaded.Defaults.Agent.Claude.Image)
+
+	onDisk, err := os.ReadFile(filepath.Join(home, ".pylon", "config.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(onDisk), "ghcr.io/pylonto/agent-claude")
+	assert.NotContains(t, string(onDisk), "pylon/agent-claude\n")
+}
+
+func TestLoadGlobal_MigratesStaleOpenCodeImage(t *testing.T) {
+	home := setTempHome(t)
+
+	raw := "version: 1\n" +
+		"defaults:\n" +
+		"  channel:\n" +
+		"    type: telegram\n" +
+		"    telegram:\n" +
+		"      bot_token: tok\n" +
+		"      chat_id: 1\n" +
+		"  agent:\n" +
+		"    type: opencode\n" +
+		"    opencode:\n" +
+		"      image: pylon/agent-opencode\n" +
+		"      auth: api-key\n" +
+		"      provider: anthropic\n"
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".pylon", "config.yaml"), []byte(raw), 0644))
+
+	loaded, err := LoadGlobal()
+	require.NoError(t, err)
+	assert.Equal(t, "ghcr.io/pylonto/agent-opencode", loaded.Defaults.Agent.OpenCode.Image)
+
+	onDisk, err := os.ReadFile(filepath.Join(home, ".pylon", "config.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(onDisk), "ghcr.io/pylonto/agent-opencode")
+	assert.NotContains(t, string(onDisk), "pylon/agent-opencode\n")
+}
+
+func TestLoadGlobal_PreservesCustomImage(t *testing.T) {
+	home := setTempHome(t)
+
+	raw := "version: 1\n" +
+		"defaults:\n" +
+		"  channel:\n" +
+		"    type: telegram\n" +
+		"    telegram:\n" +
+		"      bot_token: tok\n" +
+		"      chat_id: 1\n" +
+		"  agent:\n" +
+		"    type: claude\n" +
+		"    claude:\n" +
+		"      image: my-registry.example.com/claude:v2\n" +
+		"      auth: oauth\n"
+	path := filepath.Join(home, ".pylon", "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0644))
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	loaded, err := LoadGlobal()
+	require.NoError(t, err)
+	assert.Equal(t, "my-registry.example.com/claude:v2", loaded.Defaults.Agent.Claude.Image)
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "custom image config should not be rewritten")
+}
+
+func TestLoadGlobal_SaveFailureDoesNotBlock(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file mode permissions")
+	}
+	home := setTempHome(t)
+
+	raw := "version: 1\n" +
+		"defaults:\n" +
+		"  channel:\n" +
+		"    type: telegram\n" +
+		"    telegram:\n" +
+		"      bot_token: tok\n" +
+		"      chat_id: 1\n" +
+		"  agent:\n" +
+		"    type: claude\n" +
+		"    claude:\n" +
+		"      image: pylon/agent-claude\n" +
+		"      auth: oauth\n"
+	cfgPath := filepath.Join(home, ".pylon", "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(raw), 0644))
+
+	// Make the config file read-only so SaveGlobal's WriteFile fails on O_TRUNC.
+	require.NoError(t, os.Chmod(cfgPath, 0400))
+	t.Cleanup(func() { _ = os.Chmod(cfgPath, 0644) })
+
+	loaded, err := LoadGlobal()
+	require.NoError(t, err)
+	assert.Equal(t, "ghcr.io/pylonto/agent-claude", loaded.Defaults.Agent.Claude.Image)
+
+	// On-disk file should still have the stale value because save failed.
+	onDisk, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(onDisk), "pylon/agent-claude")
+	assert.NotContains(t, string(onDisk), "ghcr.io/pylonto/agent-claude")
+}
+
+func TestMigrate_Idempotent(t *testing.T) {
+	cfg := &GlobalConfig{
+		Defaults: DefaultsConfig{
+			Agent: AgentDefaults{
+				Claude:   &ClaudeDefaults{Image: "pylon/agent-claude"},
+				OpenCode: &OpenCodeDefaults{Image: "pylon/agent-opencode"},
+			},
+		},
+	}
+	assert.True(t, cfg.migrate())
+	assert.False(t, cfg.migrate())
+	assert.Equal(t, "ghcr.io/pylonto/agent-claude", cfg.Defaults.Agent.Claude.Image)
+	assert.Equal(t, "ghcr.io/pylonto/agent-opencode", cfg.Defaults.Agent.OpenCode.Image)
+}
+
 func TestGlobalExists(t *testing.T) {
 	setTempHome(t)
 
