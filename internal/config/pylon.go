@@ -464,16 +464,25 @@ func (p *PylonConfig) ResolveAgentType(global *GlobalConfig) string {
 }
 
 // ResolveAgentImage returns the effective agent image.
+// Obsolete literal defaults (e.g. "pylon/agent-claude" from pre-GHCR installs)
+// are treated as unset so the runtime picks the current image even if the
+// on-disk migration in LoadGlobal could not persist.
 func (p *PylonConfig) ResolveAgentImage(global *GlobalConfig) string {
 	switch p.ResolveAgentType(global) {
 	case "claude":
-		if global.Defaults.Agent.Claude != nil && global.Defaults.Agent.Claude.Image != "" {
-			return global.Defaults.Agent.Claude.Image
+		if global.Defaults.Agent.Claude != nil {
+			img := global.Defaults.Agent.Claude.Image
+			if img != "" && !isStaleAgentImage(img) {
+				return img
+			}
 		}
 		return agentimage.ImageName("claude")
 	case "opencode":
-		if global.Defaults.Agent.OpenCode != nil && global.Defaults.Agent.OpenCode.Image != "" {
-			return global.Defaults.Agent.OpenCode.Image
+		if global.Defaults.Agent.OpenCode != nil {
+			img := global.Defaults.Agent.OpenCode.Image
+			if img != "" && !isStaleAgentImage(img) {
+				return img
+			}
 		}
 		return agentimage.ImageName("opencode")
 	default:
