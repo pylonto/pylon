@@ -1159,17 +1159,49 @@ const TWEAKS = /*EDITMODE-BEGIN*/{
     .hero-inner { grid-template-columns: 1fr; gap: 40px; }
     .pipeline, .feature-grid { grid-template-columns: 1fr 1fr; }
     .pipe-step, .feat { border-right: 1px solid var(--line) !important; }
-    .recipes, .trust-grid { grid-template-columns: 1fr; }
+    .recipes, .trust-grid { grid-template-columns: 1fr 1fr; }
     .split { grid-template-columns: 1fr; }
     .footer-inner { grid-template-columns: 1fr 1fr; }
-    .nexus-body { grid-template-columns: 1fr; }
+    .nexus-body { grid-template-columns: 1fr; min-height: 0; }
     .nexus-sep { display: none; }
   }
+  @media (max-width: 768px) {
+    .hero-glow, .closer-glow { display: none; }
+    section.page-section { padding: 88px 0; }
+    .closer { padding: 96px 0; }
+  }
   @media (max-width: 640px) {
-    .pipeline, .feature-grid { grid-template-columns: 1fr; }
+    .container { padding: 0 20px; }
+    .pipeline, .feature-grid, .recipes, .trust-grid { grid-template-columns: 1fr; }
     .nav-links { display: none; }
     section.page-section { padding: 72px 0; }
     .footer-inner { grid-template-columns: 1fr; }
+    .install-block { max-width: 100%; font-size: 12.5px; }
+    .install-cmd {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      word-break: break-word;
+    }
+    .install-copy { min-width: 68px; padding: 14px 12px; }
+    .term-body { height: auto; max-height: 360px; }
+    .hero-sub { max-width: none; }
+    .closer-install { flex-wrap: wrap; padding: 12px 16px; gap: 10px; }
+  }
+  @media (max-width: 480px) {
+    .container { padding: 0 16px; }
+    .closer { padding: 72px 0; }
+    footer { padding: 32px 0 40px; }
+    .hero-sub { font-size: clamp(15px, 4vw, 18px); }
+    .feat { padding: 24px 22px; }
+    .trust-card { padding: 18px; }
+    .install-block { font-size: 12px; }
+    .install-prompt { padding-left: 12px; }
+    .install-cmd { padding: 14px 12px 14px 6px; }
+  }
+  @media (max-width: 380px) {
+    .container { padding: 0 14px; }
+    .install-copy { display: none; }
   }
 </style>
 </head>
