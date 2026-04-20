@@ -1,0 +1,2125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pylon: event-driven AI coding agents, self-hosted</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+const TWEAKS = /*EDITMODE-BEGIN*/{
+  "accent": "#FAB387",
+  "bg": "#0B0B0C",
+  "heroStyle": "sentry",
+  "density": "comfortable",
+  "icon": "rhombus"
+}/*EDITMODE-END*/;
+</script>
+<style>
+  :root {
+    --bg: #0B0B0C;
+    --bg-2: #111113;
+    --bg-3: #17171A;
+    --line: #222226;
+    --line-2: #2E2E33;
+    --fg: #EDEDEE;
+    --fg-2: #B8B8BD;
+    --fg-3: #7A7A80;
+    --fg-4: #4A4A50;
+    --accent: #FAB387;
+    --accent-dim: #8a6822;
+    --green: #7EC17E;
+    --red: #E07C7C;
+    --blue: #89B4FA;
+    --purple: #B097D1;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01","cv11";
+    scroll-behavior: smooth;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  code, .mono { font-family: var(--mono); font-size: 0.92em; }
+  .container { max-width: 1240px; margin: 0 auto; padding: 0 32px; }
+
+  /* ========= NAV ========= */
+  .nav {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(11,11,12,0.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 60px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-weight: 600; font-size: 15px;
+    letter-spacing: -0.01em;
+  }
+  .brand-mark {
+    width: 22px; height: 22px; position: relative;
+  }
+  .brand-mark svg { display: block; }
+  .nav-links {
+    display: flex; align-items: center; gap: 28px;
+    font-size: 14px; color: var(--fg-2);
+  }
+  .nav-links a { transition: color .15s; }
+  .nav-links a:hover { color: var(--fg); }
+  .nav-cta {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 14px; border-radius: 6px;
+    font-family: var(--mono); font-size: 13px; font-weight: 500;
+    border: 1px solid var(--line-2);
+    color: var(--fg);
+    transition: all .15s;
+  }
+  .btn:hover { border-color: var(--fg-3); background: var(--bg-2); }
+  .btn-primary {
+    background: var(--accent); color: #1a1200;
+    border-color: var(--accent); font-weight: 600;
+  }
+  .btn-primary:hover { background: #ffc947; border-color: #ffc947; }
+  .btn-ghost { border-color: transparent; }
+  .btn-ghost:hover { background: var(--bg-2); border-color: var(--line-2); }
+
+  /* ========= HERO ========= */
+  .hero {
+    position: relative;
+    padding: 72px 0 60px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero-grid-bg {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 80%);
+    pointer-events: none;
+  }
+  .hero-glow {
+    position: absolute;
+    top: -10%; left: 50%; transform: translateX(-50%);
+    width: 900px; height: 600px;
+    background: radial-gradient(ellipse at center, rgba(250,179,135,0.12), transparent 60%);
+    pointer-events: none;
+  }
+  .hero-inner {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 64px;
+    align-items: center;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 5px 12px 5px 8px;
+    border: 1px solid var(--line-2);
+    border-radius: 99px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-2);
+    background: var(--bg-2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .eyebrow-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px rgba(250,179,135,0.18);
+  }
+  h1.hero-title {
+    margin-top: 22px;
+    font-size: clamp(40px, 5.2vw, 64px);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-weight: 700;
+  }
+  .hero-title em {
+    font-style: normal;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.9em;
+    letter-spacing: -0.02em;
+  }
+  .hero-sub {
+    margin-top: 22px;
+    font-size: 18px; line-height: 1.55;
+    color: var(--fg-2);
+    max-width: 540px;
+  }
+  .hero-cta {
+    margin-top: 32px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .install-block {
+    margin-top: 28px;
+    display: flex; align-items: center; gap: 0;
+    font-family: var(--mono); font-size: 13px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    max-width: 560px;
+  }
+  .install-prompt {
+    padding: 14px 0 14px 16px;
+    color: var(--fg-3);
+    user-select: none;
+  }
+  .install-cmd {
+    flex: 1;
+    padding: 14px 16px 14px 8px;
+    color: var(--fg);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .install-cmd .flag { color: var(--fg-3); }
+  .install-cmd .str { color: var(--green); }
+  .install-copy {
+    padding: 14px 16px;
+    border-left: 1px solid var(--line);
+    color: var(--fg-3);
+    font-size: 12px;
+    transition: color .15s, background .15s;
+    min-width: 82px;
+    text-align: center;
+    box-sizing: border-box;
+  }
+  .install-copy:hover { color: var(--accent); background: rgba(250,179,135,0.06); }
+  .hero-sidecar {
+    position: relative;
+  }
+
+  /* ========= TERMINAL (hero right) ========= */
+  .term {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(250,179,135,0.04);
+  }
+  .term-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+  }
+  .term-dots { display: flex; gap: 6px; }
+  .term-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line-2); }
+  .term-title { margin-left: 6px; }
+  .term-body {
+    padding: 18px 20px;
+    font-family: var(--mono); font-size: 13px;
+    line-height: 1.7;
+    height: 420px;
+    overflow: hidden;
+  }
+  .term-line { white-space: pre; }
+  .term-line.muted { color: var(--fg-3); }
+  .term-line.prompt::before {
+    content: "$ "; color: var(--accent);
+  }
+  .term-cursor {
+    display: inline-block; width: 8px; height: 15px;
+    background: var(--accent);
+    vertical-align: -2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .c-fg { color: var(--fg); }
+  .c-dim { color: var(--fg-3); }
+  .c-ok { color: var(--green); }
+  .c-err { color: var(--red); }
+  .c-accent { color: var(--accent); }
+  .c-blue { color: var(--blue); }
+  .c-purple { color: var(--purple); }
+
+  /* ========= LOGO BAR ========= */
+  .logo-bar {
+    padding: 40px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .logo-bar-label {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-3); text-align: center;
+    margin-bottom: 22px;
+    letter-spacing: 0.04em;
+  }
+  .logo-row {
+    display: flex; align-items: center; justify-content: space-around;
+    gap: 40px;
+    flex-wrap: wrap;
+    opacity: 0.8;
+  }
+  .logo-chip {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 14px;
+    color: var(--fg-2);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .logo-chip svg { opacity: 0.85; }
+
+  /* ========= SECTION ========= */
+  section.page-section {
+    padding: 110px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .sec-head {
+    max-width: 720px;
+    margin-bottom: 56px;
+  }
+  .sec-kicker {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.12em;
+    margin-bottom: 14px;
+  }
+  .sec-title {
+    font-size: clamp(32px, 3.6vw, 44px);
+    line-height: 1.05;
+    letter-spacing: -0.028em;
+    font-weight: 700;
+  }
+  .sec-sub {
+    margin-top: 16px;
+    font-size: 17px; color: var(--fg-2);
+    max-width: 620px;
+  }
+
+  /* ========= HOW IT WORKS (pipeline diagram) ========= */
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-2);
+  }
+  .pipe-step {
+    padding: 28px 24px;
+    border-right: 1px solid var(--line);
+    position: relative;
+    min-height: 260px;
+    display: flex; flex-direction: column;
+  }
+  .pipe-step:last-child { border-right: 0; }
+  .pipe-num {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-3);
+    margin-bottom: 14px;
+  }
+  .pipe-num b { color: var(--accent); }
+  .pipe-icon {
+    width: 44px; height: 44px;
+    border: 1px solid var(--line-2);
+    background: var(--bg-3);
+    border-radius: 8px;
+    display: grid; place-items: center;
+    margin-bottom: 18px;
+    color: var(--accent);
+  }
+  .pipe-title {
+    font-size: 18px; font-weight: 600;
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+  }
+  .pipe-desc {
+    font-size: 14px; color: var(--fg-2);
+    line-height: 1.55;
+  }
+  .pipe-tags {
+    margin-top: auto; padding-top: 18px;
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .tag {
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 8px;
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    color: var(--fg-3);
+  }
+  .tag.tag-accent { color: var(--accent); border-color: rgba(250,179,135,0.3); }
+
+  .pipe-connector {
+    position: absolute;
+    right: -7px; top: 50%;
+    width: 14px; height: 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    display: grid; place-items: center;
+    color: var(--accent);
+    font-family: var(--mono); font-size: 10px;
+  }
+
+  /* ========= FEATURE GRID ========= */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-2);
+  }
+  .feat {
+    padding: 32px 28px;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .feat:nth-child(3n) { border-right: 0; }
+  .feat:nth-last-child(-n+3) { border-bottom: 0; }
+  .feat-label {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+    letter-spacing: 0.06em;
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .feat-label-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .feat-title {
+    font-size: 19px; font-weight: 600;
+    letter-spacing: -0.015em;
+    margin-bottom: 10px;
+  }
+  .feat-desc {
+    font-size: 14.5px; color: var(--fg-2);
+    line-height: 1.6;
+  }
+
+  /* ========= TEMPLATES / RECIPES ========= */
+  .recipes {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+  .recipe {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color .15s, transform .15s;
+    display: flex;
+    flex-direction: column;
+  }
+  .recipe:hover { border-color: var(--line-2); }
+  .recipe-head {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .recipe-name {
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    color: var(--fg);
+  }
+  .recipe-pill {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--fg-3);
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: var(--bg-3);
+    border: 1px solid var(--line-2);
+  }
+  .recipe-body {
+    padding: 18px 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .recipe-title {
+    font-size: 17px; font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+  }
+  .recipe-desc {
+    font-size: 13.5px; color: var(--fg-2); line-height: 1.55;
+    margin-bottom: 16px;
+    flex: 1;
+  }
+  .recipe-code {
+    font-family: var(--mono); font-size: 11.5px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--fg-2);
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+  }
+  .recipe-code .cmd { color: var(--accent); }
+  .recipe-code .arg { color: var(--fg); }
+  .recipe-code .flag { color: var(--fg-3); }
+
+  /* ========= CODE + NOTIFICATION (side-by-side) ========= */
+  .split {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 28px;
+    align-items: stretch;
+  }
+  .code-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .code-tabs {
+    display: flex; align-items: center;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-3);
+  }
+  .code-tab {
+    padding: 11px 16px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-3);
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid transparent;
+    transition: all .15s;
+    user-select: none;
+  }
+  .code-tab.active {
+    background: var(--bg-2);
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+  }
+  .code-tab:hover:not(.active) { color: var(--fg-2); }
+  .code-body {
+    padding: 20px 22px 22px;
+    font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+    display: grid;
+  }
+  .code-body > .code-pane {
+    grid-area: 1 / 1;
+    min-width: 0;
+    transition: opacity 120ms ease;
+  }
+  .code-body > .code-pane[hidden] {
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .code-body pre { margin: 0; }
+  .code-body .cm { color: var(--fg-4); }
+  .code-body .k { color: var(--purple); }
+  .code-body .s { color: var(--green); }
+  .code-body .v { color: var(--fg); }
+  .code-body .t { color: var(--accent); }
+  .code-line { display: block; white-space: pre; }
+
+  /* Notification mock */
+  .notify-card {
+    background: linear-gradient(180deg, var(--bg-2), var(--bg-3));
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 22px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .notify-head {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--fg-3); font-family: var(--mono); font-size: 11px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .notify-head-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .notify-msg {
+    background: rgba(255,255,255,0.02);
+    border-left: 2px solid var(--accent);
+    padding: 14px 16px;
+    border-radius: 4px;
+  }
+  .notify-bot {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--fg-3); margin-bottom: 8px;
+  }
+  .notify-bot-av {
+    width: 18px; height: 18px; border-radius: 4px;
+    background: var(--accent); color: #1a1200;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+  }
+  .notify-title {
+    font-size: 14px; font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .notify-lines {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-2);
+    line-height: 1.7;
+  }
+  .notify-lines a { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+  .notify-actions {
+    display: flex; gap: 8px;
+    padding-top: 4px;
+  }
+  .notify-btn {
+    flex: 1;
+    padding: 9px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--line-2);
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    color: var(--fg-2);
+    transition: all .15s;
+    text-align: center;
+  }
+  .notify-btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #1a1200;
+    font-weight: 600;
+  }
+  .notify-btn:hover { border-color: var(--fg-3); }
+  .notify-btn.primary:hover { background: #ffc947; border-color: #ffc947; }
+
+  .notify-after {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px dashed var(--line-2);
+    border-radius: 6px;
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--fg-3);
+    line-height: 1.6;
+  }
+  .notify-after .c-ok { color: var(--green); }
+
+  /* ========= SECURITY / TRUST ========= */
+  .trust-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+  .trust-card {
+    padding: 22px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .trust-ico {
+    width: 36px; height: 36px;
+    border-radius: 7px;
+    background: var(--bg-3);
+    border: 1px solid var(--line-2);
+    display: grid; place-items: center;
+    color: var(--accent);
+    margin-bottom: 14px;
+  }
+  .trust-title {
+    font-size: 15px; font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .trust-desc {
+    font-size: 13px; color: var(--fg-2); line-height: 1.5;
+  }
+
+  /* ========= NEXUS DASHBOARD MOCK ========= */
+  .nexus {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .nexus-head {
+    padding: 12px 16px;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 12px;
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+  }
+  .nexus-body {
+    display: grid;
+    grid-template-columns: 220px 1px 1fr;
+    font-family: var(--mono); font-size: 12.5px;
+    min-height: 380px;
+  }
+  .nexus-sep { background: var(--accent); opacity: 0.7; }
+  .nexus-side {
+    padding: 20px 18px;
+    color: var(--fg-2);
+  }
+  .nexus-logo {
+    display: flex; align-items: center; gap: 8px;
+    color: #89b4fa;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .nexus-ver { color: var(--fg-3); font-size: 11px; margin-bottom: 18px; }
+  .nexus-daemon {
+    padding: 6px 10px;
+    background: rgba(126,193,126,0.08);
+    border: 1px solid rgba(126,193,126,0.25);
+    color: var(--green);
+    border-radius: 4px;
+    font-size: 11px;
+    margin-bottom: 20px;
+    display: inline-block;
+  }
+  .nexus-group-label {
+    color: var(--fg-3); font-size: 10px;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+    margin-top: 14px;
+  }
+  .nexus-pylon {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin: 0 -8px;
+  }
+  .nexus-pylon.active {
+    background: rgba(250,179,135,0.08);
+    color: var(--fg);
+  }
+  .nexus-pylon .diamond {
+    width: 12px; display: inline-block; text-align: center;
+    color: var(--green);
+    font-size: 13px; line-height: 1;
+    background: transparent !important;
+    transform: none !important;
+    font-family: sans-serif;
+  }
+  .nexus-pylon .diamond::before { content: "⬧"; }
+  .nexus-pylon .diamond.idle { color: var(--fg-4); }
+  .nexus-pylon .diamond.run { color: var(--accent); text-shadow: 0 0 8px var(--accent); }
+
+  .nexus-main { padding: 22px 24px; }
+  .nexus-crumbs {
+    color: var(--fg-3); font-size: 11px;
+    margin-bottom: 18px;
+  }
+  .nexus-h1 {
+    font-size: 17px; color: var(--fg); font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .nexus-meta-row {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 6px 16px;
+    margin-top: 16px;
+    font-size: 12px;
+  }
+  .nexus-meta-k { color: var(--fg-3); }
+  .nexus-meta-v { color: var(--fg); }
+  .nexus-meta-v .c-accent { color: var(--accent); }
+
+  .nexus-jobs {
+    margin-top: 24px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .nexus-jobs-h {
+    display: grid;
+    grid-template-columns: 90px 110px 1fr 80px;
+    padding: 8px 12px;
+    background: var(--bg-3);
+    color: var(--fg-3);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--line);
+  }
+  .nexus-job {
+    display: grid;
+    grid-template-columns: 90px 110px 1fr 80px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--fg-2);
+    font-size: 12px;
+  }
+  .nexus-job:last-child { border-bottom: 0; }
+  .nexus-job.selected { background: rgba(250,179,135,0.06); }
+  .status-pill { font-size: 11px; padding: 1px 6px; border-radius: 3px; display: inline-block; }
+  .status-pill.ok { color: var(--green); background: rgba(126,193,126,0.08); }
+  .status-pill.run { color: var(--accent); background: rgba(250,179,135,0.08); }
+  .status-pill.fail { color: var(--red); background: rgba(224,124,124,0.08); }
+  .status-pill.wait { color: var(--fg-3); background: rgba(255,255,255,0.04); }
+
+  .nexus-foot {
+    padding: 8px 16px;
+    background: var(--bg-3);
+    border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; color: var(--fg-3);
+    display: flex; gap: 18px;
+  }
+  .nexus-foot kbd {
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    padding: 0 5px;
+    color: var(--fg-2);
+    font-size: 10px;
+    margin-right: 4px;
+  }
+
+  /* ========= NEXUS CALLOUT (message template builder) ========= */
+  .nexus-callout {
+    margin-top: 28px;
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 28px;
+    padding: 28px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    position: relative;
+  }
+  .nexus-callout::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 10px 0 0 10px;
+  }
+  .nexus-callout-kbd {
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 2px;
+  }
+  .nexus-callout-kbd kbd {
+    font-family: var(--mono);
+    font-size: 22px;
+    padding: 10px 16px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    background: rgba(250,179,135,0.05);
+    border-radius: 6px;
+    box-shadow: 0 2px 0 rgba(250,179,135,0.15);
+  }
+  .nexus-callout-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+  }
+  .nexus-callout-desc {
+    color: var(--fg-2);
+    font-size: 15px;
+    line-height: 1.55;
+    max-width: 720px;
+    margin-bottom: 18px;
+  }
+  .nexus-callout-desc kbd {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 1px 5px;
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    color: var(--fg);
+  }
+  .nexus-callout-desc code {
+    font-size: 13px;
+    color: var(--accent);
+    background: var(--bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .nexus-callout-code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px 16px;
+    color: var(--fg-2);
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  /* Template builder mock */
+  .tb-mock {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 22px 24px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--fg-2);
+    overflow-x: auto;
+  }
+  .tb-head { margin-bottom: 16px; }
+  .tb-title { color: var(--blue, #89B4FA); font-weight: 600; }
+  .tb-sub { color: var(--fg-2); }
+  .tb-tree { margin-bottom: 16px; }
+  .tb-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding-left: 0;
+    white-space: nowrap;
+  }
+  .tb-indent-1 { padding-left: 24px; }
+  .tb-indent-2 { padding-left: 48px; }
+  .tb-arrow { color: var(--accent); width: 12px; display: inline-block; }
+  .tb-caret {
+    position: absolute;
+    color: var(--accent);
+    margin-left: -22px;
+  }
+  .tb-cursor { position: relative; }
+  .tb-group { color: var(--accent); font-weight: 600; }
+  .tb-box {
+    color: var(--fg-3);
+    width: 28px;
+    display: inline-block;
+  }
+  .tb-x { color: var(--green, #86E3B3); font-weight: 700; }
+  .tb-checked .tb-key,
+  .tb-checked .tb-val { color: var(--fg); }
+  .tb-key {
+    color: var(--fg-2);
+    width: 130px;
+    display: inline-block;
+  }
+  .tb-key-focus { color: var(--fg); font-weight: 600; }
+  .tb-val {
+    color: var(--fg-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 380px;
+    display: inline-block;
+    vertical-align: bottom;
+  }
+  .tb-more {
+    color: var(--fg-3);
+    padding-left: 24px;
+    margin-top: 4px;
+  }
+  .tb-preview {
+    padding-top: 16px;
+    border-top: 1px dashed var(--line-2);
+    color: var(--fg-2);
+  }
+  .tb-preview > div {
+    white-space: pre;
+    line-height: 1.5;
+  }
+  .tb-preview-label { color: var(--fg-3); margin-bottom: 4px; }
+  .tb-foot {
+    display: flex;
+    gap: 22px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    color: var(--fg-3);
+    font-size: 12px;
+  }
+  .tb-foot kbd {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 1px 5px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    color: var(--fg-2);
+    margin-right: 4px;
+  }
+  @media (max-width: 760px) {
+    .nexus-callout { grid-template-columns: 1fr; gap: 18px; padding: 22px; }
+    .nexus-callout-kbd { justify-content: flex-start; }
+  }
+
+  /* ========= FAQ ========= */
+  .faq {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  .faq-item {
+    border-bottom: 1px solid var(--line);
+    padding: 24px 0;
+  }
+  .faq-q {
+    display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer; width: 100%;
+    text-align: left;
+    font-size: 17px; font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .faq-q:hover { color: var(--accent); }
+  .faq-q-ico {
+    font-family: var(--mono); font-size: 14px;
+    color: var(--fg-3);
+    transition: transform .2s;
+  }
+  .faq-item.open .faq-q-ico { transform: rotate(45deg); color: var(--accent); }
+  .faq-a {
+    max-height: 0; overflow: hidden;
+    color: var(--fg-2); font-size: 15px; line-height: 1.6;
+    transition: max-height .25s;
+  }
+  .faq-item.open .faq-a { max-height: 300px; padding-top: 14px; }
+
+  /* ========= CLOSING CTA ========= */
+  .closer {
+    padding: 140px 0;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .closer-glow {
+    position: absolute; bottom: -200px; left: 50%; transform: translateX(-50%);
+    width: 800px; height: 400px;
+    background: radial-gradient(ellipse at center, rgba(250,179,135,0.18), transparent 70%);
+    pointer-events: none;
+  }
+  .closer h2 {
+    font-size: clamp(40px, 5vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    font-weight: 700;
+    max-width: 820px;
+    margin: 0 auto 20px;
+    position: relative;
+  }
+  .closer p {
+    font-size: 17px; color: var(--fg-2);
+    max-width: 520px; margin: 0 auto 36px;
+    position: relative;
+  }
+  .closer-install {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--mono); font-size: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 12px 12px 12px 20px;
+    position: relative;
+    color: var(--fg);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .closer-install:hover { border-color: var(--accent); }
+  .closer-install .c-dim { color: var(--fg-3); }
+  .closer-install .c-cmd { color: var(--fg); }
+  .closer-install .c-copy {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-3);
+    padding: 5px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 5px;
+    background: var(--bg);
+    transition: color .15s, border-color .15s;
+    min-width: 72px;
+    text-align: center;
+    display: inline-block;
+    box-sizing: border-box;
+  }
+  .closer-install:hover .c-copy { color: var(--accent); border-color: var(--accent); }
+  .closer-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .closer-actions a {
+    font-family: var(--mono); font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-3);
+    padding: 8px 14px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    transition: color .15s, border-color .15s;
+    text-decoration: none;
+  }
+  .closer-actions a:hover { color: var(--fg); border-color: var(--line-2); }
+
+  /* ========= FOOTER ========= */
+  footer {
+    padding: 48px 0 56px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .footer-inner {
+    display: grid;
+    grid-template-columns: 1.3fr repeat(3, 1fr);
+    gap: 40px;
+  }
+  .footer-col h4 {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 0.08em;
+    margin-bottom: 16px;
+    font-weight: 500;
+  }
+  .footer-col ul { list-style: none; }
+  .footer-col li { margin-bottom: 9px; font-size: 14px; color: var(--fg-2); }
+  .footer-col li a:hover { color: var(--fg); }
+  .footer-tag {
+    margin-top: 14px;
+    font-size: 13px; color: var(--fg-3);
+    max-width: 300px; line-height: 1.55;
+  }
+  .footer-bot {
+    margin-top: 40px; padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+  }
+
+  /* ========= TWEAKS PANEL ========= */
+  #tweaks {
+    position: fixed; bottom: 18px; right: 18px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 16px 18px;
+    z-index: 50;
+    font-family: var(--mono); font-size: 12px;
+    min-width: 240px;
+    display: none;
+    box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5);
+  }
+  #tweaks.on { display: block; }
+  #tweaks h5 { font-size: 11px; color: var(--accent); letter-spacing: 0.08em; margin-bottom: 12px; }
+  .tweak-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 12px; }
+  .tweak-icons {
+    display: grid; grid-template-columns: repeat(4, 26px); gap: 6px;
+  }
+  .tweak-icons button {
+    width: 26px; height: 26px;
+    background: var(--bg); border: 1px solid var(--line-2); border-radius: 5px;
+    color: var(--accent);
+    display: grid; place-items: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 14px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .tweak-icons button:hover { border-color: var(--fg-3); }
+  .tweak-icons button.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(250,179,135,0.2); }
+  .tweak-icons button svg { display: block; }
+  .tweak-row label { color: var(--fg-2); }
+  .tweak-row select, .tweak-row input {
+    background: var(--bg); border: 1px solid var(--line-2); color: var(--fg);
+    padding: 4px 8px; border-radius: 4px; font-family: var(--mono); font-size: 11px;
+  }
+  .tweak-swatch {
+    display: flex; gap: 6px;
+  }
+  .tweak-swatch button {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid transparent;
+  }
+  .tweak-swatch button.sel { border-color: var(--fg); }
+
+  /* ========= RESPONSIVE ========= */
+  @media (max-width: 960px) {
+    .hero-inner { grid-template-columns: 1fr; gap: 40px; }
+    .pipeline, .feature-grid { grid-template-columns: 1fr 1fr; }
+    .pipe-step, .feat { border-right: 1px solid var(--line) !important; }
+    .recipes, .trust-grid { grid-template-columns: 1fr; }
+    .split { grid-template-columns: 1fr; }
+    .footer-inner { grid-template-columns: 1fr 1fr; }
+    .nexus-body { grid-template-columns: 1fr; }
+    .nexus-sep { display: none; }
+  }
+  @media (max-width: 640px) {
+    .pipeline, .feature-grid { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+    section.page-section { padding: 72px 0; }
+    .footer-inner { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav class="nav">
+  <div class="container nav-inner">
+    <a href="#" class="brand">
+      <span class="brand-mark" data-brand-slot></span>
+      pylon.to
+    </a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#templates">Templates</a>
+      <a href="#nexus">Nexus</a>
+      <a href="#docs">Docs</a>
+    </div>
+    <div class="nav-cta">
+      <a class="btn btn-ghost" href="https://github.com/pylonto/pylon">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 00-2.53 15.59c.4.07.55-.17.55-.38v-1.48c-2.23.48-2.7-.95-2.7-.95-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.94 0-.87.31-1.58.82-2.14-.08-.2-.36-1.02.08-2.13 0 0 .67-.21 2.2.82a7.7 7.7 0 014 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.13.51.56.82 1.27.82 2.14 0 3.06-1.87 3.74-3.65 3.94.29.25.54.74.54 1.5v2.22c0 .22.15.46.55.38A8 8 0 008 0z"/></svg>
+        GitHub
+      </a>
+      <a class="btn btn-primary" href="#install">Install</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="hero-grid-bg"></div>
+  <div class="hero-glow"></div>
+  <div class="container hero-inner">
+    <div>
+      <div class="eyebrow">
+        <span class="eyebrow-dot"></span>
+        <span>self-hosted · one binary · MIT</span>
+      </div>
+      <h1 class="hero-title">
+        Turn Sentry alerts<br/>
+        into pull requests.<br/>
+        <em>Fix production from your phone.</em>
+      </h1>
+      <p class="hero-sub">
+        Pylon is the daemon that wires webhooks, git events, and cron jobs to sandboxed AI agents. Stop writing the same ad-hoc glue script.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#install">
+          Get started
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6h8m-3-3l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="btn" href="#how">
+          Read the docs
+        </a>
+      </div>
+      <div class="install-block" id="install">
+        <span class="install-prompt">$</span>
+        <span class="install-cmd">curl -fsSL <span class="str">https://pylon.to/install.sh</span> | sh</span>
+        <button class="install-copy" onclick="copyInstall(this)">COPY</button>
+      </div>
+    </div>
+
+    <div class="hero-sidecar">
+      <div class="term" id="heroTerm">
+        <div class="term-head">
+          <div class="term-dots">
+            <span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span>
+          </div>
+          <span class="term-title">~/.pylon · pylon start</span>
+        </div>
+        <div class="term-body" id="termBody">
+          <!-- animated -->
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LOGO BAR ============ -->
+<section class="logo-bar">
+  <div class="container">
+    <div class="logo-bar-label">CONNECTS EVENTS ↔ AGENTS ↔ CHANNELS</div>
+    <div class="logo-row">
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12.004 2.247a1.353 1.353 0 0 0-1.176.665L8.473 6.97l.896.518a11.631 11.631 0 0 1 5.779 9.438h-2.144a9.504 9.504 0 0 0-4.71-7.58l-.898-.52-2.669 4.624c-.38.658-.18 1.501.475 1.885l3.176 1.836a.668.668 0 0 0 .912-.245c.185-.321.076-.73-.246-.916l-2.603-1.504 1.609-2.789a7.628 7.628 0 0 1 3.1 5.938c.026.375.328.666.7.666H16.58a.67.67 0 0 0 .668-.699 13.008 13.008 0 0 0-6.018-10.577l1.566-2.71a.024.024 0 0 1 .032-.009l7.92 13.724a.024.024 0 0 1-.023.037h-2.944a24.066 24.066 0 0 1 0 1.34h2.948a1.372 1.372 0 0 0 1.19-2.055L13.18 2.91a1.352 1.352 0 0 0-1.176-.663z"/></svg>
+        Sentry
+      </span>
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 00-2.53 15.59c.4.07.55-.17.55-.38v-1.48c-2.23.48-2.7-.95-2.7-.95-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.94 0-.87.31-1.58.82-2.14-.08-.2-.36-1.02.08-2.13 0 0 .67-.21 2.2.82a7.7 7.7 0 014 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.13.51.56.82 1.27.82 2.14 0 3.06-1.87 3.74-3.65 3.94.29.25.54.74.54 1.5v2.22c0 .22.15.46.55.38A8 8 0 008 0z"/></svg>
+        GitHub
+      </span>
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="10" x2="20" y2="10" stroke="currentColor" stroke-width="1.6"/><line x1="8" y1="3" x2="8" y2="7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="16" y1="3" x2="16" y2="7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="15" r="0.9" fill="currentColor"/></svg>
+        cron
+      </span>
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4.82 11.1h2.2v2.17H4.82zm2.47 0h2.2v2.17h-2.2zm2.47 0h2.2v2.17h-2.2zm2.47 0h2.2v2.17h-2.2zm-4.94-2.4h2.2v2.16h-2.2zm2.47 0h2.2v2.16h-2.2zm2.47 0h2.2v2.16h-2.2zm0-2.4h2.2v2.16h-2.2zm10.48 4.23c-.06-.04-.6-.45-1.73-.45-.3 0-.6.03-.9.08-.22-1.5-1.47-2.23-1.53-2.26l-.3-.18-.2.3c-.25.4-.44.84-.54 1.3-.2.88-.08 1.7.37 2.4-.53.3-1.4.37-1.57.38H.76c-.42 0-.76.34-.76.76 0 1.4.24 2.8.72 4.06.55 1.4 1.36 2.43 2.42 3.05 1.18.7 3.11 1.1 5.3 1.1.99 0 1.98-.1 2.95-.27 1.35-.25 2.64-.74 3.81-1.44a10.2 10.2 0 0 0 2.6-2.31c1.27-1.56 2.03-3.3 2.58-4.85.07 0 .15.01.22.01 1.2 0 1.95-.48 2.36-.89.27-.26.48-.58.62-.93l.09-.25z"/></svg>
+        Docker
+      </span>
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 9.4 9.4 2 12l7.4 2.6L12 22l2.6-7.4L22 12l-7.4-2.6L12 2z"/></svg>
+        Claude Code
+      </span>
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 8l4 4-4 4"/><path d="M11 16h9"/></svg>
+        OpenCode
+      </span>
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+        Telegram
+      </span>
+      <span class="logo-chip">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.27 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.522 2.52v6.313A2.528 2.528 0 0 1 8.832 24a2.528 2.528 0 0 1-2.522-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.522-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.522 2.522v2.52H8.834zm0 1.27a2.527 2.527 0 0 1 2.522 2.522 2.527 2.527 0 0 1-2.522 2.52H2.522A2.527 2.527 0 0 1 0 8.834a2.527 2.527 0 0 1 2.522-2.522h6.312zm10.122 2.522a2.528 2.528 0 0 1 2.522-2.522A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.52h-2.522V8.834zm-1.268 0a2.527 2.527 0 0 1-2.523 2.52 2.526 2.526 0 0 1-2.52-2.52V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.122a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>
+        Slack
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="page-section" id="how">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-kicker">How a pylon fires</div>
+      <h2 class="sec-title">Four parts wired into one pipeline.</h2>
+      <p class="sec-sub">
+        A <b>pylon</b> is a named pipeline that ties a trigger, a workspace, a sandboxed agent, and a channel together. Configure it once as YAML and it runs unattended.
+      </p>
+    </div>
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-num"><b>01</b> / TRIGGER</div>
+        <div class="pipe-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="pipe-title">Event arrives</div>
+        <div class="pipe-desc">
+          Webhook POST or cron fires. HMAC signature verified, payload parsed.
+        </div>
+        <div class="pipe-tags">
+          <span class="tag">webhook</span>
+          <span class="tag">cron</span>
+          <span class="tag">HMAC-SHA256</span>
+        </div>
+        <div class="pipe-connector">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num"><b>02</b> / GATE</div>
+        <div class="pipe-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+        </div>
+        <div class="pipe-title">Human-in-the-loop</div>
+        <div class="pipe-desc">
+          With <code>approval: true</code>, Slack gets <b>Investigate</b> / <b>Ignore</b> buttons. A human holds the gate.
+        </div>
+        <div class="pipe-tags">
+          <span class="tag">slack</span>
+          <span class="tag">telegram</span>
+          <span class="tag tag-accent">human-gated</span>
+        </div>
+        <div class="pipe-connector">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num"><b>03</b> / RUN</div>
+        <div class="pipe-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18" /><circle cx="8" cy="14.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="14.5" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="14.5" r="1" fill="currentColor" stroke="none"/></svg>
+        </div>
+        <div class="pipe-title">Sandboxed agent</div>
+        <div class="pipe-desc">
+          Isolated container, workspace mounted, network scoped. The agent runs your templated prompt with payload data injected.
+        </div>
+        <div class="pipe-tags">
+          <span class="tag">sandboxed</span>
+          <span class="tag">git-worktree</span>
+          <span class="tag">local</span>
+        </div>
+        <div class="pipe-connector">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num"><b>04</b> / RETURN</div>
+        <div class="pipe-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M4 5h16v11H9l-4 4V5z"/><path d="M9 10.5l2.2 2.2L15.5 8.5"/></svg>
+        </div>
+        <div class="pipe-title">Result in chat</div>
+        <div class="pipe-desc">
+          Output streams back to the same thread. Every job is logged — retry, attach, or kill from the CLI.
+        </div>
+        <div class="pipe-tags">
+          <span class="tag">threaded reply</span>
+          <span class="tag">SQLite history</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DEFINE A PYLON (split view) ============ -->
+<section class="page-section">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-kicker">Pylon construction</div>
+      <h2 class="sec-title">A pipeline is 40 lines of YAML.</h2>
+      <p class="sec-sub">No proprietary DSL. Template variables inject webhook payload fields directly into agent prompts.</p>
+    </div>
+    <div class="split">
+      <div class="code-card">
+        <div class="code-tabs">
+          <div class="code-tab active" data-tab="yaml">pylon.yaml</div>
+          <div class="code-tab" data-tab="cli">CLI</div>
+          <div class="code-tab" data-tab="env">.env</div>
+        </div>
+        <div class="code-body" id="codeBody">
+<pre class="code-pane" data-pane="yaml"><span class="cm"># ~/.pylon/pylons/sentry-triage/pylon.yaml</span>
+<span class="k">name:</span> <span class="v">sentry-triage</span>
+<span class="k">description:</span> <span class="s">"Triage Sentry errors"</span>
+
+<span class="k">trigger:</span>
+  <span class="k">type:</span> <span class="v">webhook</span>
+  <span class="k">path:</span> <span class="v">/sentry-triage</span>
+  <span class="k">secret:</span> <span class="s">"${SENTRY_WEBHOOK_SECRET}"</span>
+  <span class="k">signature_header:</span> <span class="v">Sentry-Hook-Signature</span>
+
+<span class="k">workspace:</span>
+  <span class="k">type:</span> <span class="v">git-clone</span>
+  <span class="k">repo:</span> <span class="s">"git@github.com:acme/nexus.git"</span>
+  <span class="k">ref:</span> <span class="v">main</span>
+
+<span class="k">channel:</span>
+  <span class="k">type:</span> <span class="v">slack</span>
+  <span class="k">approval:</span> <span class="v">true</span>
+  <span class="k">topic:</span> <span class="s">"<span class="t">{{ .body.data.event.title }}</span>"</span>
+
+<span class="k">agent:</span>
+  <span class="k">type:</span> <span class="v">claude</span>
+  <span class="k">auth:</span> <span class="v">oauth</span>
+  <span class="k">prompt:</span> <span class="s">|</span>
+    <span class="s">Investigate this Sentry error and suggest a fix.</span>
+
+    <span class="s">Title: <span class="t">{{ .body.data.event.title }}</span></span>
+    <span class="s">Culprit: <span class="t">{{ .body.data.event.culprit }}</span></span>
+    <span class="s">Sentry URL: <span class="t">{{ .body.data.event.web_url }}</span></span>
+  <span class="k">timeout:</span> <span class="s">"10m"</span>
+</pre>
+<pre class="code-pane" data-pane="cli" hidden><span class="cm"># Construct from a template</span>
+<span class="t">$</span> pylon construct sentry-triage <span class="k">--from</span> sentry
+
+<span class="cm"># Start the daemon</span>
+<span class="t">$</span> pylon start
+  <span class="s">Powering up pylons...</span>
+
+  <span class="v">sentry-triage</span>    <span class="s">ok</span>  webhook /sentry-triage
+  <span class="v">pr-review</span>        <span class="s">ok</span>  webhook /pr-review
+  <span class="v">weekly-audit</span>     <span class="s">ok</span>  cron 0 9 * * 1
+
+  <span class="cm">3 pylons active. listening on 0.0.0.0:8080</span>
+
+<span class="cm"># Fire a test payload</span>
+<span class="t">$</span> pylon test sentry-triage <span class="k">--payload</span> <span class="s">'{"data":{"event":{"title":"NullPointerException"}}}'</span>
+
+<span class="cm"># Inspect a running job</span>
+<span class="t">$</span> pylon jobs
+<span class="t">$</span> pylon logs a1b2c3d4
+<span class="t">$</span> pylon attach a1b2c3d4
+</pre>
+<pre class="code-pane" data-pane="env" hidden><span class="cm"># ~/.pylon/.env · never committed, mode 0600</span>
+SLACK_BOT_TOKEN=<span class="s">xoxb-7123456789-AAF...</span>
+ANTHROPIC_API_KEY=<span class="s">sk-ant-...</span>
+
+<span class="cm"># ~/.pylon/pylons/sentry-triage/.env</span>
+<span class="cm"># per-pylon, reloaded for every job</span>
+SENTRY_WEBHOOK_SECRET=<span class="s">whsec_abc123...</span>
+SENTRY_AUTH_TOKEN=<span class="s">sntrys_xyz789...</span>
+</pre>
+        </div>
+      </div>
+
+      <div class="notify-card">
+        <div class="notify-head">
+          <span class="notify-head-dot"></span>
+          #ops-alerts · slack
+          <span style="margin-left:auto;">14:03</span>
+        </div>
+        <div class="notify-msg">
+          <div class="notify-bot">
+            <span class="notify-bot-av">P</span>
+            Pylon · via @acme_ops_bot
+          </div>
+          <div class="notify-title">NullPointerException in checkout handler</div>
+          <div class="notify-lines">
+            <span style="color:var(--fg-3);">culprit:</span> services/checkout.py:218<br/>
+            <span style="color:var(--fg-3);">level:</span>   <span style="color:var(--red);">error</span><br/>
+            <a href="#">↗ sentry.io/acme/issues/8842</a>
+          </div>
+          <div class="notify-actions">
+            <div class="notify-btn primary">▶ Investigate</div>
+            <div class="notify-btn">Ignore</div>
+          </div>
+        </div>
+        <div class="notify-after">
+          <span style="color:var(--fg-2);">↳ approved by @emma</span> · 2s<br/>
+          <span class="c-ok">✓</span> cloned <code>acme/nexus@main</code> · 1.2s<br/>
+          <span class="c-ok">✓</span> agent-claude container up · job <span class="c-accent">a1b2c3d4</span><br/>
+          <span style="color:var(--fg-3);">↳ investigating... estimated 4m</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="page-section">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-kicker">What you get</div>
+      <h2 class="sec-title">Built to sit between the noisy internet and your codebase.</h2>
+    </div>
+    <div class="feature-grid">
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>ISOLATION</div>
+        <div class="feat-title">One container per job</div>
+        <div class="feat-desc">Every run spawns a fresh Docker container. No shared state between jobs. The agent only sees the workspace you mount, nothing else on the host.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>SECRET ISOLATION</div>
+        <div class="feat-title">Per-pylon <code>.env</code></div>
+        <div class="feat-desc">Each pylon carries its own <code>.env</code>, mode <code>0600</code>, never committed. Reloaded for every job. Global tokens live one level up, never leak across pipelines.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>SIGNED WEBHOOKS</div>
+        <div class="feat-title">HMAC-SHA256 verified</div>
+        <div class="feat-desc">Per-pylon secret + signature header. Constant-time comparison. Unsigned requests get <code>401</code>. Works with Sentry out of the box.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>TEMPLATED PROMPTS</div>
+        <div class="feat-title">Payload → prompt</div>
+        <div class="feat-desc">Go template syntax inside prompts, topics, and messages. <code>{{ .body.pull_request.title }}</code> expands live for every job.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>AGENT-AGNOSTIC</div>
+        <div class="feat-title">Claude Code or OpenCode</div>
+        <div class="feat-desc">Reuse your local OAuth session, or bring an API key. OpenCode Zen runs with no key at all.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>HOT RELOAD</div>
+        <div class="feat-title">Edit YAML, keep running</div>
+        <div class="feat-desc">The daemon watches each pylon config. Change a prompt, save the file, and the next job picks it up. No restart, no dropped webhooks.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>JOB HISTORY</div>
+        <div class="feat-title">Every run is replayable</div>
+        <div class="feat-desc">Every run recorded with status, duration, and logs. Retry failed jobs. Attach to running containers mid-run for live debugging.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>DIAGNOSTICS</div>
+        <div class="feat-title">Diagnose in one command</div>
+        <div class="feat-desc"><code>pylon doctor</code> checks Docker, tokens, SSH, ports, reachability. Prints an <code>ok</code> / <code>WARN</code> / <code>FAIL</code> table so you know exactly what's wrong.</div>
+      </div>
+      <div class="feat">
+        <div class="feat-label"><span class="feat-label-dot"></span>SYSTEMD READY</div>
+        <div class="feat-title">Run as a service</div>
+        <div class="feat-desc"><code>pylon service install</code> drops a unit file, restarts on failure, and integrates with <code>journalctl</code>. Or just <code>pylon start</code> in a tmux pane.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TEMPLATES ============ -->
+<section class="page-section" id="templates">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-kicker">Prefab pylons</div>
+      <h2 class="sec-title">Stand up a working pipeline in 60 seconds.</h2>
+      <p class="sec-sub">Ship with three ready-to-wire templates, plus a blank scaffold. Each one generates a valid <code>pylon.yaml</code> with real signature verification and payload templating — edit, drop in your repo URL, go.</p>
+    </div>
+    <div class="recipes">
+      <div class="recipe">
+        <div class="recipe-head">
+          <div class="recipe-name">sentry</div>
+          <div class="recipe-pill">webhook</div>
+        </div>
+        <div class="recipe-body">
+          <div class="recipe-title">Sentry error triage</div>
+          <div class="recipe-desc">Investigate alerts as they fire. Agent reads stack trace, inspects the culprit, proposes a fix, then you approve.</div>
+          <div class="recipe-code">
+            <span class="cmd">pylon construct</span> <span class="arg">my-sentry</span> <span class="flag">--from</span> <span class="arg">sentry</span>
+          </div>
+        </div>
+      </div>
+      <div class="recipe">
+        <div class="recipe-head">
+          <div class="recipe-name">github-pr</div>
+          <div class="recipe-pill">webhook</div>
+        </div>
+        <div class="recipe-body">
+          <div class="recipe-title">Pull request reviewer</div>
+          <div class="recipe-desc">Resolve the PR branch dynamically via <code>{{ .body.pull_request.head.ref }}</code>. Agent reviews every diff, flags bugs and security issues.</div>
+          <div class="recipe-code">
+            <span class="cmd">pylon construct</span> <span class="arg">pr-review</span> <span class="flag">--from</span> <span class="arg">github-pr</span>
+          </div>
+        </div>
+      </div>
+      <div class="recipe">
+        <div class="recipe-head">
+          <div class="recipe-name">cron-audit</div>
+          <div class="recipe-pill">cron</div>
+        </div>
+        <div class="recipe-body">
+          <div class="recipe-title">Scheduled security audit</div>
+          <div class="recipe-desc">Scheduled sweeps for hardcoded secrets, injection risks, and outdated dependencies. Summary posted to Slack on the cadence you set.</div>
+          <div class="recipe-code">
+            <span class="cmd">pylon construct</span> <span class="arg">weekly-audit</span> <span class="flag">--from</span> <span class="arg">cron-audit</span>
+          </div>
+        </div>
+      </div>
+      <div class="recipe">
+        <div class="recipe-head">
+          <div class="recipe-name">blank</div>
+          <div class="recipe-pill">bring your own</div>
+        </div>
+        <div class="recipe-body">
+          <div class="recipe-title">Start from scratch</div>
+          <div class="recipe-desc">An empty scaffold with every field commented. Point it at any webhook source, pick a channel, write your prompt. Useful reference even if you never ship it.</div>
+          <div class="recipe-code">
+            <span class="cmd">pylon construct</span> <span class="arg">my-pipeline</span> <span class="flag">--blank</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ NEXUS ============ -->
+<section class="page-section" id="nexus">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-kicker">Nexus</div>
+      <h2 class="sec-title">A dashboard that lives in your terminal.</h2>
+      <p class="sec-sub">List every pylon, tail logs in real time, replay failed jobs, and prototype message templates against a live payload — without a browser tab in sight.</p>
+    </div>
+    <div class="nexus">
+      <div class="nexus-head">
+        <div class="term-dots"><span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span></div>
+        <span>pylon nexus</span>
+        <span style="margin-left:auto;">ops-server-01 · 120×36</span>
+      </div>
+      <div class="nexus-body">
+        <aside class="nexus-side">
+          <div class="nexus-logo">
+            <span style="font-family:sans-serif;font-size:15px;line-height:1;color:#89b4fa;">⬧</span>
+            PYLON
+          </div>
+          <div class="nexus-ver">v0.3.2</div>
+          <div class="nexus-daemon">● DAEMON ON · :8080</div>
+
+          <div class="nexus-group-label">PYLONS</div>
+          <div class="nexus-pylon active">
+            <span class="diamond run"></span>sentry-triage
+          </div>
+          <div class="nexus-pylon">
+            <span class="diamond"></span>pr-review
+          </div>
+          <div class="nexus-pylon">
+            <span class="diamond idle"></span>weekly-audit
+          </div>
+          <div class="nexus-pylon">
+            <span class="diamond"></span>deploy-watch
+          </div>
+        </aside>
+        <div class="nexus-sep"></div>
+        <div class="nexus-main">
+          <div class="nexus-crumbs">pylons / <span style="color:var(--fg);">sentry-triage</span></div>
+          <div class="nexus-h1">sentry-triage</div>
+          <div style="color:var(--fg-3);font-size:11.5px;">Triage Sentry errors for the nexus project</div>
+
+          <div class="nexus-meta-row">
+            <div class="nexus-meta-k">Trigger</div>
+            <div class="nexus-meta-v">webhook <span class="c-accent">/sentry-triage</span></div>
+            <div class="nexus-meta-k">Webhook URL</div>
+            <div class="nexus-meta-v">https://ops.acme.com/sentry-triage <span style="color:var(--fg-3);">[y] copy</span></div>
+            <div class="nexus-meta-k">Workspace</div>
+            <div class="nexus-meta-v">git-clone · acme/nexus@main</div>
+            <div class="nexus-meta-k">Agent</div>
+            <div class="nexus-meta-v">claude · oauth · timeout 10m</div>
+            <div class="nexus-meta-k">Channel</div>
+            <div class="nexus-meta-v">telegram · approval required</div>
+          </div>
+
+          <div class="nexus-jobs">
+            <div class="nexus-jobs-h">
+              <span>ID</span><span>STATUS</span><span>TRIGGERED</span><span>DURATION</span>
+            </div>
+            <div class="nexus-job selected">
+              <span>a1b2c3d4</span><span><span class="status-pill run">▶ running</span></span><span>45 sec ago</span><span>00:45</span>
+            </div>
+            <div class="nexus-job">
+              <span>e5f6g7h8</span><span><span class="status-pill ok">✓ done</span></span><span>12 min ago</span><span>01:34</span>
+            </div>
+            <div class="nexus-job">
+              <span>i9j0k1l2</span><span><span class="status-pill fail">✕ failed</span></span><span>28 min ago</span><span>02:01</span>
+            </div>
+            <div class="nexus-job">
+              <span>m3n4o5p6</span><span><span class="status-pill ok">✓ done</span></span><span>1 hr ago</span><span>03:12</span>
+            </div>
+            <div class="nexus-job">
+              <span>q7r8s9t0</span><span><span class="status-pill wait">⊘ dismissed</span></span><span>2 hr ago</span><span>–</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-foot">
+        <span><kbd>j/k</kbd>navigate</span>
+        <span><kbd>l</kbd>logs</span>
+        <span><kbd>r</kbd>retry</span>
+        <span><kbd>x</kbd>kill</span>
+        <span><kbd>a</kbd>template builder</span>
+        <span><kbd>?</kbd>doctor</span>
+        <span style="margin-left:auto;"><kbd>q</kbd>quit</span>
+      </div>
+    </div>
+
+    <div class="nexus-callout">
+      <div class="nexus-callout-kbd"><kbd>a</kbd></div>
+      <div class="nexus-callout-body">
+        <div class="nexus-callout-title">Message template builder</div>
+        <div class="nexus-callout-desc">
+          Stop guessing field names. After your first real payload lands, press <kbd>a</kbd> on any pylon and Nexus shows the live JSON as a collapsible tree. Tick the fields you want, hit <kbd>enter</kbd>, and it writes the Go-template expressions into <code>channel.message</code> for you.
+        </div>
+        <div class="tb-mock">
+          <div class="tb-head">
+            <div class="tb-title">Message Template Builder</div>
+            <div class="tb-sub">Select fields to include in the message</div>
+          </div>
+          <div class="tb-tree">
+            <div class="tb-row"><span class="tb-arrow">▼</span> <span class="tb-group">actor</span></div>
+            <div class="tb-row tb-indent-1"><span class="tb-box">[ ]</span> <span class="tb-key">id</span><span class="tb-val">sentry</span></div>
+            <div class="tb-row tb-indent-1"><span class="tb-box">[ ]</span> <span class="tb-key">name</span><span class="tb-val">Sentry</span></div>
+            <div class="tb-row tb-indent-1 tb-cursor"><span class="tb-caret">&gt;</span><span class="tb-box">[ ]</span> <span class="tb-key tb-key-focus">type</span><span class="tb-val">application</span></div>
+            <div class="tb-row"><span class="tb-arrow">▼</span> <span class="tb-group">data</span></div>
+            <div class="tb-row tb-indent-1"><span class="tb-arrow">▼</span> <span class="tb-group">event</span></div>
+            <div class="tb-row tb-indent-2 tb-checked"><span class="tb-box">[<span class="tb-x">x</span>]</span> <span class="tb-key">culprit</span><span class="tb-val">services/checkout.py:218</span></div>
+            <div class="tb-row tb-indent-2"><span class="tb-box">[ ]</span> <span class="tb-key">datetime</span><span class="tb-val">2026-04-19T17:43:49.558000Z</span></div>
+            <div class="tb-row tb-indent-2"><span class="tb-box">[ ]</span> <span class="tb-key">environment</span><span class="tb-val">production</span></div>
+            <div class="tb-row tb-indent-2"><span class="tb-box">[ ]</span> <span class="tb-key">event_id</span><span class="tb-val">27158163f9ee4441956e365b6425ba7f</span></div>
+            <div class="tb-row tb-indent-2"><span class="tb-box">[ ]</span> <span class="tb-key">issue_id</span><span class="tb-val">7425093222</span></div>
+            <div class="tb-row tb-indent-2 tb-checked"><span class="tb-box">[<span class="tb-x">x</span>]</span> <span class="tb-key">level</span><span class="tb-val">error</span></div>
+            <div class="tb-row tb-indent-2 tb-checked"><span class="tb-box">[<span class="tb-x">x</span>]</span> <span class="tb-key">title</span><span class="tb-val">NullPointerException</span></div>
+            <div class="tb-row tb-indent-2 tb-checked"><span class="tb-box">[<span class="tb-x">x</span>]</span> <span class="tb-key">web_url</span><span class="tb-val">https://sentry.io/acme/issues/8842</span></div>
+            <div class="tb-more">... 30 more below</div>
+          </div>
+          <div class="tb-preview">
+            <div class="tb-preview-label">Preview:</div>
+            <div>Culprit: {{ .body.data.event.culprit }}</div>
+            <div>Level:   {{ .body.data.event.level }}</div>
+            <div>Title:   {{ .body.data.event.title }}</div>
+            <div>Web Url: {{ .body.data.event.web_url }}</div>
+          </div>
+          <div class="tb-foot">
+            <span><kbd>space</kbd> toggle/expand</span>
+            <span><kbd>enter</kbd> save</span>
+            <span><kbd>q</kbd> cancel</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRUST / SECURITY ============ -->
+<section class="page-section">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-kicker">Your server. Your keys. Your code.</div>
+      <h2 class="sec-title">Agents that touch production need adult supervision.</h2>
+      <p class="sec-sub">Pylon makes the supervision mechanical, not aspirational.</p>
+    </div>
+    <div class="trust-grid">
+      <div class="trust-card">
+        <div class="trust-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6l9-4z" stroke="currentColor" stroke-width="1.6"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="trust-title">Your code never leaves the host</div>
+        <div class="trust-desc">Single binary, Linux or macOS. No SaaS tier, no phone-home telemetry, no cloud dependency to break.</div>
+      </div>
+      <div class="trust-card">
+        <div class="trust-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><circle cx="8" cy="14.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="14.5" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="14.5" r="1" fill="currentColor" stroke="none"/></svg>
+        </div>
+        <div class="trust-title">Sandboxed per job</div>
+        <div class="trust-desc">One Docker container per run. Workspace mounted, network scoped, timeout enforced. The agent sees nothing else on the host.</div>
+      </div>
+      <div class="trust-card">
+        <div class="trust-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10a4 4 0 014 4v2a4 4 0 01-4 4H8l-4 3v-3"/><circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="13" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
+        </div>
+        <div class="trust-title">Human approval on any trigger</div>
+        <div class="trust-desc">Flip <code>approval: true</code> and Pylon posts <b>Investigate</b> / <b>Ignore</b> buttons. Restrict presses by user ID so only on-call can pull the trigger.</div>
+      </div>
+      <div class="trust-card">
+        <div class="trust-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l-5 7 5 7M16 5l5 7-5 7M14 4l-4 16"/></svg>
+        </div>
+        <div class="trust-title">Auditable by design</div>
+        <div class="trust-desc">Go, MIT-licensed. Signed release checksums. The whole daemon fits in the time it takes to make coffee — read every line before you trust it.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="page-section">
+  <div class="container">
+    <div class="sec-head" style="margin-bottom:40px;">
+      <div class="sec-kicker">Frequently asked</div>
+      <h2 class="sec-title">Questions from the install.sh | sh crowd.</h2>
+    </div>
+    <div class="faq">
+      <div class="faq-item">
+        <button class="faq-q">What does Pylon actually talk to?
+          <span class="faq-q-ico">+</span>
+        </button>
+        <div class="faq-a">The daemon runs entirely on your server. The only outbound traffic is to the LLM provider you configure (Anthropic, OpenAI, Google) and the chat channel you pick. Updates come from GitHub Releases when <i>you</i> run <code>pylon upgrade</code> — no background phone-home.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Which agents does it support?
+          <span class="faq-q-ico">+</span>
+        </button>
+        <div class="faq-a"><b>Claude Code</b> and <b>OpenCode</b> today, both with first-class integration. OpenCode Zen runs with no API key at all. Pylon treats agents as pluggable runners — the <code>agent:</code> block is a thin adapter, so Cursor Agent, Aider, and self-hosted models are open PRs rather than promises.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">What does a pylon cost to run?
+          <span class="faq-q-ico">+</span>
+        </button>
+        <div class="faq-a">The daemon is free and MIT. Your real cost is tokens. Cap it per-job with <code>timeout</code>, per-pylon with <code>max_concurrent</code>, and globally by setting <code>approval: true</code> so nothing runs without a human tap. For zero-cost triage, OpenCode Zen needs no key.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Which chat channels are supported?
+          <span class="faq-q-ico">+</span>
+        </button>
+        <div class="faq-a">Slack and Telegram today, plus <code>stdout</code> for local testing and a generic <code>webhook</code> channel. Every channel is a driver — write your own in ~200 lines of Go.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Events arriving faster than the agent can handle?
+          <span class="faq-q-ico">+</span>
+        </button>
+        <div class="faq-a">Pylon runs up to <code>docker.max_concurrent</code> containers in parallel (default 3, bump to whatever your host can take). A bounded queue absorbs bursts so nothing is silently dropped.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Can I run this on my laptop for development?
+          <span class="faq-q-ico">+</span>
+        </button>
+        <div class="faq-a">Yes. <code>pylon start</code> on macOS or Linux is enough. Use <code>stdout</code> as a channel, feed test payloads with <code>pylon test</code>, and point real webhook sources at your laptop with any tunnel you like (ngrok, cloudflared, tailscale funnel). No cloud account required.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CLOSER ============ -->
+<section class="closer">
+  <div class="closer-glow"></div>
+  <div class="container">
+    <h2>Stop paging.<br/>Construct additional pylons.</h2>
+    <p>One binary. A chat channel. Sixty seconds to your first fire.</p>
+    <button class="closer-install" id="closerInstall" type="button" aria-label="Copy install command">
+      <span class="c-dim">$</span><span class="c-cmd">curl -fsSL https://pylon.to/install.sh | sh</span>
+      <span class="c-copy" id="closerCopy">copy</span>
+    </button>
+    <div class="closer-actions">
+      <a href="#" aria-label="Star on GitHub">★ Star on GitHub</a>
+      <a href="#" aria-label="Read the docs">Read the docs →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-col">
+        <a href="#" class="brand" style="font-size:16px;">
+          <span class="brand-mark" data-brand-slot></span>
+          pylon.to
+        </a>
+        <div class="footer-tag">The loop closes in your terminal.</div>
+      </div>
+      <div class="footer-col">
+        <h4>PRODUCT</h4>
+        <ul>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#templates">Templates</a></li>
+          <li><a href="#nexus">Nexus</a></li>
+          <li><a href="#">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>DOCS</h4>
+        <ul>
+          <li><a href="#">Install</a></li>
+          <li><a href="#">Quickstart</a></li>
+          <li><a href="#">CLI reference</a></li>
+          <li><a href="#">pylon.yaml</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>COMMUNITY</h4>
+        <ul>
+          <li><a href="#">GitHub</a></li>
+          <li><a href="#">Discussions</a></li>
+          <li><a href="#">Releases · RSS</a></li>
+          <li><a href="#">Security</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bot">
+      <span>© 2026 Pylon · MIT license</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ TWEAKS ============ -->
+<div id="tweaks">
+  <h5>TWEAKS</h5>
+  <div class="tweak-row">
+    <label>accent</label>
+    <div class="tweak-swatch" id="sw-accent">
+      <button data-c="#FAB387" style="background:#FAB387" class="sel"></button>
+      <button data-c="#86E3B3" style="background:#86E3B3"></button>
+      <button data-c="#89B4FA" style="background:#89B4FA"></button>
+      <button data-c="#E07C7C" style="background:#E07C7C"></button>
+      <button data-c="#B097D1" style="background:#B097D1"></button>
+    </div>
+  </div>
+  <div class="tweak-row">
+    <label>hero headline</label>
+    <select id="tw-hero">
+      <option value="sentry">A: Turn Sentry alerts into PRs</option>
+      <option value="webhook">B: Webhook in. PR out.</option>
+      <option value="glue">C: Stop gluing webhooks to scripts</option>
+    </select>
+  </div>
+  <div class="tweak-row" style="align-items:flex-start;">
+    <label style="padding-top:4px;">pylon icon</label>
+    <div class="tweak-icons" id="sw-icon"></div>
+  </div>
+  <div class="tweak-row">
+    <label>background</label>
+    <select id="tw-bg">
+      <option value="#0B0B0C">void black</option>
+      <option value="#0E0F14">deep slate</option>
+      <option value="#101010">pure carbon</option>
+    </select>
+  </div>
+  <div style="font-size:10px;color:var(--fg-3);margin-top:10px;">Toggle Tweaks in the toolbar ⇡</div>
+</div>
+
+<script>
+  // --- Install copy ---
+  function copyInstall(btn) {
+    const cmd = 'curl -fsSL https://pylon.to/install.sh | sh';
+    navigator.clipboard?.writeText(cmd).catch(()=>{});
+    const prev = btn.textContent;
+    btn.textContent = 'COPIED';
+    setTimeout(()=> btn.textContent = prev, 1400);
+  }
+  // --- Closer install (whole card is clickable) ---
+  const closerBtn = document.getElementById('closerInstall');
+  if (closerBtn) {
+    closerBtn.addEventListener('click', () => {
+      const cmd = 'curl -fsSL https://pylon.to/install.sh | sh';
+      navigator.clipboard?.writeText(cmd).catch(()=>{});
+      const badge = document.getElementById('closerCopy');
+      if (!badge) return;
+      const prev = badge.textContent;
+      badge.textContent = 'copied';
+      setTimeout(()=> badge.textContent = prev, 1400);
+    });
+  }
+
+  // --- Hero terminal animation ---
+  const termLines = [
+    { t: 400, html: '<span class="c-accent">$</span> pylon start' },
+    { t: 800, html: '<span class="c-dim">Powering up pylons...</span>' },
+    { t: 400, html: ' ' },
+    { t: 600, html: '  <span class="c-fg">sentry-triage</span>      <span class="c-ok">ok</span>   webhook <span class="c-dim">/sentry-triage</span>' },
+    { t: 350, html: '  <span class="c-fg">pr-review</span>          <span class="c-ok">ok</span>   webhook <span class="c-dim">/pr-review</span>' },
+    { t: 350, html: '  <span class="c-fg">weekly-audit</span>       <span class="c-ok">ok</span>   cron    <span class="c-dim">0 9 * * 1</span>' },
+    { t: 400, html: ' ' },
+    { t: 500, html: '<span class="c-dim">3 pylons active. listening on 0.0.0.0:8080</span>' },
+    { t: 900, html: ' ' },
+    { t: 700, html: '<span class="c-accent">»</span> <span class="c-blue">POST /sentry-triage</span> <span class="c-dim">200</span>  <span class="c-fg">NullPointerException</span>' },
+    { t: 500, html: '  <span class="c-dim">↳ awaiting approval from @emma...</span>' },
+    { t: 900, html: '  <span class="c-ok">✓ approved</span> · spawning <span class="c-accent">agent-claude</span> · job <span class="c-accent">a1b2c3d4</span>' },
+    { t: 700, html: '  <span class="c-dim">cloning acme/nexus@main...</span>' },
+    { t: 600, html: '  <span class="c-ok">✓</span> workspace ready · agent investigating' },
+  ];
+  const body = document.getElementById('termBody');
+  let running = false;
+  function renderTerm() {
+    if (running) return; running = true;
+    body.innerHTML = '';
+    let delay = 0;
+    termLines.forEach((l, i) => {
+      delay += l.t;
+      setTimeout(()=> {
+        const div = document.createElement('div');
+        div.className = 'term-line';
+        div.innerHTML = l.html;
+        body.appendChild(div);
+      }, delay);
+    });
+    delay += 500;
+    setTimeout(()=> {
+      const cursor = document.createElement('div');
+      cursor.className = 'term-line';
+      cursor.innerHTML = '<span class="c-accent">$</span> <span class="term-cursor"></span>';
+      body.appendChild(cursor);
+    }, delay);
+    setTimeout(()=> { running = false; renderTerm(); }, delay + 8000);
+  }
+  renderTerm();
+
+  // --- Code tabs ---
+  document.querySelectorAll('.code-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.code-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const pane = tab.dataset.tab;
+      document.querySelectorAll('.code-pane').forEach(p => {
+        p.hidden = p.dataset.pane !== pane;
+      });
+    });
+  });
+
+  // --- FAQ ---
+  document.querySelectorAll('.faq-q').forEach(q => {
+    q.addEventListener('click', () => {
+      q.parentElement.classList.toggle('open');
+    });
+  });
+  // Open the first FAQ by default
+  document.querySelector('.faq-item')?.classList.add('open');
+
+  // --- Tweaks ---
+  const tweaksEl = document.getElementById('tweaks');
+  let tweaksOn = false;
+  window.addEventListener('message', (e) => {
+    if (!e.data || !e.data.type) return;
+    if (e.data.type === '__activate_edit_mode') { tweaksOn = true; tweaksEl.classList.add('on'); }
+    if (e.data.type === '__deactivate_edit_mode') { tweaksOn = false; tweaksEl.classList.remove('on'); }
+  });
+  window.parent.postMessage({type: '__edit_mode_available'}, '*');
+
+  // Apply initial tweaks
+  function applyAccent(c) {
+    document.documentElement.style.setProperty('--accent', c);
+  }
+  function applyBg(c) {
+    document.documentElement.style.setProperty('--bg', c);
+  }
+  function applyHero(v) {
+    const map = {
+      sentry:  'Turn Sentry alerts<br/>into pull requests.<br/><em>Fix production from your phone.</em>',
+      webhook: 'Webhook in.<br/>Pull request out.<br/><em>Your on-call agent, self-hosted.</em>',
+      glue:    'Stop gluing webhooks<br/>to scripts.<br/><em>Pylon is that loop, prefab.</em>',
+    };
+    document.querySelector('.hero-title').innerHTML = map[v] || map.sentry;
+  }
+
+  // Icon options: original pennant, Unicode Black Medium Lozenge ◆, diamond ◇,
+  // transmission tower, bolt, prism/triangle, signal bars, asterism ⁂
+  const ICONS = {
+    pennant: `<svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <path d="M11 2 L18 20 L11 16 L4 20 Z" fill="var(--accent)" stroke="var(--accent)" stroke-width="1" stroke-linejoin="round"/>
+      <line x1="11" y1="2" x2="11" y2="16" stroke="#1a1200" stroke-width="1"/>
+    </svg>`,
+    lozenge: `<span style="font-family:sans-serif;font-size:22px;line-height:1;color:var(--accent);">◆</span>`,
+    diamond: `<span style="font-family:sans-serif;font-size:22px;line-height:1;color:var(--accent);">◇</span>`,
+    tower: `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 20 L11 2 L16 20"/>
+      <path d="M8 13 L14 13 M7 16 L15 16 M9 10 L13 10"/>
+    </svg>`,
+    bolt: `<svg width="22" height="22" viewBox="0 0 22 22" fill="var(--accent)">
+      <path d="M13 2 L4 13 L10 13 L9 20 L18 9 L12 9 Z"/>
+    </svg>`,
+    prism: `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round">
+      <path d="M11 3 L20 19 L2 19 Z" fill="var(--accent)" fill-opacity="0.15"/>
+      <path d="M11 3 L11 19 M11 11 L20 19 M11 11 L2 19"/>
+    </svg>`,
+    signal: `<svg width="22" height="22" viewBox="0 0 22 22" fill="var(--accent)">
+      <rect x="3" y="14" width="3" height="6"/>
+      <rect x="8" y="10" width="3" height="10"/>
+      <rect x="13" y="6" width="3" height="14"/>
+      <rect x="18" y="2" width="3" height="18" opacity="0.6"/>
+    </svg>`,
+    asterism: `<span style="font-family:'JetBrains Mono',monospace;font-size:20px;line-height:1;color:var(--accent);">⁂</span>`,
+    rhombus: `<span style="font-family:sans-serif;font-size:22px;line-height:1;color:#89b4fa;">⬧</span>`,
+  };
+  const ICON_PREVIEW = {
+    pennant: `<svg width="14" height="14" viewBox="0 0 22 22"><path d="M11 2 L18 20 L11 16 L4 20 Z" fill="currentColor"/></svg>`,
+    lozenge: `◆`,
+    diamond: `◇`,
+    tower: `<svg width="14" height="14" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 20 L11 2 L16 20"/><path d="M8 13 L14 13 M7 16 L15 16"/></svg>`,
+    bolt: `<svg width="14" height="14" viewBox="0 0 22 22" fill="currentColor"><path d="M13 2 L4 13 L10 13 L9 20 L18 9 L12 9 Z"/></svg>`,
+    prism: `<svg width="14" height="14" viewBox="0 0 22 22" fill="currentColor"><path d="M11 3 L20 19 L2 19 Z"/></svg>`,
+    signal: `<svg width="14" height="14" viewBox="0 0 22 22" fill="currentColor"><rect x="3" y="14" width="3" height="6"/><rect x="8" y="10" width="3" height="10"/><rect x="13" y="6" width="3" height="14"/></svg>`,
+    asterism: `⁂`,
+    rhombus: `⬧`,
+  };
+  function applyIcon(key) {
+    const svg = ICONS[key] || ICONS.pennant;
+    document.querySelectorAll('[data-brand-slot]').forEach(el => {
+      el.innerHTML = svg;
+    });
+  }
+
+  // Build icon picker buttons
+  const iconWrap = document.getElementById('sw-icon');
+  Object.keys(ICON_PREVIEW).forEach(k => {
+    const b = document.createElement('button');
+    b.dataset.i = k;
+    b.innerHTML = ICON_PREVIEW[k];
+    b.title = k;
+    iconWrap.appendChild(b);
+  });
+
+  if (TWEAKS.accent) applyAccent(TWEAKS.accent);
+  if (TWEAKS.bg) applyBg(TWEAKS.bg);
+  if (TWEAKS.heroStyle) {
+    applyHero(TWEAKS.heroStyle);
+    const sel = document.getElementById('tw-hero');
+    if (sel) sel.value = TWEAKS.heroStyle;
+  }
+  applyIcon(TWEAKS.icon || 'pennant');
+  // Mark initial selection
+  (() => {
+    const init = TWEAKS.icon || 'pennant';
+    document.querySelectorAll('#sw-icon button').forEach(b => {
+      if (b.dataset.i === init) b.classList.add('sel');
+    });
+  })();
+
+  document.querySelectorAll('#sw-accent button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#sw-accent button').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+      const c = b.dataset.c;
+      applyAccent(c);
+      window.parent.postMessage({type:'__edit_mode_set_keys', edits: {accent: c}}, '*');
+    });
+  });
+  document.querySelectorAll('#sw-icon button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#sw-icon button').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+      const k = b.dataset.i;
+      applyIcon(k);
+      window.parent.postMessage({type:'__edit_mode_set_keys', edits: {icon: k}}, '*');
+    });
+  });
+  document.getElementById('tw-hero').addEventListener('change', (e) => {
+    applyHero(e.target.value);
+    window.parent.postMessage({type:'__edit_mode_set_keys', edits: {heroStyle: e.target.value}}, '*');
+  });
+  document.getElementById('tw-bg').addEventListener('change', (e) => {
+    applyBg(e.target.value);
+    window.parent.postMessage({type:'__edit_mode_set_keys', edits: {bg: e.target.value}}, '*');
+  });
+</script>
+</body>
+</html>
