@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" role="img" aria-label="Pylon">
+  <path d="M30 8 L56 40 L30 72 L4 40 Z" fill="#89B4FA"/>
+  <text x="78" y="56" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="700" font-size="44" letter-spacing="-1" fill="#11111B">Pylon</text>
+</svg>
