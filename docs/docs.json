@@ -2,8 +2,13 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "aspen",
   "name": "Pylon",
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo.svg",
+    "dark": "/logo.svg"
+  },
   "colors": {
-    "primary": "#5B6EF5",
+    "primary": "#89B4FA",
     "light": "#EEF0FE",
     "dark": "#1A1D3A"
   },
