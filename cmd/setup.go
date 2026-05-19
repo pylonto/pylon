@@ -307,16 +307,13 @@ func detectChatID(token, username string) (int64, error) {
 // (global .env for `pylon setup`, per-pylon .env for `pylon construct`).
 func setupSlack() (*config.SlackConfig, map[string]string, error) {
 	fmt.Println("\nPaste this YAML manifest into Slack:")
-	fmt.Println(slackAppManifest)
+	fmt.Printf("\n%s\n", slackAppManifest)
 	fmt.Println()
 
-	var manifestDone bool
-	if err := huh.NewConfirm().
+	if err := huh.NewNote().
 		Title("Step 1: Create a Slack App").
 		Description("Go to https://api.slack.com/apps > Create New App > From a manifest, then paste the YAML printed above.").
-		Affirmative("Done").
-		Negative("").
-		Value(&manifestDone).
+		Next(true).
 		Run(); err != nil {
 		return nil, nil, err
 	}
