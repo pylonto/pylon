@@ -306,9 +306,13 @@ func detectChatID(token, username string) (int64, error) {
 // secrets the user entered. The caller decides where to persist the secrets
 // (global .env for `pylon setup`, per-pylon .env for `pylon construct`).
 func setupSlack() (*config.SlackConfig, map[string]string, error) {
+	fmt.Println("\nPaste this YAML manifest into Slack:")
+	fmt.Printf("\n%s\n", slackAppManifest)
+	fmt.Println()
+
 	if err := huh.NewNote().
 		Title("Step 1: Create a Slack App").
-		Description("Go to https://api.slack.com/apps > Create New App > From a manifest.\nPaste this YAML manifest:\n\n" + slackAppManifest).
+		Description("Go to https://api.slack.com/apps > Create New App > From a manifest, then paste the YAML printed above.").
 		Next(true).
 		Run(); err != nil {
 		return nil, nil, err
