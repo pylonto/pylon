@@ -112,6 +112,9 @@ func (d *Daemon) channelFor(pylonName string) channel.Channel {
 func (d *Daemon) registerRoutes() {
 	registered := make(map[string]string) // path -> pylon name
 	for name, pyl := range d.Pylons {
+		if pyl.Control != nil {
+			d.registerControl(name)
+		}
 		if pyl.Trigger.Type != "webhook" {
 			continue
 		}
@@ -317,6 +320,11 @@ func (d *Daemon) startReservedJob(pylonName string, pyl *config.PylonConfig, job
 		}
 
 		pylonEnv := config.LoadPylonEnvFile(pylonName)
+		keyed, claimErr := d.Store.StartExecution(pylonName, jobID)
+		if claimErr != nil {
+			log.Printf("[delivery] executor claim unavailable; agent not started")
+			return
+		}
 
 		err := d.RunAgent(context.Background(), runner.RunParams{
 			AgentType:     pyl.ResolveAgentType(d.Global),
@@ -339,6 +347,15 @@ func (d *Daemon) startReservedJob(pylonName string, pyl *config.PylonConfig, job
 			Channel:       n,
 			TopicID:       topicID,
 		})
+		if keyed {
+			outcome := "executor_returned"
+			if err != nil {
+				outcome = "executor_failed"
+			}
+			if recordErr := d.Store.FinishExecution(pylonName, jobID, outcome); recordErr != nil {
+				log.Printf("[delivery] executor result could not be persisted; outcome unknown")
+			}
+		}
 		if err != nil {
 			log.Printf("[pylon] [%s] failed: %v", jobID[:8], err)
 			// Only mark failed if the callback hasn't already set a terminal status

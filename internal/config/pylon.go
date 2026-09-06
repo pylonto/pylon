@@ -126,6 +126,13 @@ type PylonConfig struct {
 	Channel   *PylonChannel   `yaml:"channel,omitempty"`
 	Workspace WorkspaceConfig `yaml:"workspace"`
 	Agent     *PylonAgent     `yaml:"agent,omitempty"`
+	Control   *ControlConfig  `yaml:"control,omitempty"`
+}
+
+// ControlConfig opts in to signed, non-agent status and notification requests.
+// TopicID must name a preexisting approved topic; control never creates one implicitly.
+type ControlConfig struct {
+	TopicID string `yaml:"topic_id"`
 }
 
 type TriggerConfig struct {
@@ -214,7 +221,7 @@ func PylonDBPath(name string) string {
 // Anything else is either misplaced (indentation error) or a typo.
 var knownTopLevelKeys = map[string]bool{
 	"name": true, "description": true, "disabled": true, "created": true,
-	"trigger": true, "channel": true, "workspace": true, "agent": true,
+	"trigger": true, "channel": true, "workspace": true, "agent": true, "control": true,
 }
 
 // misplacedKeyHints maps sub-keys to the section they likely belong under.

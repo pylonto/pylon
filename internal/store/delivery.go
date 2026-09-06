@@ -102,6 +102,8 @@ func (s *Store) PendingDeliveries() ([]Delivery, error) {
 }
 
 func (s *Store) TransitionDelivery(key, from, to string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	result, err := s.db.Exec(`UPDATE deliveries SET state = ? WHERE delivery_key = ? AND state = ?
         AND (? != 'claimed' OR EXISTS (SELECT 1 FROM jobs WHERE jobs.id=deliveries.job_id AND jobs.status='queued'))`, to, key, from, to)
 	if err != nil {
