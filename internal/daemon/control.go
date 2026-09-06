@@ -9,8 +9,23 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/pylonto/pylon/internal/channel"
+	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/store"
 )
+
+// NewControl owns only the signed control routes. Keep this constructor separate from
+// New: the notification-only process must have no executor, trigger, callback, cron,
+// watcher, recovery/pruning or Docker/image lifecycle -- including during startup/shutdown.
+func NewControl(pylons map[string]*config.PylonConfig, st *store.MultiStore, channels map[string]channel.Channel) *Daemon {
+	d := &Daemon{Pylons: pylons, Store: st, Channels: channels, Mux: http.NewServeMux()}
+	for name, pyl := range pylons {
+		if pyl.Control != nil {
+			d.registerControl(name)
+		}
+	}
+	return d
+}
 
 // registerControl exposes only signed, bounded state/notice operations for explicitly
 // opted-in pylons. It neither spawns an agent nor trusts agent callbacks as executor facts.

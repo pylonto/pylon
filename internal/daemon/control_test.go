@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pylonto/pylon/internal/channel"
 	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/runner"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,24 @@ func controlRequest(d *Daemon, key, body string) *httptest.ResponseRecorder {
 	d.Mux.ServeHTTP(w, r)
 	return w
 }
+func TestControlOnlyHasNoJobOrAgentLifecycleSurface(t *testing.T) {
+	fixture := controlDaemon(t)
+	d := NewControl(fixture.Pylons, fixture.Store, map[string]channel.Channel{"vendor": fixture.Channel})
+	require.Nil(t, d.RunAgent)
+	for _, path := range []string{"/vendor", "/trigger/vendor", "/callback/job", "/hooks/job", "/api/pylons", "/reload"} {
+		r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+		w := httptest.NewRecorder()
+		d.Mux.ServeHTTP(w, r)
+		require.Equal(t, 404, w.Code, path)
+	}
+	key := strings.Repeat("7", 64)
+	body := `{"op":"notify","text":"Synthetic control-only notice"}`
+	require.Equal(t, 202, controlRequest(d, key, body).Code)
+	require.Equal(t, 202, controlRequest(d, key, body).Code)
+	require.Len(t, fixture.Channel.(*mockChannel).messages, 1)
+	require.Empty(t, d.Store.List())
+}
+
 func TestControlNoticeLostReceiptNeverStartsAnAgentOrSendsTwice(t *testing.T) {
 	d := controlDaemon(t)
 	var runs atomic.Int32

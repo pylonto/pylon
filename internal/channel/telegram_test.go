@@ -442,8 +442,8 @@ func TestTelegram_EditMessage_fallsBackToPlaintext(t *testing.T) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		if callCount == 1 {
-			// First call (MarkdownV2) fails
-			fmt.Fprintf(w, `{"ok":false,"description":"can't parse entities"}`)
+			// First call is explicitly refused before the edit is applied.
+			fmt.Fprintf(w, `{"ok":false,"error_code":400,"description":"can't parse entities"}`)
 		} else {
 			// Second call (plaintext) succeeds
 			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":100}}`)
@@ -544,7 +544,8 @@ func TestTelegram_callAPI_failure(t *testing.T) {
 	tg := newTestTelegramWithURL(ts.URL)
 	_, err := tg.callAPI("sendMessage", map[string]interface{}{"chat_id": 99999})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "chat not found")
+	assert.Contains(t, err.Error(), "refused")
+	assert.NotContains(t, err.Error(), "chat not found", "raw vendor descriptions are not safe diagnostics")
 }
 
 func TestTelegram_callAPI_networkError(t *testing.T) {
@@ -572,8 +573,8 @@ func TestTelegram_SendMessage_fallsBackToPlaintext(t *testing.T) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		if callCount == 1 {
-			// MarkdownV2 fails
-			fmt.Fprintf(w, `{"ok":false,"description":"can't parse entities"}`)
+			// Telegram explicitly refuses this formatting (not a lost acknowledgement).
+			fmt.Fprintf(w, `{"ok":false,"error_code":400,"description":"can't parse entities"}`)
 		} else {
 			// Plaintext succeeds
 			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":1}}`)
