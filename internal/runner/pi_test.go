@@ -134,6 +134,20 @@ func TestPiExportDestinationRefusesSymlinkBeforeDeletion(t *testing.T) {
 	require.Equal(t, filepath.Join(root, "new", "file.txt"), path)
 }
 
+func TestPiAuthRoleRefusesAuxiliaryExecutables(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.Chmod(root, 0700))
+	for _, name := range []string{"auth.json", "settings.json", "models-store.json"} {
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte("{}"), 0600))
+	}
+	require.NoError(t, privatePiAuth(root), "file-only CLI metadata control")
+	require.NoError(t, os.Mkdir(filepath.Join(root, "bin"), 0700))
+	for _, name := range []string{"fd", "rg"} {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "bin", name), []byte("fixture, never executed"), 0755))
+	}
+	require.ErrorContains(t, privatePiAuth(root), "pi_auth_role_invalid", "fix the login command, not the executable-storage fence")
+}
+
 func TestPiAuthRoleRefusesPersonalOrSymlinkStorage(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.Chmod(root, 0700))

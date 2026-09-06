@@ -86,12 +86,54 @@ func TestPiDockerExportRefusesHostileFiles(t *testing.T) {
 	}
 }
 
+func TestPiDockerUnusedAllowedPathsDoNotDiscardRepair(t *testing.T) {
+	cli, p := piNative(t)
+	ciao := testutil.CiaoSource(t)
+	p.Config.AllowedPaths = []string{"src/repair.txt", "src/optional.txt", "new/nested/optional.txt"}
+	for _, path := range p.Config.AllowedPaths[1:] {
+		_, err := os.Lstat(filepath.Join(p.Repository, path))
+		require.True(t, os.IsNotExist(err), "optional new paths must be absent from the base")
+	}
+	out := RunPiJob(context.Background(), p)
+	piNativeRemoved(t, cli, p)
+	require.NotNil(t, out.Runtime, "failure=%s", out.Failure)
+	require.Equal(t, "executor_returned", out.Runtime.Outcome, "the SDK must finish before the export assertion")
+	require.Equal(t, 3, out.Runtime.Tools)
+	require.Zero(t, out.Runtime.Requests)
+	require.Equal(t, "executor_returned", out.Result.Outcome, "unused permission must not require a file: %s", out.Failure)
+	require.NotEmpty(t, out.Receipt)
+	patch, err := os.ReadFile(out.Patch)
+	require.NoError(t, err)
+	require.NotEmpty(t, patch)
+	require.LessOrEqual(t, len(patch), MaxPiPatch)
+	require.NotContains(t, string(patch), "optional.txt")
+	// The independently pinned importer must see only the actual repair, not
+	// placeholder files invented to satisfy the allowlist's unused permissions.
+	script := `import sys
+from pathlib import Path
+from vendor_maintenance_lib.patching import prepared_patch
+with prepared_patch(sys.argv[1],sys.argv[2],Path(sys.argv[3]).read_bytes(),["src/repair.txt","src/optional.txt","new/nested/optional.txt"]) as result:
+ assert result["paths"]==["src/repair.txt"]
+ assert (result["repository"]/"src/repair.txt").read_text()=="repaired"+chr(10)
+ assert not (result["repository"]/"src/optional.txt").exists()
+ assert not (result["repository"]/"new").exists()
+print("existing repair accepted with absent optional permissions")`
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "python3", "-c", script, p.Repository, p.Base, out.Patch)
+	command.Env = append(os.Environ(), "PYTHONPATH="+filepath.Join(ciao, "scripts"))
+	raw, err := command.CombinedOutput()
+	require.NoError(t, err, string(raw))
+	t.Log(string(raw))
+}
+
 func TestPiDockerRenameExportsCompleteDeleteAdd(t *testing.T) {
 	cli, p := piNative(t)
 	ciao := testutil.CiaoSource(t)
 	p.FixtureCase = "rename"
-	p.Config.AllowedPaths = []string{"src/repair.txt", "src/renamed.txt"}
+	p.Config.AllowedPaths = []string{"src/repair.txt", "src/renamed.txt", "src/optional.txt"}
 	out := RunPiJob(context.Background(), p)
+	piNativeRemoved(t, cli, p)
 	require.Equal(t, "executor_returned", out.Result.Outcome, "failure=%s runtime=%+v", out.Failure, out.Runtime)
 	require.Equal(t, 3, out.Runtime.Tools)
 	require.Zero(t, out.Runtime.Requests)
@@ -124,7 +166,21 @@ print("complete delete/add accepted; underdeclared scope refused")`
 	raw, err := command.CombinedOutput()
 	require.NoError(t, err, string(raw))
 	t.Log(string(raw))
+}
+
+func TestPiDockerOnlyAbsentPermissionsCannotExportUnreviewedRepair(t *testing.T) {
+	cli, p := piNative(t)
+	p.Config.AllowedPaths = []string{"new/optional.txt"}
+	out := RunPiJob(context.Background(), p)
 	piNativeRemoved(t, cli, p)
+	require.NotNil(t, out.Runtime, "failure=%s", out.Failure)
+	require.Equal(t, "executor_returned", out.Runtime.Outcome)
+	require.Equal(t, 3, out.Runtime.Tools, "the fixture repairs an existing file OUTSIDE the allowlist")
+	require.Zero(t, out.Runtime.Requests)
+	require.Equal(t, "executor_failed", out.Result.Outcome)
+	require.Equal(t, "pi_patch_empty_or_over_bound", out.Failure, "no collected paths must not stage the sandbox's other edits")
+	require.Empty(t, out.Patch)
+	require.NotEmpty(t, out.Receipt)
 }
 
 func TestPiDockerCancellationAfterRuntimeStartRetainsUnknownUsage(t *testing.T) {

@@ -17,6 +17,14 @@ Build `agent/pi/Dockerfile` from your reviewed source. Configure the resulting i
 
 Log in through the image's existing Pi CLI in a **separate owner terminal/browser**, with `PI_CODING_AGENT_DIR=/role` and only the fresh `.pylon/pi-auth` directory mounted there. Disable tools, sessions, extensions, skills, prompt templates, and themes. Use `/login` and select OpenAI Codex, then `/quit`; do not send a model prompt. Never copy your commissioning or personal auth store. Never put OAuth URLs, codes, tokens, or auth-file contents in agent chat or logs.
 
+Inside that isolated login container, invoke the existing CLI with:
+
+```sh
+/opt/pylon/node_modules/.bin/pi --offline --provider openai-codex --no-tools --no-session --no-extensions --no-skills --no-prompt-templates --no-themes
+```
+
+Keep `--offline`: disabling tools alone does not prevent the CLI from downloading auxiliary `fd`/`rg` executables into `/role/bin`, which the worker correctly refuses. Offline mode suppresses those downloads, startup catalog refresh, and other startup network checks. It does **not** disable an explicit owner `/login`; manual OAuth still needs network access in the login container. Startup/quit smoke tests never invoke OAuth and do not prove authenticated availability. Do not relax the role's file gate or permit extra executables to accommodate CLI setup.
+
 The worker requires exactly one OAuth provider in `auth.json`. It ignores the CLI's role-local `settings.json` and `models-store.json`: its model catalog comes from the image, its settings stay in memory, and it performs no resource discovery. OAuth refresh can update the dedicated credential store. No tool receives this directory.
 
 ## Configure signed admission
@@ -79,7 +87,7 @@ The image includes Node and Git, not the Ciao Rust, Swift, or Bun toolchains. A 
 
 Each valid execution attempt writes a private `.pylon/pi-patches/<job-id>.json` executor receipt. Successful export also writes `<job-id>.patch` and records its SHA-256. The directory refuses immutable collisions, more than 4,096 files, or more than 64 MiB; nothing prunes it automatically.
 
-Export permits up to 32 explicit regular text paths and at most 1 MiB of patch bytes. It emits rename-independent delete/add output. The host creates fresh Git state and never runs Git in an agent-controlled repository. Ciao's existing four-argument `prepared_patch(repository, base, patch_bytes, allowed_paths)` remains the independent scope/mode/import policy. The executor receipt is **not** qualification, publication authority, or independent validation. The worker has no GitHub credentials or publication callback.
+Export permits up to 32 explicit regular text paths and at most 1 MiB of patch bytes. An allowed new path may remain absent; permission does not require you to create a file. Export stages only collected writes and tracked deletions, and emits rename-independent delete/add output. The host creates fresh Git state and never runs Git in an agent-controlled repository. Ciao's existing four-argument `prepared_patch(repository, base, patch_bytes, allowed_paths)` remains the independent scope/mode/import policy. The executor receipt is **not** qualification, publication authority, or independent validation. The worker has no GitHub credentials or publication callback.
 
 ## Run no-model verification
 
@@ -97,4 +105,4 @@ PYLON_PI_REHEARSAL_IMAGE="$image" \
 
 The SDK adapter fixture in `agent/pi/sdk.test.mjs` runs in that image with `--network none`, no auth mount, and only that test file mounted read-only at `/opt/pylon/sdk.test.mjs`; invoke `node --test /opt/pylon/sdk.test.mjs`. It uses synthetic HTTP and an unsigned synthetic account shape, never a real credential or model call.
 
-Native fixtures exercise the real signed dispatcher, SDK tools, source isolation, explicit delete/add export, Ciao import, hostile symlink/mode/size refusal, cancellation, and deadlines. Record the exact Pylon source, image ID, Ciao source, and test results. None proves authenticated model availability or authorizes a live turn.
+Native fixtures exercise the real signed dispatcher, SDK tools, source isolation, unused allowed paths, explicit delete/add export, Ciao import, hostile symlink/mode/size refusal, cancellation, and deadlines. The documented login-command smoke starts the actual pinned CLI with fresh empty storage, no network, and a fetch-attempt observer; it sends only `/quit` and checks the unchanged worker filesystem gate. Record the exact Pylon source, image ID, Ciao source, and test results. None proves authenticated model availability or authorizes a live turn.

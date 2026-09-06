@@ -414,16 +414,20 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 	if cli.ContainerRemove(ctx, sandbox, container.RemoveOptions{Force: true}) != nil {
 		return out
 	}
-	if err = piCollect(ctx, cli, holder, repo, p.Config.AllowedPaths); err != nil {
+	collected, err := piCollect(ctx, cli, holder, repo, p.Config.AllowedPaths)
+	if err != nil {
 		out.Failure = "pi_patch_export_failed"
 		return out
 	}
-	// Include additions/deletions only in the explicit allowlist. Ciao validates
-	// the resulting full path set, text/mode semantics and exact base independently.
-	args := append([]string{"add", "--"}, p.Config.AllowedPaths...)
-	if _, err = piGit(ctx, tmp, repo, 4096, args...); err != nil {
-		out.Failure = "pi_patch_export_failed"
-		return out
+	// An allowed new path can remain absent. Stage only collected additions or
+	// previously tracked deletions; Git rejects an unused new pathspec. Ciao still
+	// validates the full resulting path set, modes and exact base independently.
+	if len(collected) > 0 {
+		args := append([]string{"add", "--"}, collected...)
+		if _, err = piGit(ctx, tmp, repo, 4096, args...); err != nil {
+			out.Failure = "pi_patch_export_failed"
+			return out
+		}
 	}
 	patch, err := piGit(ctx, tmp, repo, MaxPiPatch, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames", "--full-index", p.Base, "--")
 	if err != nil || len(patch) == 0 {
@@ -532,44 +536,51 @@ func piDestination(repo, path string) (string, error) {
 	return dest, nil
 }
 
-func piCollect(ctx context.Context, cli *client.Client, id, repo string, paths []string) error {
+// The clean checkout contains only tracked base files, and only this collector
+// mutates it. Return the exact written/deleted subset for staging, not permissions
+// for paths that stayed absent in both the base and sandbox.
+func piCollect(ctx context.Context, cli *client.Client, id, repo string, paths []string) ([]string, error) {
+	var collected []string
 	for _, path := range paths {
 		// Check before deletion too: a missing sandbox path must never unlink
 		// through a symlink parent in the otherwise trusted clean base.
 		dest, err := piDestination(repo, path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		stream, stat, err := cli.CopyFromContainer(ctx, id, "/workspace/"+path)
 		if errdefs.IsNotFound(err) {
-			if removeErr := os.Remove(dest); removeErr != nil && !os.IsNotExist(removeErr) {
-				return errPiRun
+			if removeErr := os.Remove(dest); removeErr == nil {
+				collected = append(collected, path)
+			} else if !os.IsNotExist(removeErr) {
+				return nil, errPiRun
 			}
 			continue
 		}
 		if err != nil {
-			return errPiRun
+			return nil, errPiRun
 		}
 		if !stat.Mode.IsRegular() || stat.LinkTarget != "" {
 			stream.Close()
-			return errPiRun
+			return nil, errPiRun
 		}
 		data, readErr := readPiFile(stream, stat.Size)
 		stream.Close()
 		if readErr != nil {
-			return readErr
+			return nil, readErr
 		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
-			return errPiRun
+			return nil, errPiRun
 		}
 		if err := os.WriteFile(dest, data, 0600); err != nil {
-			return errPiRun
+			return nil, errPiRun
 		}
 		if err := os.Chmod(dest, 0644); err != nil {
-			return errPiRun
+			return nil, errPiRun
 		}
+		collected = append(collected, path)
 	}
-	return nil
+	return collected, nil
 }
 
 func readPiFile(stream io.Reader, size int64) ([]byte, error) {
