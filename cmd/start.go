@@ -291,6 +291,7 @@ func runDaemonForeground(global *config.GlobalConfig, filter []string) error {
 
 	// Start cron scheduler for time-based triggers
 	go d.CronScheduler(ctx)
+	go d.RunDeliveryQueue(ctx)
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)

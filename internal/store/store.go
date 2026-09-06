@@ -65,11 +65,18 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.Exec("PRAGMA journal_mode=WAL")   //nolint:errcheck // best-effort tuning
-	db.Exec("PRAGMA synchronous=NORMAL") //nolint:errcheck // best-effort tuning
-	db.Exec("PRAGMA foreign_keys=ON")    //nolint:errcheck // best-effort tuning
+	db.Exec("PRAGMA journal_mode=WAL") //nolint:errcheck // best-effort tuning
+	if _, err := db.Exec("PRAGMA synchronous=FULL"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	db.Exec("PRAGMA foreign_keys=ON") //nolint:errcheck // best-effort tuning
 
 	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(deliverySchema); err != nil {
 		db.Close()
 		return nil, err
 	}

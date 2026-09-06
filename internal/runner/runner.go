@@ -47,6 +47,12 @@ type RunParams struct {
 // RunAgentJob sets up a workspace, starts an agent container, streams output,
 // enforces a timeout, and cleans up.
 func RunAgentJob(ctx context.Context, p RunParams) error {
+	// Clone and image pull are part of the same bounded job, not unbudgeted preparation.
+	if p.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.Timeout)
+		defer cancel()
+	}
 	workDir, err := SetupWorkspace(ctx, p)
 	if err != nil {
 		return fmt.Errorf("workspace setup: %w", err)
@@ -94,12 +100,6 @@ func RunAgentJob(ctx context.Context, p RunParams) error {
 			hooksURL := strings.Replace(p.CallbackURL, "/callback/", "/hooks/", 1)
 			WriteHooksConfig(workDir, hooksURL)
 		}
-	}
-
-	if p.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, p.Timeout)
-		defer cancel()
 	}
 
 	resp, err := cli.ContainerCreate(ctx,
