@@ -38,7 +38,7 @@ func (d *Daemon) registerControl(name string) {
 			return
 		}
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", 405)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		pyl, ok := d.pylonConfig(name)
@@ -49,7 +49,7 @@ func (d *Daemon) registerControl(name string) {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
 		defer r.Body.Close()
 		if err != nil {
-			http.Error(w, "control body exceeds 4 KiB", 413)
+			http.Error(w, "control body exceeds 4 KiB", http.StatusRequestEntityTooLarge)
 			return
 		}
 		key := r.Header.Get("Idempotency-Key")
@@ -58,7 +58,7 @@ func (d *Daemon) registerControl(name string) {
 			return
 		}
 		if pyl.Trigger.Secret == "" || pyl.Trigger.SignatureHeader == "" || !verifySignature(pyl.Trigger, r.Header, raw) {
-			http.Error(w, "signed control required", 401)
+			http.Error(w, "signed control required", http.StatusUnauthorized)
 			return
 		}
 		var request struct {
@@ -85,7 +85,7 @@ func (d *Daemon) registerControl(name string) {
 				return
 			}
 			if err != nil {
-				http.Error(w, "storage unavailable", 503)
+				http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
 				return
 			}
 			json.NewEncoder(w).Encode(state)
@@ -96,23 +96,23 @@ func (d *Daemon) registerControl(name string) {
 			}
 			ch := d.channelFor(name)
 			if ch == nil || !ch.Ready() || pyl.Control.TopicID == "" {
-				http.Error(w, "channel not configured", 503)
+				http.Error(w, "channel not configured", http.StatusServiceUnavailable)
 				return
 			}
 			n, fresh, err := d.Store.ClaimNotice(name, key, raw)
 			if errors.Is(err, store.ErrDeliveryConflict) {
-				http.Error(w, "key conflict", 409)
+				http.Error(w, "key conflict", http.StatusConflict)
 				return
 			}
 			if err != nil {
-				http.Error(w, "storage unavailable", 503)
+				http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
 				return
 			}
 			if fresh {
 				id, sendErr := ch.SendMessage(pyl.Control.TopicID, ch.FormatText(request.Text))
 				if sendErr == nil {
 					if err = d.Store.CompleteNotice(name, key, id); err != nil {
-						http.Error(w, "notice outcome unknown", 503)
+						http.Error(w, "notice outcome unknown", http.StatusServiceUnavailable)
 						return
 					}
 					n.State = "delivered"

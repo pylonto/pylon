@@ -23,7 +23,7 @@ func TestCiaoExampleConfig(t *testing.T) {
 		t.Skip("set CIAO_MAINTENANCE_REPO to the Ciao checkout")
 	}
 	file := filepath.Join(root, "integrations", "maintenance", "pylon.yaml.example")
-	raw, err := os.ReadFile(file)
+	raw, err := os.ReadFile(file) // #nosec G703 -- explicit operator-selected test checkout, not ingress
 	require.NoError(t, err)
 	var p config.PylonConfig
 	require.NoError(t, yaml.Unmarshal(raw, &p))

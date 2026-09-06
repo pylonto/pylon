@@ -1,0 +1,11 @@
+*
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!meter.mjs
+!stream.mjs
+!catalog.mjs
+!worker.mjs
+!tool.mjs
+!sandbox.mjs

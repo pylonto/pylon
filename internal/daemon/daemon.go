@@ -69,6 +69,9 @@ type Daemon struct {
 	Limiter  *AgentLimiter
 	Mux      *http.ServeMux
 	RunAgent func(context.Context, runner.RunParams) error
+	RunPi    func(context.Context, runner.PiParams) runner.PiOutcome
+	piStore  *store.Store
+	piJobs   sync.WaitGroup
 
 	deliveryMu sync.Mutex
 	pylonsMu   sync.RWMutex
@@ -170,6 +173,10 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 			return
 		}
 
+		if pyl.ResolveAgentType(d.Global) == "pi" {
+			http.Error(w, "pi_signed_durable_delivery_required", http.StatusUnprocessableEntity)
+			return
+		}
 		var body map[string]interface{}
 		if json.Unmarshal(rawBody, &body) != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -272,6 +279,9 @@ func (d *Daemon) registerTriggerRoute() {
 }
 
 func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string, body map[string]interface{}, callbackURL, topicID, promptOverride, sessionID string) bool {
+	if pyl.ResolveAgentType(d.Global) == "pi" {
+		return false // Pi can start only from a fresh durable subscription claim.
+	}
 	if !d.Limiter.Acquire() {
 		log.Printf("[pylon] [%s] not started: at capacity (%d)", jobID[:8], d.Global.Docker.MaxConcurrent)
 		// Keyed ingress retains its durable queue entry. Legacy callers get no queue claim.

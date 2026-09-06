@@ -47,6 +47,9 @@ type RunParams struct {
 // RunAgentJob sets up a workspace, starts an agent container, streams output,
 // enforces a timeout, and cleans up.
 func RunAgentJob(ctx context.Context, p RunParams) error {
+	if p.AgentType == "pi" {
+		return fmt.Errorf("pi_requires_subscription_executor")
+	}
 	// Clone and image pull are part of the same bounded job, not unbudgeted preparation.
 	if p.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -183,6 +186,8 @@ func BuildAgentEnv(p RunParams, workDir string) ([]string, []mount.Mount) {
 	}
 
 	switch p.AgentType {
+	case "pi":
+		return nil, nil // No legacy credential/mount path exists for Pi.
 	case "opencode":
 		apiKey := expand(p.APIKey)
 		envVar := config.ProviderEnvVar(p.Provider)

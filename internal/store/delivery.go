@@ -48,7 +48,7 @@ func (s *Store) AcceptDelivery(name, key string, body []byte) (*Delivery, bool, 
 	if err != nil {
 		return nil, false, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck // also runs after commit
 	d := &Delivery{Key: key, PylonName: name, Body: body, State: "queued"}
 	err = tx.QueryRow("SELECT job_id, pylon_name, body, state FROM deliveries WHERE delivery_key = ?", key).Scan(&d.JobID, &d.PylonName, &d.Body, &d.State)
 	if err == nil {

@@ -47,6 +47,32 @@ func subscriptionResult(tokens int64) SubscriptionResult {
 	return SubscriptionResult{Outcome: "executor_returned", Usage: &SubscriptionUsage{Input: tokens}}
 }
 
+func TestSubscriptionConfigureCanPauseBeforeFirstClaimWithoutReset(t *testing.T) {
+	s, limits := subscriptionFixture(t)
+	require.NoError(t, s.ConfigureSubscription(limits, subscriptionNow))
+	require.NoError(t, s.PauseSubscription("operator", subscriptionNow))
+	require.NoError(t, s.ConfigureSubscription(limits, subscriptionNow))
+	status, err := s.SubscriptionStatus(subscriptionNow)
+	require.NoError(t, err)
+	require.Equal(t, "operator", status.Paused)
+	require.Zero(t, status.JobsToday)
+	require.Zero(t, status.TokensToday)
+	d, digest := subscriptionDelivery(t, s, "paused")
+	_, fresh, err := s.ClaimSubscription(d.JobID, digest, limits, subscriptionNow)
+	require.ErrorIs(t, err, ErrSubscriptionPaused)
+	require.False(t, fresh)
+	require.NoError(t, s.PauseSubscription("", subscriptionNow))
+	_, fresh, err = s.ClaimSubscription(d.JobID, digest, limits, subscriptionNow)
+	require.NoError(t, err)
+	require.True(t, fresh)
+	require.NoError(t, s.ConfigureSubscription(limits, subscriptionNow.Add(time.Hour)))
+	status, err = s.SubscriptionStatus(subscriptionNow.Add(time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, status.Unresolved)
+	limits.DailyTokens++
+	require.ErrorIs(t, s.ConfigureSubscription(limits, subscriptionNow.Add(time.Hour)), ErrSubscriptionConflict)
+}
+
 func TestSubscriptionLimitsNeverInterpretZeroAsUnlimited(t *testing.T) {
 	_, valid := subscriptionFixture(t)
 	require.NoError(t, valid.Validate())

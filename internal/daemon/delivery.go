@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/runner"
 	"github.com/pylonto/pylon/internal/store"
 )
 
@@ -31,6 +32,12 @@ func (d *Daemon) acceptDelivery(w http.ResponseWriter, r *http.Request, name str
 	if pyl.Channel != nil && pyl.Channel.Approval {
 		http.Error(w, "keyed delivery requires an unattended pylon; approval is configured", http.StatusUnprocessableEntity)
 		return
+	}
+	if pyl.ResolveAgentType(d.Global) == "pi" {
+		if _, err := runner.PiBrief(raw); err != nil || d.piStore == nil || pyl.ValidatePi() != nil {
+			http.Error(w, "pi_signed_repair_role_required", http.StatusUnprocessableEntity)
+			return
+		}
 	}
 	receipt, _, err := d.Store.AcceptDelivery(name, key, raw)
 	if err != nil {
@@ -57,7 +64,7 @@ func (d *Daemon) RunDeliveryQueue(ctx context.Context) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
-		d.drainDeliveries()
+		d.drainDeliveriesContext(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -66,7 +73,9 @@ func (d *Daemon) RunDeliveryQueue(ctx context.Context) {
 	}
 }
 
-func (d *Daemon) drainDeliveries() {
+func (d *Daemon) drainDeliveries() { d.drainDeliveriesContext(context.Background()) }
+
+func (d *Daemon) drainDeliveriesContext(ctx context.Context) {
 	d.deliveryMu.Lock()
 	defer d.deliveryMu.Unlock()
 	pending, err := d.Store.PendingDeliveries()
@@ -75,11 +84,18 @@ func (d *Daemon) drainDeliveries() {
 		return
 	}
 	for _, entry := range pending {
+		if ctx.Err() != nil {
+			return
+		}
 		pyl, ok := d.pylonConfig(entry.PylonName)
 		if !ok || pyl.Disabled {
 			continue
 		}
 		if pyl.Channel != nil && pyl.Channel.Approval {
+			continue
+		}
+		if pyl.ResolveAgentType(d.Global) == "pi" {
+			d.startPiDelivery(ctx, pyl, entry)
 			continue
 		}
 		var body map[string]interface{}

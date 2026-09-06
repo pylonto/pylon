@@ -125,7 +125,7 @@ func TestCiaoControlSenderLostReceiptAndRestart(t *testing.T) {
 	if repo == "" {
 		t.Skip("set CIAO_MAINTENANCE_REPO to run the cross-repository seam")
 	}
-	require.FileExists(t, filepath.Join(repo, "scripts/vendor_maintenance_lib/pylon_control.py"))
+	require.FileExists(t, filepath.Join(repo, "scripts", "vendor_maintenance_lib", "pylon_control.py"))
 	d := controlDaemon(t)
 	var posts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

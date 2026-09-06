@@ -14,7 +14,7 @@ Use these exact terms consistently:
 - **pylon** -- one configured pipeline (lowercase noun). Not "pipeline", not "flow".
 - **Pylon** -- the product or daemon as a whole (proper noun, capitalized).
 - **trigger** -- the event source that fires a pylon. Current types: `webhook`, `cron`.
-- **agent** -- the AI coding tool that runs inside Docker. Current types: `claude`, `opencode`.
+- **agent** -- the AI coding tool that runs inside Docker. Current types: `claude`, `opencode`, plus `pi` in the isolated subscription repair role.
 - **channel** -- the notification backend (`telegram`, `slack`, `webhook`, `stdout`).
 - **workspace** -- how the agent gets source code (`git-clone`, `git-worktree`, `local`, `none`).
 - **job** -- one execution of a pylon, identified by a UUID.

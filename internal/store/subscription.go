@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -12,23 +13,23 @@ import (
 	"github.com/google/uuid"
 )
 
-type subscriptionErrorCode string
+type subscriptionStateError string
 
-func (e subscriptionErrorCode) Error() string { return string(e) }
+func (e subscriptionStateError) Error() string { return string(e) }
 
 const (
-	ErrSubscriptionInvalid      subscriptionErrorCode = "subscription_limits_or_result_invalid"
-	ErrSubscriptionConflict     subscriptionErrorCode = "subscription_identity_or_policy_conflict"
-	ErrSubscriptionBusy         subscriptionErrorCode = "subscription_execution_unresolved"
-	ErrSubscriptionDailyJobs    subscriptionErrorCode = "subscription_daily_jobs_exhausted"
-	ErrSubscriptionDailyUsage   subscriptionErrorCode = "subscription_daily_usage_exhausted"
-	ErrSubscriptionPaused       subscriptionErrorCode = "subscription_paused"
-	ErrSubscriptionClock        subscriptionErrorCode = "subscription_clock_reconciliation_required"
-	ErrSubscriptionCapacity     subscriptionErrorCode = "subscription_ledger_full"
-	ErrSubscriptionStorage      subscriptionErrorCode = "subscription_state_unavailable"
-	ErrSubscriptionUnconfigured subscriptionErrorCode = "subscription_not_configured"
-	ErrSubscriptionOwned        subscriptionErrorCode = "subscription_executor_owns_settlement"
-	ErrSubscriptionUsageUnknown subscriptionErrorCode = "subscription_usage_unknown_reservation_retained"
+	ErrSubscriptionInvalid      subscriptionStateError = "subscription_limits_or_result_invalid"
+	ErrSubscriptionConflict     subscriptionStateError = "subscription_identity_or_policy_conflict"
+	ErrSubscriptionBusy         subscriptionStateError = "subscription_execution_unresolved"
+	ErrSubscriptionDailyJobs    subscriptionStateError = "subscription_daily_jobs_exhausted"
+	ErrSubscriptionDailyUsage   subscriptionStateError = "subscription_daily_usage_exhausted"
+	ErrSubscriptionPaused       subscriptionStateError = "subscription_paused"
+	ErrSubscriptionClock        subscriptionStateError = "subscription_clock_reconciliation_required"
+	ErrSubscriptionCapacity     subscriptionStateError = "subscription_ledger_full"
+	ErrSubscriptionStorage      subscriptionStateError = "subscription_state_unavailable"
+	ErrSubscriptionUnconfigured subscriptionStateError = "subscription_not_configured"
+	ErrSubscriptionOwned        subscriptionStateError = "subscription_executor_owns_settlement"
+	ErrSubscriptionUsageUnknown subscriptionStateError = "subscription_usage_unknown_reservation_retained"
 )
 
 const subscriptionSchema = `
@@ -48,10 +49,10 @@ CREATE TABLE IF NOT EXISTS subscription_claims (
 // deliberately do not aggregate unrelated ordinary Pylon daemons or provider usage.
 // Ceilings constrain configuration, not authorize an allocation of this size.
 type SubscriptionLimits struct {
-	DailyJobs   int   `json:"daily_jobs"`
-	DailyTokens int64 `json:"daily_tokens"`
-	JobTokens   int64 `json:"job_tokens"`
-	JobSeconds  int   `json:"job_seconds"`
+	DailyJobs   int   `json:"daily_jobs" yaml:"daily_jobs"`
+	DailyTokens int64 `json:"daily_tokens" yaml:"daily_tokens"`
+	JobTokens   int64 `json:"job_tokens" yaml:"job_tokens"`
+	JobSeconds  int   `json:"job_seconds" yaml:"job_seconds"`
 }
 
 func (p SubscriptionLimits) Validate() error {
@@ -143,7 +144,7 @@ func subscriptionError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var code subscriptionErrorCode
+	var code subscriptionStateError
 	if errors.As(err, &code) {
 		return code
 	}
@@ -274,10 +275,41 @@ func subscriptionCounts(tx *sql.Tx, p subscriptionPolicy, now time.Time) (*Subsc
 	return status, rows.Err()
 }
 
+func ensureSubscriptionPolicy(tx *sql.Tx, limits SubscriptionLimits, now time.Time) (subscriptionPolicy, error) {
+	p, err := readSubscriptionPolicy(tx)
+	if errors.Is(err, ErrSubscriptionUnconfigured) {
+		raw, _ := json.Marshal(limits)
+		_, err = tx.Exec("INSERT INTO subscription_policy(id,limits,watermark) VALUES(1,?,?)", string(raw), now.Unix())
+		p = subscriptionPolicy{limits: limits, watermark: now.Unix()}
+	}
+	if err != nil {
+		return p, err
+	}
+	if p.limits != limits {
+		return p, ErrSubscriptionConflict
+	}
+	return p, nil
+}
+
+// ConfigureSubscription lets an operator inspect or pause a fresh role before
+// any delivery. It cannot change policy, reset counters, or reconcile unknown work.
+func (s *Store) ConfigureSubscription(limits SubscriptionLimits, now time.Time) error {
+	if limits.Validate() != nil || now.Unix() <= 0 {
+		return ErrSubscriptionInvalid
+	}
+	return s.subscriptionWrite(func(tx *sql.Tx) error {
+		p, err := ensureSubscriptionPolicy(tx, limits, now)
+		if err == nil && now.Unix() < p.watermark {
+			return ErrSubscriptionClock
+		}
+		return err
+	})
+}
+
 // ClaimSubscription atomically claims an existing durable delivery, execution fact,
 // and its maximum token reservation. Only fresh=true authorizes one executor start.
-// It replaces (not follows) TransitionDelivery/StartExecution for the future isolated
-// subscription dispatcher. Ordinary triggers and the current dispatcher do not call it.
+// It replaces (not follows) TransitionDelivery/StartExecution in the isolated Pi
+// subscription dispatcher. Ordinary triggers cannot use this path.
 // Policy is immutable here: changing limits must not reset usage or unknown work.
 func (s *Store) ClaimSubscription(jobID, digest string, limits SubscriptionLimits, now time.Time) (*SubscriptionClaim, bool, error) {
 	parsed, err := uuid.Parse(jobID)
@@ -289,17 +321,9 @@ func (s *Store) ClaimSubscription(jobID, digest string, limits SubscriptionLimit
 	var claim *SubscriptionClaim
 	fresh := false
 	err = s.subscriptionWrite(func(tx *sql.Tx) error {
-		p, err := readSubscriptionPolicy(tx)
-		if errors.Is(err, ErrSubscriptionUnconfigured) {
-			raw, _ := json.Marshal(limits)
-			_, err = tx.Exec("INSERT INTO subscription_policy(id,limits,watermark) VALUES(1,?,?)", string(raw), now.Unix())
-			p = subscriptionPolicy{limits: limits, watermark: now.Unix()}
-		}
+		p, err := ensureSubscriptionPolicy(tx, limits, now)
 		if err != nil {
 			return err
-		}
-		if p.limits != limits {
-			return ErrSubscriptionConflict
 		}
 		claim, err = readSubscriptionClaim(tx, jobID, limits)
 		if err == nil {
@@ -387,7 +411,7 @@ func (s *Store) FinishSubscription(jobID string, result SubscriptionResult, now 
 		raw, _ := json.Marshal(result)
 		if claim.Result != nil {
 			old, _ := json.Marshal(claim.Result)
-			if string(old) != string(raw) {
+			if !bytes.Equal(old, raw) {
 				return ErrSubscriptionConflict
 			}
 			return nil

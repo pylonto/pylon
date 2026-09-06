@@ -192,6 +192,7 @@ type WorkspaceConfig struct {
 }
 
 type PylonAgent struct {
+	Pi       *PiConfig         `yaml:"pi,omitempty"`
 	Type     string            `yaml:"type,omitempty"`
 	Auth     string            `yaml:"auth,omitempty"`
 	APIKey   string            `yaml:"api_key,omitempty"` // e.g. "${ANTHROPIC_API_KEY_B}"
@@ -375,7 +376,12 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 		}
 	}
 	if p.Agent != nil && p.Agent.Type != "" && !validAgentTypes[p.Agent.Type] {
-		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode) -- update %s or press e to edit", p.Agent.Type, path)
+		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode, pi) -- update %s or press e to edit", p.Agent.Type, path)
+	}
+	if p.Agent != nil && (p.Agent.Type == "pi" || p.Agent.Pi != nil) {
+		if err := p.ValidatePi(); err != nil {
+			return err
+		}
 	}
 	if p.Agent != nil {
 		for _, v := range p.Agent.Volumes {
@@ -476,6 +482,11 @@ func (p *PylonConfig) ResolveAgentType(global *GlobalConfig) string {
 // on-disk migration in LoadGlobal could not persist.
 func (p *PylonConfig) ResolveAgentImage(global *GlobalConfig) string {
 	switch p.ResolveAgentType(global) {
+	case "pi":
+		if p.Agent != nil && p.Agent.Pi != nil {
+			return p.Agent.Pi.Image
+		}
+		return ""
 	case "claude":
 		if global.Defaults.Agent.Claude != nil {
 			img := global.Defaults.Agent.Claude.Image

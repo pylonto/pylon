@@ -30,7 +30,7 @@ func (s *Store) ClaimNotice(key string, body []byte) (*Notice, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck // also runs after commit
 	n := &Notice{Key: key, State: "outcome_unknown"}
 	var old []byte
 	err = tx.QueryRow("SELECT body,state,message_id FROM control_notices WHERE key=?", key).Scan(&old, &n.State, &n.MessageID)
@@ -44,7 +44,7 @@ func (s *Store) ClaimNotice(key string, body []byte) (*Notice, bool, error) {
 		return nil, false, err
 	}
 	var count int
-	if err = tx.QueryRow("SELECT count(*) FROM control_notices").Scan(&count); err != nil {
+	if err := tx.QueryRow("SELECT count(*) FROM control_notices").Scan(&count); err != nil {
 		return nil, false, err
 	}
 	if count >= MaxDeliveries {
@@ -53,7 +53,7 @@ func (s *Store) ClaimNotice(key string, body []byte) (*Notice, bool, error) {
 	if _, err = tx.Exec("INSERT INTO control_notices(key,body,state) VALUES(?,?,'outcome_unknown')", key, body); err != nil {
 		return nil, false, err
 	}
-	if err = tx.Commit(); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, false, err
 	}
 	return n, true, nil

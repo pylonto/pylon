@@ -58,7 +58,7 @@ func TestControlRefusesDailyHomeAndUnsafeOrIncompleteRoles(t *testing.T) {
 	t.Setenv("HOME", home)
 	require.Error(t, controlHome(home), "ordinary HOME must not be adopted")
 	require.NoError(t, os.Mkdir(filepath.Join(home, ".pylon"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".pylon/control-only"), []byte("pylon-control-v1\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".pylon", "control-only"), []byte("pylon-control-v1\n"), 0600))
 	require.NoError(t, os.Chmod(home, 0700))
 	require.NoError(t, controlHome(home))
 	t.Setenv("CONTROL_SECRET", strings.Repeat("s", 64))
