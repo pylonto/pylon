@@ -76,7 +76,7 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(deliverySchema + controlSchema); err != nil {
+	if _, err := db.Exec(deliverySchema + controlSchema + subscriptionSchema); err != nil {
 		db.Close()
 		return nil, err
 	}

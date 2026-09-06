@@ -134,6 +134,19 @@ func (m *MultiStore) FinishExecution(name, job, outcome string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec("UPDATE execution_outcomes SET outcome=? WHERE job_id=? AND outcome='outcome_unknown'", outcome, job)
-	return err
+	// Fence at the write, not only a preceding SELECT: another connection may
+	// atomically admit a subscription job between a check and this update.
+	_, err := s.db.Exec(`UPDATE execution_outcomes SET outcome=? WHERE job_id=? AND outcome='outcome_unknown'
+ AND NOT EXISTS(SELECT 1 FROM subscription_claims WHERE job_id=?)`, outcome, job, job)
+	if err != nil {
+		return err
+	}
+	var subscription bool
+	if err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM subscription_claims WHERE job_id=?)", job).Scan(&subscription); err != nil {
+		return ErrSubscriptionStorage
+	}
+	if subscription {
+		return ErrSubscriptionOwned
+	}
+	return nil
 }
