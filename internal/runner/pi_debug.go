@@ -34,7 +34,7 @@ func piSDKFixture(name string) bool {
 		return false
 	}
 	switch name {
-	case "read", "edit", "write", "bash", "read_missing", "edit_mismatch", "edit_array", "edit_array_mismatch", "privacy", "recover", "hang":
+	case "read", "edit", "write", "bash", "read_missing", "edit_mismatch", "edit_array", "edit_array_mismatch", "privacy", "recover", "hang", "git_failure", "test_failure", "workspace_prompt":
 		return true
 	default:
 		return false

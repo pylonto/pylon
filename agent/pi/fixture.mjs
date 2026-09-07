@@ -47,6 +47,21 @@ const cases = {
   bash: { name: "bash", arguments: { command: "printf 'repaired\\n' > src/repair.txt", timeout: 5 } },
   hang: { name: "bash", arguments: { command: "node -e 'setInterval(() => {}, 1000)'", timeout: 30 } },
 };
+// Exercise an actual negative Node test, not a shell error mistaken for a test.
+const negativeTest = `import test from "node:test"; import assert from "node:assert/strict"; import { readFileSync } from "node:fs"; test("requires repaired text", () => assert.equal(readFileSync("src/repair.txt", "utf8"), "repaired\\n"));`;
+const runNegativeTest = `node --test-reporter=tap --input-type=module -e '${negativeTest}'`;
+const failureRehearsals = {
+  git_failure: {
+    call: { name: "bash", arguments: { command: "test ! -e /workspace/.git && test ! -e /role && test ! -e /transport && printf 'Before Git check\\n' && git status --short && printf 'UNREACHED_AFTER_FAILURE\\n'", timeout: 5 } },
+    expected: ["Before Git check", "fatal: not a git repository", "Command exited with code 128"],
+    repair: cases.edit_array,
+  },
+  test_failure: {
+    call: { name: "bash", arguments: { command: `printf 'Before negative test\\n' && ${runNegativeTest} && printf 'UNREACHED_AFTER_FAILURE\\n'`, timeout: 5 } },
+    expected: ["Before negative test", "not ok 1 - requires repaired text", "Command exited with code 1"],
+    repair: { name: "bash", arguments: { command: `printf 'repaired\\n' > src/repair.txt && ${runNegativeTest}`, timeout: 5 } },
+  },
+};
 function textEvents(index, text, split = false) {
   const item = { type: "message", id: `synthetic-message-${index}`, role: "assistant", content: [] };
   const chunks = split ? [text.slice(0, 31), text.slice(31, 75), text.slice(75)] : [text];
@@ -69,12 +84,15 @@ export async function createSDKFixture(name) {
   const match = /^sdk_(session|agent)_(.+)$/.exec(name ?? "");
   if (!match) return undefined;
   const mode = match[1], selected = match[2];
-  if (!cases[selected] && !["privacy", "recover"].includes(selected)) throw new Error("runtime_failed");
+  const failureRehearsal = failureRehearsals[selected];
+  if (!cases[selected] && !failureRehearsal && !["privacy", "recover", "workspace_prompt"].includes(selected)) throw new Error("runtime_failed");
+  const requestLimit = selected === "recover" || failureRehearsal ? 3 : 2;
+  let modelError, recovered = false;
   const credentials = new InMemoryCredentialStore();
   await credentials.modify(PROVIDER, () => syntheticCredential());
   let requests = 0, unexpected = 0, sawThinking = false, sawSignature = false;
   const fetch = async (url, options) => {
-    if (String(url) !== "https://chatgpt.com/backend-api/codex/responses" || ++requests > (selected === "recover" ? 3 : 2)) { unexpected++; throw new Error("runtime_failed"); }
+    if (String(url) !== "https://chatgpt.com/backend-api/codex/responses" || ++requests > requestLimit) { unexpected++; throw new Error("runtime_failed"); }
     const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body, { maxOutputLength: 65536 }).toString() : options.body;
     const body = JSON.parse(raw);
     const tools = new Map(body.tools.map((t) => [t.name, t]));
@@ -82,6 +100,14 @@ export async function createSDKFixture(name) {
     if (body.model !== MODEL || body.reasoning?.effort !== THINKING || body.stream !== true || tools.size !== 4) throw new Error("runtime_failed");
     for (const [name, keys] of Object.entries(expected)) if (JSON.stringify(Object.keys(tools.get(name)?.parameters.properties ?? {}).sort()) !== JSON.stringify(keys)) throw new Error("runtime_failed");
     if (JSON.stringify(Object.keys(tools.get("edit").parameters.properties.edits.items.properties).sort()) !== '["newText","oldText"]') throw new Error("runtime_failed");
+    if (selected === "workspace_prompt" && !["plain-files snapshot without .git", "controller exports the patch", "filesystem edits"].every((s) => body.instructions?.includes(s))) throw new Error("runtime_failed");
+    if (failureRehearsal && requests > 1) {
+      const outputs = body.input.filter((item) => item.type === "function_call_output");
+      // Both the SDK's model-context toolResult and the actual adapter payload
+      // must contain the error. Private debug text alone is not this evidence.
+      if (typeof modelError !== "string" || !failureRehearsal.expected.every((s) => modelError.includes(s)) || modelError.includes("UNREACHED_AFTER_FAILURE") || outputs[0]?.output !== modelError) throw new Error("runtime_failed");
+      if (requests === 3 && (!recovered || selected === "test_failure" && !outputs.at(-1)?.output.includes("ok 1 - requires repaired text"))) throw new Error("runtime_failed");
+    }
     const events = [];
     if (selected === "privacy") {
       const credential = syntheticCredential(requests > 1);
@@ -96,9 +122,10 @@ export async function createSDKFixture(name) {
           ...callEvents(3, { name: "read", arguments: { path: `src/Permitted tool error ${credential.refresh}.txt` } }));
         await credentials.modify(PROVIDER, () => syntheticCredential(true));
       }
-    } else if (requests === 1 || selected === "recover" && requests === 2) {
+    } else if (requests === 1 || (selected === "recover" || failureRehearsal) && requests === 2) {
       events.push(...textEvents(0, "Visible synthetic tool inspection."));
-      const chosen = selected === "recover" ? (requests === 1 ? cases.edit_array_mismatch : cases.edit_array) : cases[selected];
+      const chosen = failureRehearsal ? (requests === 1 ? failureRehearsal.call : failureRehearsal.repair) :
+        selected === "recover" ? (requests === 1 ? cases.edit_array_mismatch : cases.edit_array) : selected === "workspace_prompt" ? cases.read : cases[selected];
       // Distinct call identity across recovery turns without changing arguments.
       events.push(...callEvents(requests, chosen));
     } else { events.push(...textEvents(0, "Visible synthetic completion, not model evidence.")); }
@@ -110,6 +137,10 @@ export async function createSDKFixture(name) {
   Object.defineProperty(globalThis, "fetch", { configurable: true, get: () => fetch, set: () => {} });
   return { mode, credentials, fetch,
     observe(event) {
+      if (failureRehearsal && event.type === "message_end" && event.message?.role === "toolResult") {
+        if (event.message.isError) modelError = event.message.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
+        else recovered = true;
+      }
       if (event.type !== "message_end" || event.message?.role !== "assistant") return;
       for (const block of event.message.content) if (block.type === "thinking") {
         sawThinking ||= block.thinking.includes(hiddenCanaries[0]);
@@ -117,7 +148,7 @@ export async function createSDKFixture(name) {
       }
     },
     assertComplete(meter) {
-      if (unexpected || requests !== (selected === "recover" ? 3 : 2) || requests !== meter.requests || selected === "privacy" && (!sawThinking || !sawSignature)) throw new Error("runtime_failed");
+      if (unexpected || requests !== requestLimit || requests !== meter.requests || selected === "privacy" && (!sawThinking || !sawSignature)) throw new Error("runtime_failed");
     },
   };
 }

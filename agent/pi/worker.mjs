@@ -7,6 +7,7 @@ import { installPiStream } from "./stream.mjs";
 import { DebugCapture } from "./debug.mjs";
 import { readRoleCredential } from "./role-auth.mjs";
 import { createSDKFixture, fixtureStream } from "./fixture.mjs";
+import { toolResultForModel } from "./tool.mjs";
 
 const socketPath = "/transport/pi.sock";
 const bound = 256 * 1024;
@@ -43,7 +44,7 @@ const resources = {
   getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
   getSkills: () => ({ skills: [], diagnostics: [] }), getPrompts: () => ({ prompts: [], diagnostics: [] }),
   getThemes: () => ({ themes: [], diagnostics: [] }), getAgentsFiles: () => ({ agentsFiles: [] }),
-  getSystemPrompt: () => "Repair only the signed maintenance brief in /workspace. All tools run in a disposable offline sandbox. No publication or host access is available. Produce a minimal text patch and preserve tests. Be concise.",
+  getSystemPrompt: () => "Edit the files in /workspace to repair only the signed maintenance brief. /workspace is a plain-files snapshot without .git; Git commands will not work there. The controller exports the patch from your filesystem edits after execution; an unapplied patch in assistant text is not an export. All tools run in a disposable offline sandbox. No publication or host access is available. Preserve tests and keep changes minimal. Be concise.",
   getSystemPromptSource: () => undefined, getAppendSystemPrompt: () => [], getAppendSystemPromptSources: () => [],
   extendResources: () => {}, reload: async () => {},
 };
@@ -91,15 +92,10 @@ async function main() {
     const customTools = createCodingTools("/workspace").map((tool) => ({ ...tool, executionMode: "sequential",
       execute: async (_id, args, callSignal) => {
         tools++;
-        const output = await rpc("/tool", { name: tool.name, args }, AbortSignal.any([signal, callSignal].filter(Boolean)));
-        if (output.error) {
-          debug.toolError(_id, tool.name, output.error_detail);
-          throw new Error("sandbox_tool_failed");
-        }
-        // Only bounded text reaches the model. No untrusted tool usage, commands,
-        // provider config, callbacks or runtime settings are accepted as metadata.
-        if (!Array.isArray(output.content) || output.content.some((c) => c.type !== "text" || typeof c.text !== "string")) throw new Error("sandbox_tool_failed");
-        return { content: output.content, details: {} };
+        let output;
+        try { output = await rpc("/tool", { name: tool.name, args }, AbortSignal.any([signal, callSignal].filter(Boolean))); }
+        catch { throw new Error("sandbox_tool_failed"); } // Never expose host/socket errors as sandbox output.
+        return toolResultForModel(output, (detail) => debug.toolError(_id, tool.name, detail));
       },
     }));
     ({ session } = await createAgentSession({ cwd: "/tmp", agentDir: "/tmp/pi", modelRuntime: runtime, model, thinkingLevel: THINKING,
