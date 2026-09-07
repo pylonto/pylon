@@ -84,8 +84,10 @@ func (s *Store) AcceptDelivery(name, key string, body []byte) (*Delivery, bool, 
 	return d, true, nil
 }
 
+const pendingDeliveryPredicate = "d.state='queued' AND j.status='queued'"
+
 func (s *Store) PendingDeliveries() ([]Delivery, error) {
-	rows, err := s.db.Query("SELECT d.delivery_key,d.job_id,d.pylon_name,d.body,d.state FROM deliveries d JOIN jobs j ON j.id=d.job_id WHERE d.state='queued' AND j.status='queued' ORDER BY d.created_at,d.rowid LIMIT 16")
+	rows, err := s.db.Query("SELECT d.delivery_key,d.job_id,d.pylon_name,d.body,d.state FROM deliveries d JOIN jobs j ON j.id=d.job_id WHERE " + pendingDeliveryPredicate + " ORDER BY d.created_at,d.rowid LIMIT 16")
 	if err != nil {
 		return nil, err
 	}

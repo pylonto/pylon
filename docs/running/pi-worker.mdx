@@ -71,6 +71,15 @@ pylon pi-worker serve maintenance-repair --home /srv/private/pi-repair
 
 Status/pause work before the first delivery. The ledger fixes limits at initialization; changing YAML cannot reset counters. Resume clears a pause, never unresolved execution. A lost usage receipt or uncertain termination blocks another job, even after restart or UTC midnight. Preserve that ledger for operator reconciliation; do not delete it or launch another HOME to bypass it.
 
+To raise daily ceilings after explicit operator approval, pause and stop the isolated role first. Record its current limits and usage. Edit only `daily_jobs` and `daily_tokens` in its reviewed configuration, then declare the **old** daily limits:
+
+```sh
+pylon pi-worker budget maintenance-repair --home /srv/private/pi-repair \
+  --expect-daily-jobs 1 --expect-daily-tokens 1600000
+```
+
+The new ceilings come from that configuration. `budget` compares the complete expected old policy under the ledger's writer lock and leaves every claim, usage charge, watermark and operator pause intact. It refuses stale expectations, replay/no-op, lower ceilings, per-job changes, clock rollback, unresolved execution and pending deliveries. Ordinary configuration and admission still refuse changed policies; neither invokes this operation automatically. Success returns ordinary status JSON and does not start or resume a worker. Check the retained usage and pause before a separately authorized run. A failed or uncertain change must be reconciled while stopped; do not reset the ledger or assume the configuration and policy match.
+
 ## Understand the bounds
 
 Each HTTP attempt reserves the **full catalog envelope**: 272,000 input-context tokens plus 128,000 output tokens = **400,000 tokens**. The example therefore permits at most four attempts, with no automatic request retries, compaction, lower model, or API-key fallback. `maxTokens` is not an enforced Codex output cap.

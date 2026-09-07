@@ -21,9 +21,11 @@ import (
 )
 
 func init() {
-	command := &cobra.Command{Use: "pi-worker serve|status|pause|resume|inspect NAME", Short: "Operate one isolated Pi subscription role (never the daily daemon)", Args: cobra.ExactArgs(2), RunE: runPiWorker}
+	command := &cobra.Command{Use: "pi-worker serve|status|pause|resume|inspect|budget NAME", Short: "Operate one isolated Pi subscription role (never the daily daemon)", Args: cobra.ExactArgs(2), RunE: runPiWorker}
 	command.Flags().String("home", "", "Explicit private Pi-only HOME")
 	command.Flags().String("job", "", "Exact job UUID for private offline inspection")
+	command.Flags().Int("expect-daily-jobs", 0, "Expected old daily job limit (budget only)")
+	command.Flags().Int64("expect-daily-tokens", 0, "Expected old daily token limit (budget only)")
 	rootCmd.AddCommand(command)
 }
 
@@ -53,8 +55,12 @@ func piHome(home string) error {
 }
 
 func runPiWorker(command *cobra.Command, args []string) error {
-	if args[0] != "serve" && args[0] != "status" && args[0] != "pause" && args[0] != "resume" && args[0] != "inspect" {
+	if args[0] != "serve" && args[0] != "status" && args[0] != "pause" && args[0] != "resume" && args[0] != "inspect" && args[0] != "budget" {
 		return errors.New("pi_operation_invalid")
+	}
+	hasJobs, hasTokens := command.Flags().Changed("expect-daily-jobs"), command.Flags().Changed("expect-daily-tokens")
+	if (args[0] == "budget" && (!hasJobs || !hasTokens)) || (args[0] != "budget" && (hasJobs || hasTokens)) {
+		return errors.New("pi_budget_expected_limits_required")
 	}
 	if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`).MatchString(args[1]) {
 		return errors.New("pi_name_invalid")
@@ -89,7 +95,15 @@ func runPiWorker(command *cobra.Command, args []string) error {
 		return errors.New("pi_ledger_unavailable")
 	}
 	defer st.Close()
-	if err := st.ConfigureSubscription(pyl.Agent.Pi.Limits, time.Now()); err != nil {
+	if args[0] == "budget" {
+		expected := pyl.Agent.Pi.Limits
+		expected.DailyJobs, _ = command.Flags().GetInt("expect-daily-jobs")
+		expected.DailyTokens, _ = command.Flags().GetInt64("expect-daily-tokens")
+		err = st.RaiseSubscriptionBudget(expected, pyl.Agent.Pi.Limits, time.Now())
+	} else {
+		err = st.ConfigureSubscription(pyl.Agent.Pi.Limits, time.Now())
+	}
+	if err != nil {
 		return err
 	}
 	if args[0] != "serve" {
