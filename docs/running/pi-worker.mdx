@@ -87,6 +87,8 @@ The new ceilings come from that configuration. `budget` compares the complete ex
 
 Each HTTP attempt reserves the **full catalog envelope**: 272,000 input-context tokens plus 128,000 output tokens = **400,000 tokens**. The example therefore permits at most four attempts, with no automatic request retries, compaction, lower model, or API-key fallback. `maxTokens` is not an enforced Codex output cap.
 
+The complete logical request has a separate **256 KiB UTF-8 JSON ceiling**, checked before HTTP and compression. It includes the instructions, tool definitions, brief, and accumulated messages and tool results. This finite narrow-trial budget is not a full-context guarantee: multiple calls or a large legal tool response can exceed it. Refusal does not truncate context, compact, retry, or reserve another HTTP attempt. The equal-valued tool/RPC cap is a separate policy.
+
 Reservation ceilings are not usage predictions. The trusted transport counts input, output, cache-read, and cache-write tokens and settles known usage at job completion. Missing, malformed, interrupted, or ambiguous usage retains the whole job reservation. HTTP auth/quota refusal pauses the role; SSE uncertainty can retain usage and pause together. Accounting continues to the bounded response's end even when the SDK stops at its terminal event.
 
 Job time includes source preparation, execution, export, and termination. The supervisor reserves ten seconds for termination. Each container also has an independent deadline. A job permits 64 tool calls, 256 KiB tool messages, 30-second tool executions, 64 MiB temporary storage, and a 128 MiB source workspace. CPU, memory, process counts, raw responses, source-tree size, and patch storage have explicit bounds. These restrictions can make a repair fail; they never imply permission to loosen them automatically.
@@ -156,7 +158,7 @@ PYLON_PI_REHEARSAL_IMAGE="$image" \
   go test -p 1 -race ./internal/runner ./internal/daemon -run '^TestPiDocker' -count=1 -v
 ```
 
-The SDK adapter fixture in `agent/pi/sdk.test.mjs` runs in that image with `--network none`, no auth mount, and only that test file mounted read-only at `/opt/pylon/sdk.test.mjs`. Set `--entrypoint /usr/local/bin/node` on `docker run` and pass `--test /opt/pylon/sdk.test.mjs` after the image ID; otherwise its default entrypoint starts the worker, not the tests. It uses synthetic HTTP and an unsigned synthetic account shape, never a real credential or model call.
+The SDK adapter fixture in `agent/pi/sdk.test.mjs` runs in that image with `--network none` and no auth mount. Mount that test file read-only at `/opt/pylon/sdk.test.mjs` and its test-only helper `agent/pi/request-cap.fixture.mjs` read-only at `/opt/pylon/request-cap.fixture.mjs`; the helper is not shipped in the production image. Set `--entrypoint /usr/local/bin/node` on `docker run` and pass `--test /opt/pylon/sdk.test.mjs` after the image ID; otherwise its default entrypoint starts the worker, not the tests. It uses synthetic HTTP and an unsigned synthetic account shape, never a real credential or model call.
 
 The actual-SDK tests also observe encoded `reasoning.effort` for `medium` and `max`, reject invalid/mismatched selections before HTTP, and verify default-max configuration through native execution and receipt validation. Their HTTP and credentials are synthetic; this proves mapping, not model strength, backend reasoning allocation or subscription availability.
 

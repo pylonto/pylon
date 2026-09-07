@@ -2,19 +2,22 @@
 // exercises the REAL pinned SDK/adapter with synthetic HTTP, not a model call.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
-import { createAgentSession, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, createCodingTools, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { Meter, MODEL, PROVIDER, DEFAULT_THINKING } from "./meter.mjs";
+import { Meter, MODEL, PROVIDER, DEFAULT_THINKING, MAX_REQUEST_BYTES } from "./meter.mjs";
 import { installPiStream } from "./stream.mjs";
 import { readToolInput } from "./tool.mjs";
 import { syntheticCredential } from "./fixture.mjs";
+import { createRequestCapFixture } from "./request-cap.fixture.mjs";
 
 // Deliberately unsigned, nonexistent account. The adapter needs the payload
 // shape to build its header; this is NOT an OAuth credential or availability test.
 const synthetic = "fixture." + Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "fixture-only" } })).toString("base64url") + ".fixture";
-async function setup(fetch, budget = 400000, thinking = DEFAULT_THINKING) {
+async function setup(fetch, budget = 400000, thinking = DEFAULT_THINKING, customTools = []) {
   const modelsStore = new InMemoryModelsStore();
   await modelsStore.write(PROVIDER, JSON.parse(await readFile("/opt/pylon/models-entry.json", "utf8")));
   const credentials = new InMemoryCredentialStore();
@@ -22,10 +25,11 @@ async function setup(fetch, budget = 400000, thinking = DEFAULT_THINKING) {
   const runtime = await ModelRuntime.create({ credentials, modelsPath: null, modelsStore });
   const model = runtime.getModel(PROVIDER, MODEL);
   const meter = new Meter(budget, model, fetch, thinking);
-  const { session } = await createAgentSession({ cwd: "/tmp", agentDir: "/tmp/test-role", modelRuntime: runtime, model, thinkingLevel: thinking, tools: [],
+  const { session } = await createAgentSession({ cwd: "/tmp", agentDir: "/tmp/test-role", modelRuntime: runtime, model, thinkingLevel: thinking, customTools, tools: customTools.map((t) => t.name),
     sessionManager: SessionManager.inMemory(), settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } }) });
-  installPiStream(session, { runtime, meter, auth: async () => synthetic, signal: AbortSignal.timeout(10000), timeoutMs: 5000 });
-  return { session, meter, runtime, model };
+  let streamAuthResolutions = 0;
+  installPiStream(session, { runtime, meter, auth: async () => { streamAuthResolutions++; return synthetic; }, signal: AbortSignal.timeout(10000), timeoutMs: 5000 });
+  return { session, meter, runtime, model, get streamAuthResolutions() { return streamAuthResolutions; } };
 }
 const terminal = { type: "response.completed", response: { id: "fixture", status: "completed", usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15, input_tokens_details: { cached_tokens: 2 } } } };
 
@@ -33,7 +37,7 @@ test("actual SDK hook sends exact max SSE through the meter and parses trusted u
   let calls = 0, request;
   const { session, meter } = await setup(async (url, options) => {
     calls++;
-    const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body).toString() : options.body;
+    const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body, { maxOutputLength: MAX_REQUEST_BYTES }).toString() : options.body;
     request = { url, body: JSON.parse(raw), redirect: options.redirect };
     const item = { type: "message", id: "fixture-message", role: "assistant", content: [] };
     const events = [
@@ -72,7 +76,7 @@ for (const thinking of ["medium", "max"]) test(`actual session.prompt encodes ex
   const { session, meter } = await setup(async (url, options) => {
     calls++;
     assert.equal(url, "https://chatgpt.com/backend-api/codex/responses");
-    const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body, { maxOutputLength: 65536 }).toString() : options.body;
+    const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body, { maxOutputLength: MAX_REQUEST_BYTES }).toString() : options.body;
     const body = JSON.parse(raw);
     const outputLimits = Object.fromEntries(["max_output_tokens", "max_completion_tokens", "max_tokens"].map((key) => [key, Object.hasOwn(body, key)]));
     observed = { model: body.model, reasoning_effort: body.reasoning?.effort, output_limit_fields_present: outputLimits };
@@ -120,12 +124,42 @@ test("actual adapter enforces the payload ceiling before HTTP", async () => {
   let calls = 0;
   const { session, meter } = await setup(async () => { calls++; throw new Error("must not fetch"); });
   try {
-    await session.agent.prompt("x".repeat(65536));
+    await session.agent.prompt("x".repeat(MAX_REQUEST_BYTES));
     assert.equal(calls, 0);
     assert.equal(meter.requests, 0);
     assert.equal(meter.failure, "output_bound");
   } finally { session.dispose(); }
 });
+
+for (const thinking of ["medium", "max"]) for (const name of ["tiny", "full", "chunks", "aggregate"]) {
+  test(`actual session aggregate context ${name} ${thinking}`, async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cap-sdk-"));
+    let session;
+    try {
+      for (const [index, path] of ["AGENTS.md", "docs/PROJECT_STATE.md", "crates/ciao-host/src/codex_history.rs"].entries()) {
+        const full = join(cwd, path);
+        await mkdir(dirname(full), { recursive: true });
+        // Real SDK reads, many short lines, no discovery or executable content.
+        await writeFile(full, Array.from({ length: 1200 }, (_, n) => `fixture-${index}-${n}: ${"x".repeat(70)}\n`).join(""));
+      }
+      const fixture = await createRequestCapFixture(name, thinking, syntheticCredential());
+      const setupResult = await setup(fixture.fetch, 1600000, thinking, createCodingTools(cwd));
+      ({ session } = setupResult);
+      const { meter } = setupResult, payload = meter.payload;
+      meter.payload = (body, model) => { fixture.observePayload(body, model, meter); return payload(body, model); };
+      session.agent.toolExecution = "sequential";
+      session.subscribe((event) => fixture.observe(event));
+      await session.prompt("Bounded synthetic multistep SDK regression.", { expandPromptTemplates: false });
+      await meter.settle();
+      const measured = fixture.assertComplete(meter);
+      // Stream auth resolution precedes adapter onPayload. Aggregate refusal is
+      // pre-HTTP/reservation, not pre-auth; install/stream identity fences differ.
+      assert.equal(setupResult.streamAuthResolutions, measured.payloads.length);
+      assert.equal(measured.requests, name === "aggregate" ? 3 : name === "tiny" ? 2 : 4);
+      console.log("CAP_MEASUREMENT " + JSON.stringify({ ...measured, stream_auth_resolutions: setupResult.streamAuthResolutions }));
+    } finally { session?.dispose(); await rm(cwd, { recursive: true, force: true }); }
+  });
+}
 
 test("actual adapter cannot retry HTTP quota or missing usage", async () => {
   for (const status of [429, 200]) {

@@ -1,7 +1,7 @@
 // Internal, network-none fixtures only. No brief/config field enables this path.
 import { zstdDecompressSync } from "node:zlib";
 import { AssistantMessageEventStream, InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { MODEL, PROVIDER, DEFAULT_THINKING, requireThinking } from "./meter.mjs";
+import { MODEL, PROVIDER, DEFAULT_THINKING, MAX_REQUEST_BYTES, requireThinking } from "./meter.mjs";
 
 export function fixtureStream(model, turn, fixtureCase) {
   const stream = new AssistantMessageEventStream();
@@ -94,7 +94,7 @@ export async function createSDKFixture(name, thinking = DEFAULT_THINKING) {
   let requests = 0, unexpected = 0, sawThinking = false, sawSignature = false;
   const fetch = async (url, options) => {
     if (String(url) !== "https://chatgpt.com/backend-api/codex/responses" || ++requests > requestLimit) { unexpected++; throw new Error("runtime_failed"); }
-    const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body, { maxOutputLength: 65536 }).toString() : options.body;
+    const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body, { maxOutputLength: MAX_REQUEST_BYTES }).toString() : options.body;
     const body = JSON.parse(raw);
     const tools = new Map(body.tools.map((t) => [t.name, t]));
     const expected = { read: ["limit", "offset", "path"], write: ["content", "path"], bash: ["command", "timeout"], edit: ["edits", "path"] };
