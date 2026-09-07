@@ -1,0 +1,13 @@
+{
+  "format": {
+    "summary": ["v", "pylon", "job_id", "base", "image", "context_sha256", "event_count", "bytes", "truncated", "incomplete", "dropped_events", "runtime_capture_closed", "executor_closed", "executor_outcome", "failure", "capture_failure", "export"],
+    "summary_export": {"collection":"category","allowed_count":"integer","collected_count":"integer","staging":"category","staged_count":"integer","diff":"category","observed_bytes":"integer","total_bytes_known":"boolean"},
+    "normal_receipt": {
+      "required": ["job_id", "base", "subscription", "runtime", "failure"],
+      "optional": ["patch", "patch_sha256", "debug"],
+      "subscription_fields": ["outcome", "usage", "pause"],
+      "usage_fields": ["input", "output", "cache_read", "cache_write"],
+      "runtime_fields": ["outcome", "usage", "pause", "failure", "requests", "tools", "provider", "model", "thinking", "fixture"]
+    }
+  }
+}

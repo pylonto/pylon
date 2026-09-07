@@ -9,3 +9,6 @@
 !worker.mjs
 !tool.mjs
 !sandbox.mjs
+!debug.mjs
+!role-auth.mjs
+!fixture.mjs

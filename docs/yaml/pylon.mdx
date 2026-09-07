@@ -282,7 +282,7 @@ The `agent` block is optional. When omitted, the pylon uses `defaults.agent` fro
 </ParamField>
 
 <ParamField path="agent.pi" type="PiConfig">
-  Pi-only configuration: immutable `image`, role-local `auth_dir`, 1--32 `allowed_paths`, and explicit `limits.daily_jobs`, `limits.daily_tokens`, `limits.job_tokens`, and `limits.job_seconds`. See the [worker configuration and bounds](/running/pi-worker#configure-signed-admission). Pi rejects the generic prompt, API key, environment, mount, and timeout fields below.
+  Pi-only configuration: immutable `image`, role-local `auth_dir`, 1--32 `allowed_paths`, and explicit `limits.daily_jobs`, `limits.daily_tokens`, `limits.job_tokens`, and `limits.job_seconds`. Optional `debug_dir` enables [private bounded inspection](/running/pi-worker#inspect-a-private-repair-capture) in a precreated canonical `0700` directory; absent or empty disables it. See the [worker configuration and bounds](/running/pi-worker#configure-signed-admission). Pi rejects the generic prompt, API key, environment, mount, and timeout fields below.
 </ParamField>
 
 <ParamField path="agent.auth" type="string">

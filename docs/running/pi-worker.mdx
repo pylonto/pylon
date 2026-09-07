@@ -89,6 +89,47 @@ Each valid execution attempt writes a private `.pylon/pi-patches/<job-id>.json` 
 
 Export permits up to 32 explicit regular text paths and at most 1 MiB of patch bytes. An allowed new path may remain absent; permission does not require you to create a file. Export stages only collected writes and tracked deletions, and emits rename-independent delete/add output. The host creates fresh Git state and never runs Git in an agent-controlled repository. Ciao's existing four-argument `prepared_patch(repository, base, patch_bytes, allowed_paths)` remains the independent scope/mode/import policy. The executor receipt is **not** qualification, publication authority, or independent validation. The worker has no GitHub credentials or publication callback.
 
+## Inspect a private repair capture
+
+Capture is **off by default**. With explicit operator approval, create a dedicated `0700` directory and set [agent.pi.debug_dir](/yaml/pylon#agent) in the existing role:
+
+```yaml
+agent:
+  type: pi
+  pi:
+    # Keep the reviewed image, auth_dir, paths and limits unchanged.
+    debug_dir: /srv/private/pi-debug
+```
+
+Use a canonical, host-owned directory outside the repository, auth directory, and patch/evidence directory, in both containment directions. Pylon refuses unsafe, unavailable, reused or full storage before starting the runtime. It never adopts permissions or prunes old jobs. The signed brief and tools cannot enable capture, choose its destination, or access its files. Changing the debug setting does not reset the existing ledger or authorize another job.
+
+After the supervisor stops and joins the exact worker, inspect only its UUID:
+
+```sh
+pylon pi-worker inspect maintenance-repair \
+  --home /srv/private/pi-repair --job 01234567-89ab-4cde-8fab-0123456789ab
+```
+
+Inspection reads existing configuration, the role marker, and that job's bounded files. It does not load `.env`, read OAuth, open the ledger, contact Docker/network, start a role, or change a pause. It returns escaped JSON with `v: 1`, `private: true`, `untrusted: true`, `publishable: false`, plus `summary`, `events`, and `inspection`. Do not send this private content to CI, chat, notifications or patch evidence.
+
+Each exclusive `<debug_dir>/<job-uuid>/` directory holds `events.jsonl` and `summary.json`, with `0600` files. Events contain selected visible assistant text and tool names, structured argument previews, selected text results, and bounded tool errors. They exclude reasoning/signatures, raw provider envelopes, environment/auth snapshots and SDK internals. The runtime redacts known initial/refreshed OAuth values before truncation, including ambiguous fragments at record boundaries. This can mask harmless edge characters; it is not universal secret detection. A failed tool remains recoverable and does not change the model-visible error or repair policy.
+
+| Limit | Bound |
+|---|---|
+| Retained jobs, including partial jobs | 64 per root |
+| Total storage per job | 1 MiB |
+| Summary, including an atomic replacement reserve | 4 KiB each, 8 KiB reserved |
+| Encoded JSONL event, including metadata and newline | 16 KiB |
+| Stored events, including host events | 128 |
+| Queued and in-flight runtime events | 8 events / 64 KiB, one request in flight |
+| Capture request / final drain | 1 second / 2 seconds |
+
+A capture starts incomplete and survives failure and teardown. Pylon persists accepted events and drop accounting before acknowledging them. A partial `.summary-next` file can remain after an interrupted write and counts against storage. `inspection.summary_missing`, `summary_stale` and `partial_tail` describe incomplete publication without repairing it.
+
+Capture accounting is complete only when `summary.incomplete` is false, both `runtime_capture_closed` and `executor_closed` are true, and all three inspection flags are false. Runtime closure requires an observed close acknowledgement, not merely process exit. `truncated` and `dropped_events` separately describe omitted content. Mid-run capture loss stays incomplete; it does not change accounting, grant a retry, or make the repair successful. Process-termination survival is tested; power-loss durability is not qualified.
+
+The normal executor receipt retains required `job_id`, `base`, `subscription`, `runtime` and `failure`, with optional `patch`, `patch_sha256` and metadata-only `debug`. A required `runtime` or usage value can be `null`; unknown usage is never zero. The closed `debug` summary has no events or prose. Capture completeness is independent of repair success and durable ledger settlement. Export metadata distinguishes no attempt, empty/nonempty diff, Git failure, cancellation, deadline and output cap; capped/failed byte counts are observed bytes, not an inferred total.
+
 ## Run no-model verification
 
 Run these from a reviewed Pylon checkout. Use your shared heavy-check lock when other agents or services share the host. Keep general Go tests on a private test HOME with denied Docker; opt into native Docker separately.
@@ -103,6 +144,8 @@ PYLON_PI_REHEARSAL_IMAGE="$image" \
   go test -p 1 -race ./internal/runner ./internal/daemon -run '^TestPiDocker' -count=1 -v
 ```
 
-The SDK adapter fixture in `agent/pi/sdk.test.mjs` runs in that image with `--network none`, no auth mount, and only that test file mounted read-only at `/opt/pylon/sdk.test.mjs`; invoke `node --test /opt/pylon/sdk.test.mjs`. It uses synthetic HTTP and an unsigned synthetic account shape, never a real credential or model call.
+The SDK adapter fixture in `agent/pi/sdk.test.mjs` runs in that image with `--network none`, no auth mount, and only that test file mounted read-only at `/opt/pylon/sdk.test.mjs`. Set `--entrypoint /usr/local/bin/node` on `docker run` and pass `--test /opt/pylon/sdk.test.mjs` after the image ID; otherwise its default entrypoint starts the worker, not the tests. It uses synthetic HTTP and an unsigned synthetic account shape, never a real credential or model call.
 
-Native fixtures exercise the real signed dispatcher, SDK tools, source isolation, unused allowed paths, explicit delete/add export, Ciao import, hostile symlink/mode/size refusal, cancellation, and deadlines. The documented login-command smoke starts the actual pinned CLI with fresh empty storage, no network, and a fetch-attempt observer; it sends only `/quit` and checks the unchanged worker filesystem gate. Record the exact Pylon source, image ID, Ciao source, and test results. None proves authenticated model availability or authorizes a live turn.
+The private capture unit suite in `agent/pi/debug.test.mjs` also runs in the image, with that file and `debug-limits.fixture.json` mounted read-only beside it. It tests structural/credential redaction, split/capped content, queues, drain, close acknowledgements and synthetic credential-file bounds. The Go owner checks the same limit fixture.
+
+Native fixtures exercise the real signed dispatcher, SDK tools, source isolation, unused allowed paths, explicit delete/add export, Ciao import, hostile symlink/mode/size refusal, cancellation, and deadlines. Capture fixtures exercise both `session.prompt` and `agent.prompt` through the actual pinned adapter with fail-closed synthetic HTTP, advertised edit arrays, recoverable errors, initial/refreshed synthetic credentials, and inspection after cancellation, deadline and disposable host termination. The documented login-command smoke starts the actual pinned CLI with fresh empty storage, no network, and a fetch-attempt observer; it sends only `/quit` and checks the unchanged worker filesystem gate. Record the exact Pylon source, image ID, Ciao source, and test results. None proves authenticated model availability or authorizes a live turn.

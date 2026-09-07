@@ -21,8 +21,9 @@ import (
 )
 
 func init() {
-	command := &cobra.Command{Use: "pi-worker serve|status|pause|resume NAME", Short: "Operate one isolated Pi subscription role (never the daily daemon)", Args: cobra.ExactArgs(2), RunE: runPiWorker}
+	command := &cobra.Command{Use: "pi-worker serve|status|pause|resume|inspect NAME", Short: "Operate one isolated Pi subscription role (never the daily daemon)", Args: cobra.ExactArgs(2), RunE: runPiWorker}
 	command.Flags().String("home", "", "Explicit private Pi-only HOME")
+	command.Flags().String("job", "", "Exact job UUID for private offline inspection")
 	rootCmd.AddCommand(command)
 }
 
@@ -44,7 +45,7 @@ func piHome(home string) error {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() != int64(len("pylon-pi-v1\n")) {
 		return errors.New("pi_role_marker_required")
 	}
-	data, err := os.ReadFile(marker)
+	data, err := readPiOperatorFile(marker, len("pylon-pi-v1\n"), true)
 	if err != nil || string(data) != "pylon-pi-v1\n" {
 		return errors.New("pi_role_marker_required")
 	}
@@ -52,7 +53,7 @@ func piHome(home string) error {
 }
 
 func runPiWorker(command *cobra.Command, args []string) error {
-	if args[0] != "serve" && args[0] != "status" && args[0] != "pause" && args[0] != "resume" {
+	if args[0] != "serve" && args[0] != "status" && args[0] != "pause" && args[0] != "resume" && args[0] != "inspect" {
 		return errors.New("pi_operation_invalid")
 	}
 	if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`).MatchString(args[1]) {
@@ -61,6 +62,10 @@ func runPiWorker(command *cobra.Command, args []string) error {
 	home, _ := command.Flags().GetString("home")
 	if err := piHome(home); err != nil {
 		return err
+	}
+	// Inspection never loads .env, opens/configures the ledger or contacts a role.
+	if args[0] == "inspect" {
+		return inspectPiJob(command, home, args[1])
 	}
 	config.LoadEnv()
 	global, err := config.LoadGlobal()

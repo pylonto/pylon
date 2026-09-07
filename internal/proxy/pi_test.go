@@ -22,7 +22,7 @@ func TestPiProxyIsNarrowBoundedAndFinal(t *testing.T) {
 	p := NewPi(context.Background(), PiJob{Tokens: 400000}, func(context.Context, []byte) ([]byte, error) {
 		calls++
 		return []byte(`{"content":[{"type":"text","text":"fixture"}]}`), nil
-	})
+	}, nil)
 	for _, input := range []string{`{"name":"callback","args":{}}`, `{"name":"bash","args":{},"credentials":true}`, `{} {}`, strings.Repeat("x", MaxPiToolBytes+1)} {
 		require.Equal(t, 400, piRequest(p, "/tool", input).Code)
 	}
@@ -63,7 +63,7 @@ func TestPiProxyRefusesCall65AndCancelledRole(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	calls := 0
-	p := NewPi(ctx, PiJob{}, func(context.Context, []byte) ([]byte, error) { calls++; return []byte(`{}`), nil })
+	p := NewPi(ctx, PiJob{}, func(context.Context, []byte) ([]byte, error) { calls++; return []byte(`{}`), nil }, nil)
 	for range 64 {
 		require.Equal(t, 200, piRequest(p, "/tool", `{"name":"bash","args":{}}`).Code)
 	}

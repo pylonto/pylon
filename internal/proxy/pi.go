@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/pylonto/pylon/internal/pidebug"
 	"github.com/pylonto/pylon/internal/store"
 )
 
@@ -22,6 +23,7 @@ type PiJob struct {
 	Tokens      int64           `json:"tokens"`
 	Fixture     bool            `json:"fixture"`
 	FixtureCase string          `json:"fixture_case,omitempty"`
+	Debug       *pidebug.Limits `json:"debug,omitempty"`
 }
 
 type PiResult struct {
@@ -41,17 +43,25 @@ type PiResult struct {
 // shell-on-host operation or publication callback. Only the immutable runtime
 // container mounts this socket; the untrusted tool container cannot reach it.
 type Pi struct {
-	ctx    context.Context
-	job    PiJob
-	tool   func(context.Context, []byte) ([]byte, error)
-	mu     sync.Mutex
-	result *PiResult
-	toolMu sync.Mutex
-	calls  int
+	ctx        context.Context
+	job        PiJob
+	tool       func(context.Context, []byte) ([]byte, error)
+	mu         sync.Mutex
+	result     *PiResult
+	toolMu     sync.Mutex
+	calls      int
+	debug      *pidebug.Recorder
+	debugSlot  chan struct{}
+	debugCalls int
 }
 
-func NewPi(ctx context.Context, job PiJob, tool func(context.Context, []byte) ([]byte, error)) *Pi {
-	return &Pi{ctx: ctx, job: job, tool: tool}
+func NewPi(ctx context.Context, job PiJob, tool func(context.Context, []byte) ([]byte, error), debug *pidebug.Recorder) *Pi {
+	job.Debug = nil
+	if debug != nil {
+		limits := pidebug.FixedLimits()
+		job.Debug = &limits
+	}
+	return &Pi{ctx: ctx, job: job, tool: tool, debug: debug, debugSlot: make(chan struct{}, 1)}
 }
 
 func decodePi(raw []byte, target any) error {
@@ -85,6 +95,30 @@ func (p *Pi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/job":
 		json.NewEncoder(w).Encode(p.job)
+	case r.Method == http.MethodPost && r.URL.Path == "/debug":
+		if p.debug == nil {
+			http.NotFound(w, r)
+			return
+		}
+		select {
+		case p.debugSlot <- struct{}{}:
+			defer func() { <-p.debugSlot }()
+		default:
+			http.Error(w, "pi_debug_busy", http.StatusConflict)
+			return
+		}
+		p.debugCalls++ // Only the single admitted slot owns this counter.
+		if p.debugCalls > pidebug.MaxEvents+1 {
+			http.Error(w, "pi_debug_full", http.StatusConflict)
+			return
+		}
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, pidebug.MaxEventBytes))
+		var frame pidebug.Frame
+		if err != nil || pidebug.Decode(raw, &frame) != nil || p.debug.Accept(frame) != nil {
+			http.Error(w, "pi_debug_refused", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte("{}"))
 	case r.Method == http.MethodPost && r.URL.Path == "/tool":
 		p.toolMu.Lock()
 		defer p.toolMu.Unlock()
@@ -128,7 +162,10 @@ func (p *Pi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		p.result = &result
+		if p.result == nil {
+			p.debug.ConfirmRuntimeClosure(len(r.Header.Values("X-Pylon-Pi-Capture")) == 1 && r.Header.Get("X-Pylon-Pi-Capture") == "closed")
+			p.result = &result
+		}
 		_, _ = w.Write([]byte("{}"))
 	default:
 		http.NotFound(w, r)

@@ -1,0 +1,1 @@
+{"event_bytes":16384,"events":128,"queue_events":8,"queue_bytes":65536,"rpc_timeout_ms":1000,"drain_timeout_ms":2000,"secret_values":32,"secret_bytes":131072,"argument_depth":4,"argument_items":32}

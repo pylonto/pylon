@@ -47,6 +47,7 @@ func piNative(t *testing.T) (*client.Client, PiParams) {
 	git("add", "--", "src/repair.txt")
 	git("commit", "-m", "Controlled fixture")
 	p := PiParams{JobID: uuid.NewString(), Repository: repo, Base: git("rev-parse", "HEAD"), Config: piTestConfig(), Deadline: time.Now().Add(90 * time.Second), PatchRoot: t.TempDir(), Fixture: true}
+	require.NoError(t, os.Chmod(p.PatchRoot, 0700))
 	p.Config.Image = image
 	p.Brief, err = json.Marshal(map[string]any{"v": 1, "kind": "ciao.vendor.maintenance", "purpose": "repair", "source_revision": p.Base, "qualification_id": strings.Repeat("a", 64), "publication": map[string]string{"mode": "none"}, "contract": []string{"fixture"}, "report": map[string]bool{"fixture": true}})
 	require.NoError(t, err)
@@ -178,7 +179,7 @@ func TestPiDockerOnlyAbsentPermissionsCannotExportUnreviewedRepair(t *testing.T)
 	require.Equal(t, 3, out.Runtime.Tools, "the fixture repairs an existing file OUTSIDE the allowlist")
 	require.Zero(t, out.Runtime.Requests)
 	require.Equal(t, "executor_failed", out.Result.Outcome)
-	require.Equal(t, "pi_patch_empty_or_over_bound", out.Failure, "no collected paths must not stage the sandbox's other edits")
+	require.Equal(t, "pi_patch_empty", out.Failure, "no collected paths must not stage the sandbox's other edits")
 	require.Empty(t, out.Patch)
 	require.NotEmpty(t, out.Receipt)
 }

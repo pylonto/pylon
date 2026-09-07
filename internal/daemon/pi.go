@@ -51,7 +51,7 @@ func (d *Daemon) startPiDelivery(ctx context.Context, pyl *config.PylonConfig, e
 	go func() {
 		defer d.piJobs.Done()
 		defer d.Limiter.Release()
-		out := d.RunPi(ctx, runner.PiParams{JobID: entry.JobID, Brief: entry.Body, Base: base, Repository: pyl.Workspace.Repo,
+		out := d.RunPi(ctx, runner.PiParams{Pylon: pyl.Name, JobID: entry.JobID, Brief: entry.Body, Base: base, Repository: pyl.Workspace.Repo,
 			Config: *pyl.Agent.Pi, Deadline: time.Unix(claim.Deadline, 0), PatchRoot: filepath.Join(config.Dir(), "pi-patches")})
 		if out.Result.Pause != "" {
 			// Pause must persist even if usage/termination is unknown and cannot

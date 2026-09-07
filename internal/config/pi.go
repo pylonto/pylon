@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/pylonto/pylon/internal/pidebug"
 	"github.com/pylonto/pylon/internal/store"
 )
 
@@ -14,6 +15,7 @@ import (
 type PiConfig struct {
 	Image        string                   `yaml:"image" json:"image"`
 	AuthDir      string                   `yaml:"auth_dir" json:"auth_dir"`
+	DebugDir     string                   `yaml:"debug_dir,omitempty" json:"debug_dir,omitempty"`
 	AllowedPaths []string                 `yaml:"allowed_paths" json:"allowed_paths"`
 	Limits       store.SubscriptionLimits `yaml:"limits" json:"limits"`
 }
@@ -44,6 +46,9 @@ func (p *PylonConfig) ValidatePi() error {
 }
 
 func (c PiConfig) Validate() error {
+	if c.DebugDir != "" && pidebug.CheckLocation(c.DebugDir, c.AuthDir) != nil {
+		return errors.New("pi_debug_unsafe_destination")
+	}
 	if !immutableImage.MatchString(c.Image) || !filepath.IsAbs(c.AuthDir) || filepath.Clean(c.AuthDir) != c.AuthDir ||
 		c.Limits.Validate() != nil || c.Limits.JobSeconds < 30 || len(c.AllowedPaths) == 0 || len(c.AllowedPaths) > 32 {
 		return errors.New("pi_image_role_or_allocation_invalid")

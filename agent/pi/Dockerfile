@@ -3,7 +3,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 WORKDIR /opt/pylon
 COPY --chmod=0644 package.json package-lock.json ./
 RUN npm ci --ignore-scripts --omit=dev && npm cache clean --force
-COPY --chmod=0644 meter.mjs stream.mjs catalog.mjs worker.mjs tool.mjs sandbox.mjs ./
+COPY --chmod=0644 meter.mjs stream.mjs catalog.mjs worker.mjs tool.mjs sandbox.mjs debug.mjs role-auth.mjs fixture.mjs ./
 ENV PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
 RUN node catalog.mjs
 USER 1000:1000

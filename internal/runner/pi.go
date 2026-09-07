@@ -30,6 +30,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/google/uuid"
 	"github.com/pylonto/pylon/internal/config"
+	"github.com/pylonto/pylon/internal/pidebug"
 	"github.com/pylonto/pylon/internal/proxy"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -43,6 +44,7 @@ const piTermination = 10 * time.Second
 var errPiRun = errors.New("pi_execution_failed")
 
 type PiParams struct {
+	Pylon      string
 	JobID      string
 	Brief      []byte
 	Base       string
@@ -62,6 +64,7 @@ type PiOutcome struct {
 	PatchSHA256 string
 	Failure     string
 	Receipt     string
+	Debug       *pidebug.Summary
 }
 
 // PiBrief checks the existing Ciao envelope before durable admission. Source,
@@ -91,19 +94,34 @@ func PiBrief(raw []byte) (string, error) {
 	return brief.Source, nil
 }
 
+// Composition is intentional: embedding bytes.Buffer promotes ReadFrom and
+// WriteString, allowing io.Copy (including a source WriterTo) to bypass Write.
 type piBuffer struct {
-	bytes.Buffer
-	max int
+	buffer   bytes.Buffer
+	max      int
+	overflow bool
 }
+
+var errPiOutputBound = errors.New("pi_output_bound")
+
+func (b *piBuffer) Len() int       { return b.buffer.Len() }
+func (b *piBuffer) Bytes() []byte  { return b.buffer.Bytes() }
+func (b *piBuffer) String() string { return b.buffer.String() }
 
 func (b *piBuffer) Write(p []byte) (int, error) {
 	if len(p) > b.max-b.Len() {
-		return 0, errors.New("pi_output_bound")
+		b.overflow = true
+		return 0, errPiOutputBound
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
 
 func piGit(ctx context.Context, home, repo string, max int, args ...string) ([]byte, error) {
+	data, _, err := piGitWithStats(ctx, home, repo, max, args...)
+	return data, err
+}
+
+func piGitWithStats(ctx context.Context, home, repo string, max int, args ...string) ([]byte, int, error) {
 	cmd := exec.CommandContext(ctx, "/usr/bin/git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.file.allow=always"}, args...)...)
 	cmd.Dir = repo
 	cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0"}
@@ -111,10 +129,19 @@ func piGit(ctx context.Context, home, repo string, max int, args ...string) ([]b
 	var output piBuffer
 	output.max = max
 	cmd.Stdout, cmd.Stderr = &output, io.Discard
-	if cmd.Run() != nil {
-		return nil, errors.New("pi_git_operation_failed")
+	err := cmd.Run()
+	// An output-bound write may also make Git exit through SIGPIPE. Preserve
+	// the writer's verdict rather than losing it behind the process exit error.
+	if output.overflow {
+		return nil, output.Len(), errPiOutputBound
 	}
-	return output.Bytes(), nil
+	if ctx.Err() != nil {
+		return nil, output.Len(), ctx.Err()
+	}
+	if err != nil {
+		return nil, output.Len(), errors.New("pi_git_operation_failed")
+	}
+	return output.Bytes(), output.Len(), nil
 }
 
 // Bound the exact tree before fetching, and fetch only that commit rather than
@@ -197,7 +224,9 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 		switch p.FixtureCase {
 		case "hang", "symlink", "mode", "oversized", "rename":
 		default:
-			return out
+			if !piSDKFixture(p.FixtureCase) {
+				return out
+			}
 		}
 	}
 	base, err := PiBrief(p.Brief)
@@ -208,19 +237,7 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 	// Register first so it records the final cleanup/usage verdict, never a receipt
 	// written before writers are known to have stopped.
 	defer func() {
-		receipt := struct {
-			Job          string                   `json:"job_id"`
-			Base         string                   `json:"base"`
-			Subscription store.SubscriptionResult `json:"subscription"`
-			Runtime      *proxy.PiResult          `json:"runtime"`
-			Failure      string                   `json:"failure"`
-			Patch        string                   `json:"patch,omitempty"`
-			Digest       string                   `json:"patch_sha256,omitempty"`
-		}{Job: p.JobID, Base: p.Base, Subscription: out.Result, Runtime: out.Runtime, Failure: out.Failure, Digest: out.PatchSHA256}
-		if out.Patch != "" {
-			receipt.Patch = filepath.Base(out.Patch)
-		}
-		raw, err := json.Marshal(receipt)
+		raw, err := piReceiptBytes(p, out)
 		if err == nil {
 			out.Receipt, err = savePiArtifact(p.PatchRoot, p.JobID+".json", raw)
 		}
@@ -230,6 +247,20 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 	}()
 	ctx, cancel := context.WithDeadline(parent, p.Deadline.Add(-piTermination))
 	defer cancel()
+	var debug *pidebug.Recorder
+	if p.Config.DebugDir != "" {
+		identity := pidebug.Identity{V: 1, Pylon: p.Pylon, Job: p.JobID, Base: p.Base, Image: p.Config.Image,
+			Context: pidebug.Context(p.Pylon, p.Repository, p.Config.AuthDir, p.PatchRoot)}
+		debug, err = pidebug.Start(p.Config.DebugDir, identity, p.Repository, p.Config.AuthDir, p.PatchRoot)
+		if err != nil {
+			out.Failure = "pi_debug_unavailable"
+			return out
+		}
+		defer func() {
+			summary := debug.Close(out.Result.Outcome, out.Failure, out.Failure != "pi_termination_unknown")
+			out.Debug = &summary
+		}()
+	}
 	if err := piHeadroom(os.TempDir()); err != nil {
 		out.Failure = "pi_disk_reserve"
 		return out
@@ -357,7 +388,7 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 	}
 	defer listener.Close()
 	bridge := proxy.NewPi(ctx, proxy.PiJob{Brief: p.Brief, Deadline: p.Deadline.Add(-piTermination).Unix(), Tokens: p.Config.Limits.JobTokens, Fixture: p.Fixture, FixtureCase: p.FixtureCase},
-		func(callCtx context.Context, raw []byte) ([]byte, error) { return piTool(callCtx, cli, sandbox, raw) })
+		func(callCtx context.Context, raw []byte) ([]byte, error) { return piTool(callCtx, cli, sandbox, raw) }, debug)
 	server := &http.Server{Handler: bridge, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 4096}
 	defer server.Close()
 	go func() { _ = server.Serve(listener) }()
@@ -376,6 +407,7 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 	if cli.ContainerStart(ctx, runtime, container.StartOptions{}) != nil {
 		return out
 	}
+	debug.Host("lifecycle", "runtime_started", nil)
 	status, errs := cli.ContainerWait(ctx, runtime, container.WaitConditionNotRunning)
 	select {
 	case <-ctx.Done():
@@ -385,6 +417,7 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 		out.Failure = "pi_runtime_unknown"
 		return out
 	case ended := <-status:
+		debug.Host("lifecycle", "runtime_stopped", map[string]int{"exit_code": int(ended.StatusCode)})
 		if ended.StatusCode != 0 {
 			out.Failure = "pi_runtime_failed"
 			return out
@@ -415,6 +448,11 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 		return out
 	}
 	collected, err := piCollect(ctx, cli, holder, repo, p.Config.AllowedPaths)
+	collection := "returned"
+	if err != nil {
+		collection = "failed"
+	}
+	debug.Host("collection", collection, map[string]int{"allowed": len(p.Config.AllowedPaths), "collected": len(collected)})
 	if err != nil {
 		out.Failure = "pi_patch_export_failed"
 		return out
@@ -425,13 +463,21 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 	if len(collected) > 0 {
 		args := append([]string{"add", "--"}, collected...)
 		if _, err = piGit(ctx, tmp, repo, 4096, args...); err != nil {
+			debug.Host("staging", "failed", map[string]int{"staged": 0})
 			out.Failure = "pi_patch_export_failed"
 			return out
 		}
 	}
-	patch, err := piGit(ctx, tmp, repo, MaxPiPatch, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames", "--full-index", p.Base, "--")
-	if err != nil || len(patch) == 0 {
-		out.Failure = "pi_patch_empty_or_over_bound"
+	debug.Host("staging", "returned", map[string]int{"staged": len(collected)})
+	patch, observed, err := piGitWithStats(ctx, tmp, repo, MaxPiPatch, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames", "--full-index", p.Base, "--")
+	category := piDiffOutcome(patch, err)
+	known := 0
+	if err == nil {
+		known = 1
+	}
+	debug.Host("diff", category, map[string]int{"bytes": observed, "total_known": known})
+	if category != "nonempty" {
+		out.Failure = "pi_patch_" + category
 		return out
 	}
 	path, err := savePiPatch(p.PatchRoot, p.JobID, patch)
