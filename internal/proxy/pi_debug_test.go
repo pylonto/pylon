@@ -17,7 +17,7 @@ import (
 
 func TestPiProxyDebugIsOperatorOwnedAndOffByDefault(t *testing.T) {
 	limits := pidebug.FixedLimits()
-	p := NewPi(context.Background(), PiJob{Debug: &limits, Brief: json.RawMessage(`{"debug_dir":"/untrusted","debug":{"events":9999}}`)}, nil, nil)
+	p := NewPi(context.Background(), PiJob{Thinking: "max", Debug: &limits, Brief: json.RawMessage(`{"debug_dir":"/untrusted","debug":{"events":9999}}`)}, nil, nil)
 	response := httptest.NewRecorder()
 	p.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/job", nil))
 	var job PiJob
@@ -35,7 +35,7 @@ func TestPiProxyCaptureClosureCannotChangeAccountingOrBeUpgradedByReplay(t *test
 			r, err := pidebug.Start(root, id, "/repo", "/auth", "/evidence")
 			require.NoError(t, err)
 			t.Cleanup(func() { r.Close("executor_failed", "pi_fixture", true) })
-			p := NewPi(context.Background(), PiJob{Tokens: 400000}, nil, r)
+			p := NewPi(context.Background(), PiJob{Thinking: "max", Tokens: 400000}, nil, r)
 			require.Equal(t, 200, piRequest(p, "/debug", `{"sequence":1,"event":{"kind":"assistant_text","text":"Private text"}}`).Code)
 			require.Equal(t, 200, piRequest(p, "/debug", `{"sequence":2,"close":{"events":1,"dropped_events":0,"truncated":false,"incomplete":false}}`).Code)
 			result := PiResult{Outcome: "executor_returned", Usage: &store.SubscriptionUsage{Input: 5}, Requests: 1, Provider: "openai-codex", Model: "gpt-6-astra", Thinking: "max"}
@@ -72,7 +72,7 @@ func TestPiProxyDebugRejectsOversizedUnknownAndForgedHostFrames(t *testing.T) {
 		id := pidebug.Identity{V: 1, Pylon: "fixture", Job: uuid.NewString(), Base: strings.Repeat("a", 40), Image: "sha256:" + strings.Repeat("b", 64), Context: pidebug.Context("fixture", "/repo", "/auth", "/evidence")}
 		r, err := pidebug.Start(root, id, "/repo")
 		require.NoError(t, err)
-		p := NewPi(context.Background(), PiJob{}, nil, r)
+		p := NewPi(context.Background(), PiJob{Thinking: "max"}, nil, r)
 		require.Equal(t, 400, piRequest(p, "/debug", body).Code)
 		summary := r.Close("executor_failed", "pi_fixture", true)
 		require.Equal(t, 1, summary.EventCount)

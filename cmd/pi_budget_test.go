@@ -18,6 +18,13 @@ import (
 )
 
 func TestPiBudgetUsesConfiguredCapsAndRetainsActualLedgerUsage(t *testing.T) {
+	for _, thinking := range []config.PiThinking{"", config.PiThinkingMedium, config.PiThinkingMax} {
+		t.Run("thinking_"+string(thinking), func(t *testing.T) { piBudgetConfiguredThinking(t, thinking) })
+	}
+}
+
+func piBudgetConfiguredThinking(t *testing.T, thinking config.PiThinking) {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	require.NoError(t, os.Chmod(home, 0700))
@@ -26,6 +33,7 @@ func TestPiBudgetUsesConfiguredCapsAndRetainsActualLedgerUsage(t *testing.T) {
 	require.NoError(t, config.SaveGlobal(&config.GlobalConfig{Server: config.ServerConfig{Host: "127.0.0.1", Port: 18473}}))
 	old := store.SubscriptionLimits{DailyJobs: 1, DailyTokens: 1600000, JobTokens: 1600000, JobSeconds: 300}
 	p := &config.PylonConfig{Name: "repair", Trigger: config.TriggerConfig{Type: "webhook", Path: "/repair", Secret: "fixture-only", SignatureHeader: "X-Pylon-Signature"}, Workspace: config.WorkspaceConfig{Type: "git-clone", Repo: "/trusted/fixture", Ref: "{{ .body.source_revision }}"}, Agent: &config.PylonAgent{Type: "pi", Pi: &config.PiConfig{Image: "sha256:" + strings.Repeat("a", 64), AuthDir: filepath.Join(home, ".pylon", "pi-auth"), AllowedPaths: []string{"src/repair.txt"}, Limits: old}}}
+	p.Agent.Pi.Thinking = thinking
 	require.NoError(t, config.SavePylon(p))
 	s, err := store.Open(config.PylonDBPath(p.Name))
 	require.NoError(t, err)

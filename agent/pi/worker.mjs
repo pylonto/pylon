@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import http from "node:http";
 import { createAgentSession, createCodingTools, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { Meter, MODEL, PROVIDER, THINKING, zeroUsage } from "./meter.mjs";
+import { Meter, MODEL, PROVIDER, requireThinking, zeroUsage } from "./meter.mjs";
 import { installPiStream } from "./stream.mjs";
 import { DebugCapture } from "./debug.mjs";
 import { readRoleCredential } from "./role-auth.mjs";
@@ -51,6 +51,7 @@ const resources = {
 
 async function main() {
   const job = await rpc("/job", undefined, AbortSignal.timeout(5000));
+  const thinking = requireThinking(job.thinking); // Required before any auth or SDK startup.
   const millis = job.deadline * 1000 - Date.now();
   if (millis <= 0 || millis > 3600000) throw new Error("deadline");
   const signal = AbortSignal.timeout(millis);
@@ -60,9 +61,9 @@ async function main() {
   const debug = new DebugCapture(job.debug, (frame, signal) => rpc("/debug", frame, signal));
   let tools = 0;
   const result = { outcome: "executor_failed", usage: zeroUsage(), pause: "", failure: "runtime_failed", requests: 0, tools: 0,
-    provider: PROVIDER, model: MODEL, thinking: THINKING, fixture: job.fixture };
+    provider: PROVIDER, model: MODEL, thinking, fixture: job.fixture };
   try {
-    synthetic = job.fixture ? await createSDKFixture(job.fixture_case) : undefined;
+    synthetic = job.fixture ? await createSDKFixture(job.fixture_case, thinking) : undefined;
     if (!job.fixture) debug.rememberCredential(await readRoleCredential());
     else if (synthetic) debug.rememberCredential(await synthetic.credentials.read(PROVIDER));
     const modelsStore = new InMemoryModelsStore();
@@ -71,7 +72,7 @@ async function main() {
       ...(job.fixture ? { credentials: synthetic?.credentials ?? new InMemoryCredentialStore() } : { authPath: "/role/auth.json" }) });
     if (!job.fixture && !runtime.isUsingOAuth(PROVIDER)) throw new Error("auth_unavailable");
     const model = runtime.getModel(PROVIDER, MODEL);
-    meter = new Meter(job.tokens, model ?? {}, synthetic?.fetch);
+    meter = new Meter(job.tokens, model ?? {}, synthetic?.fetch, thinking);
     const auth = async () => {
       try {
         const resolved = await runtime.getAuth(PROVIDER, { signal });
@@ -98,7 +99,7 @@ async function main() {
         return toolResultForModel(output, (detail) => debug.toolError(_id, tool.name, detail));
       },
     }));
-    ({ session } = await createAgentSession({ cwd: "/tmp", agentDir: "/tmp/pi", modelRuntime: runtime, model, thinkingLevel: THINKING,
+    ({ session } = await createAgentSession({ cwd: "/tmp", agentDir: "/tmp/pi", modelRuntime: runtime, model, thinkingLevel: thinking,
       resourceLoader: resources, customTools, tools: ["read", "write", "edit", "bash"],
       sessionManager: SessionManager.inMemory("/tmp"), settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } }) }));
     session.agent.toolExecution = "sequential";

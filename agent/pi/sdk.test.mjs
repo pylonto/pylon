@@ -6,23 +6,26 @@ import { readFile } from "node:fs/promises";
 import { zstdDecompressSync } from "node:zlib";
 import { createAgentSession, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { Meter, MODEL, PROVIDER, THINKING } from "./meter.mjs";
+import { Meter, MODEL, PROVIDER, DEFAULT_THINKING } from "./meter.mjs";
 import { installPiStream } from "./stream.mjs";
 import { readToolInput } from "./tool.mjs";
+import { syntheticCredential } from "./fixture.mjs";
 
 // Deliberately unsigned, nonexistent account. The adapter needs the payload
 // shape to build its header; this is NOT an OAuth credential or availability test.
 const synthetic = "fixture." + Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "fixture-only" } })).toString("base64url") + ".fixture";
-async function setup(fetch, budget = 400000) {
+async function setup(fetch, budget = 400000, thinking = DEFAULT_THINKING) {
   const modelsStore = new InMemoryModelsStore();
   await modelsStore.write(PROVIDER, JSON.parse(await readFile("/opt/pylon/models-entry.json", "utf8")));
-  const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, modelsStore });
+  const credentials = new InMemoryCredentialStore();
+  await credentials.modify(PROVIDER, () => syntheticCredential());
+  const runtime = await ModelRuntime.create({ credentials, modelsPath: null, modelsStore });
   const model = runtime.getModel(PROVIDER, MODEL);
-  const meter = new Meter(budget, model, fetch);
-  const { session } = await createAgentSession({ cwd: "/tmp", agentDir: "/tmp/test-role", modelRuntime: runtime, model, thinkingLevel: THINKING, tools: [],
+  const meter = new Meter(budget, model, fetch, thinking);
+  const { session } = await createAgentSession({ cwd: "/tmp", agentDir: "/tmp/test-role", modelRuntime: runtime, model, thinkingLevel: thinking, tools: [],
     sessionManager: SessionManager.inMemory(), settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } }) });
   installPiStream(session, { runtime, meter, auth: async () => synthetic, signal: AbortSignal.timeout(10000), timeoutMs: 5000 });
-  return { session, meter };
+  return { session, meter, runtime, model };
 }
 const terminal = { type: "response.completed", response: { id: "fixture", status: "completed", usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15, input_tokens_details: { cached_tokens: 2 } } } };
 
@@ -52,7 +55,7 @@ test("actual SDK hook sends exact max SSE through the meter and parses trusted u
     assert.equal(calls, 1);
     assert.equal(request.url, "https://chatgpt.com/backend-api/codex/responses");
     assert.equal(request.body.model, MODEL);
-    assert.equal(request.body.reasoning?.effort, THINKING);
+    assert.equal(request.body.reasoning?.effort, DEFAULT_THINKING);
     assert.equal(request.body.stream, true);
     assert.equal(request.body.store, false);
     assert.equal(request.redirect, "error");
@@ -61,6 +64,47 @@ test("actual SDK hook sends exact max SSE through the meter and parses trusted u
     await session.agent.prompt("The next request must fail BEFORE HTTP.");
     assert.equal(calls, 1);
     assert.equal(meter.failure, "request_budget_exhausted");
+  } finally { session.dispose(); }
+});
+
+for (const thinking of ["medium", "max"]) test(`actual session.prompt encodes exactly ${thinking} without an output-limit field`, async () => {
+  let calls = 0, observed;
+  const { session, meter } = await setup(async (url, options) => {
+    calls++;
+    assert.equal(url, "https://chatgpt.com/backend-api/codex/responses");
+    const raw = new Headers(options.headers).get("content-encoding") === "zstd" ? zstdDecompressSync(options.body, { maxOutputLength: 65536 }).toString() : options.body;
+    const body = JSON.parse(raw);
+    const outputLimits = Object.fromEntries(["max_output_tokens", "max_completion_tokens", "max_tokens"].map((key) => [key, Object.hasOwn(body, key)]));
+    observed = { model: body.model, reasoning_effort: body.reasoning?.effort, output_limit_fields_present: outputLimits };
+    assert.deepEqual(observed, { model: MODEL, reasoning_effort: thinking, output_limit_fields_present: { max_output_tokens: false, max_completion_tokens: false, max_tokens: false } });
+    return new Response(`data: ${JSON.stringify(terminal)}\n\n`, { headers: { "content-type": "text/event-stream" } });
+  }, 400000, thinking);
+  try {
+    await session.prompt("Synthetic effort measurement only.", { expandPromptTemplates: false });
+    await meter.settle();
+    assert.equal(calls, 1);
+    assert.equal(meter.failure, "");
+    assert.equal(session.thinkingLevel, thinking);
+    assert.equal(session.messages.at(-1).stopReason, "stop");
+    console.log("THINKING_MAPPING " + JSON.stringify({ ...observed, stop: "stop", synthetic_requests: calls }));
+  } finally { session.dispose(); }
+});
+
+test("invalid or mismatched effort refuses before auth and HTTP, without fallback", async () => {
+  for (const thinking of [null, "", "high", "low", "MAX", 1]) {
+    await assert.rejects(setup(() => assert.fail("must not fetch"), 400000, thinking), /model_unavailable/);
+  }
+  const { session, meter, model, runtime } = await setup(() => assert.fail("must not fetch"), 400000, "medium");
+  let authCalls = 0;
+  const options = { runtime, meter, auth: async () => { authCalls++; return synthetic; }, signal: AbortSignal.timeout(5000), timeoutMs: 5000 };
+  try {
+    assert.throws(() => installPiStream({ model, thinkingLevel: "max", agent: session.agent }, options), /model_unavailable/);
+    installPiStream(session, options);
+    await assert.rejects(session.agent.streamFunction(model, {}, { reasoning: "max" }), /model_unavailable/);
+    assert.equal(authCalls, 0);
+    assert.equal(meter.requests, 0);
+    assert.throws(() => meter.payload({ model: MODEL, reasoning: { effort: "max" }, stream: true, store: false }, model), /output_bound/);
+    assert.throws(() => new Meter(400000, { ...model, thinkingLevelMap: { ...model.thinkingLevelMap, medium: "low" } }, undefined, "medium"), /model_unavailable/);
   } finally { session.dispose(); }
 });
 

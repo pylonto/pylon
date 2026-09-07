@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/pylonto/pylon/internal/config"
 	"github.com/pylonto/pylon/internal/pidebug"
 	"github.com/pylonto/pylon/internal/store"
 )
@@ -18,12 +19,13 @@ const MaxPiToolBytes = 256 * 1024
 // PiJob is supplied only by the executor over its private Unix socket. The
 // signed brief is unchanged; these fields describe execution, not patch policy.
 type PiJob struct {
-	Brief       json.RawMessage `json:"brief"`
-	Deadline    int64           `json:"deadline"`
-	Tokens      int64           `json:"tokens"`
-	Fixture     bool            `json:"fixture"`
-	FixtureCase string          `json:"fixture_case,omitempty"`
-	Debug       *pidebug.Limits `json:"debug,omitempty"`
+	Thinking    config.PiThinking `json:"thinking"`
+	Brief       json.RawMessage   `json:"brief"`
+	Deadline    int64             `json:"deadline"`
+	Tokens      int64             `json:"tokens"`
+	Fixture     bool              `json:"fixture"`
+	FixtureCase string            `json:"fixture_case,omitempty"`
+	Debug       *pidebug.Limits   `json:"debug,omitempty"`
 }
 
 type PiResult struct {
@@ -89,6 +91,10 @@ func (p *Pi) Result() *PiResult {
 func (p *Pi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p.ctx.Err() != nil || r.URL.RawQuery != "" {
 		http.Error(w, "pi_transport_closed", http.StatusGone)
+		return
+	}
+	if !p.job.Thinking.Valid() {
+		http.Error(w, "pi_job_invalid", http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -174,7 +180,7 @@ func (p *Pi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func validPiResult(r PiResult, job PiJob, tools int) bool {
 	if r.Fixture != job.Fixture || r.Requests < 0 || r.Requests > 250 || r.Tools != tools ||
-		r.Provider != "openai-codex" || r.Model != "gpt-6-astra" || r.Thinking != "max" {
+		r.Provider != "openai-codex" || r.Model != "gpt-6-astra" || !job.Thinking.Valid() || r.Thinking != string(job.Thinking) {
 		return false
 	}
 	if r.Outcome != "executor_returned" && r.Outcome != "executor_failed" {

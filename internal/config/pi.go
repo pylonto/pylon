@@ -8,16 +8,56 @@ import (
 
 	"github.com/pylonto/pylon/internal/pidebug"
 	"github.com/pylonto/pylon/internal/store"
+	"gopkg.in/yaml.v3"
 )
 
 // PiConfig is an explicit allocation for one isolated subscription role. It has
 // no API-key, environment, mount, model-fallback, or publication escape hatch.
 type PiConfig struct {
+	Thinking     PiThinking               `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 	Image        string                   `yaml:"image" json:"image"`
 	AuthDir      string                   `yaml:"auth_dir" json:"auth_dir"`
 	DebugDir     string                   `yaml:"debug_dir,omitempty" json:"debug_dir,omitempty"`
 	AllowedPaths []string                 `yaml:"allowed_paths" json:"allowed_paths"`
 	Limits       store.SubscriptionLimits `yaml:"limits" json:"limits"`
+}
+
+// PiThinking is the operator's per-job selection, never a brief or global default.
+type PiThinking string
+
+const (
+	PiThinkingMax    PiThinking = "max"
+	PiThinkingMedium PiThinking = "medium"
+)
+
+func (t PiThinking) Valid() bool { return t == PiThinkingMax || t == PiThinkingMedium }
+
+// The zero value preserves existing Go configurations. On the wire it is always
+// resolved; neither the runtime nor a receipt may omit or invent the selection.
+func (c PiConfig) WorkerThinking() PiThinking {
+	if c.Thinking == "" {
+		return PiThinkingMax
+	}
+	return c.Thinking
+}
+
+func (c *PiConfig) UnmarshalYAML(node *yaml.Node) error {
+	type plain PiConfig
+	var decoded plain
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	// Resolve YAML merges too: an explicit null/empty is not an absent setting.
+	var fields map[string]yaml.Node
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+	if thinking, present := fields["thinking"]; present && (thinking.Tag != "!!str" || !decoded.Thinking.Valid()) {
+		return errors.New("pi_thinking_invalid")
+	}
+	*c = PiConfig(decoded)
+	c.Thinking = c.WorkerThinking()
+	return nil
 }
 
 var immutableImage = regexp.MustCompile(`^(?:sha256:|[a-zA-Z0-9./_-]+@sha256:)[a-f0-9]{64}$`)
@@ -46,6 +86,9 @@ func (p *PylonConfig) ValidatePi() error {
 }
 
 func (c PiConfig) Validate() error {
+	if !c.WorkerThinking().Valid() {
+		return errors.New("pi_thinking_invalid")
+	}
 	if c.DebugDir != "" && pidebug.CheckLocation(c.DebugDir, c.AuthDir) != nil {
 		return errors.New("pi_debug_unsafe_destination")
 	}

@@ -1,7 +1,7 @@
 // Internal, network-none fixtures only. No brief/config field enables this path.
 import { zstdDecompressSync } from "node:zlib";
 import { AssistantMessageEventStream, InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { MODEL, PROVIDER, THINKING } from "./meter.mjs";
+import { MODEL, PROVIDER, DEFAULT_THINKING, requireThinking } from "./meter.mjs";
 
 export function fixtureStream(model, turn, fixtureCase) {
   const stream = new AssistantMessageEventStream();
@@ -80,7 +80,8 @@ function callEvents(index, tool) {
     { type: "response.output_item.done", output_index: index, item: { ...item, arguments: args } }];
 }
 
-export async function createSDKFixture(name) {
+export async function createSDKFixture(name, thinking = DEFAULT_THINKING) {
+  requireThinking(thinking);
   const match = /^sdk_(session|agent)_(.+)$/.exec(name ?? "");
   if (!match) return undefined;
   const mode = match[1], selected = match[2];
@@ -97,7 +98,7 @@ export async function createSDKFixture(name) {
     const body = JSON.parse(raw);
     const tools = new Map(body.tools.map((t) => [t.name, t]));
     const expected = { read: ["limit", "offset", "path"], write: ["content", "path"], bash: ["command", "timeout"], edit: ["edits", "path"] };
-    if (body.model !== MODEL || body.reasoning?.effort !== THINKING || body.stream !== true || tools.size !== 4) throw new Error("runtime_failed");
+    if (body.model !== MODEL || body.reasoning?.effort !== thinking || body.stream !== true || tools.size !== 4) throw new Error("runtime_failed");
     for (const [name, keys] of Object.entries(expected)) if (JSON.stringify(Object.keys(tools.get(name)?.parameters.properties ?? {}).sort()) !== JSON.stringify(keys)) throw new Error("runtime_failed");
     if (JSON.stringify(Object.keys(tools.get("edit").parameters.properties.edits.items.properties).sort()) !== '["newText","oldText"]') throw new Error("runtime_failed");
     if (selected === "workspace_prompt" && !["plain-files snapshot without .git", "controller exports the patch", "filesystem edits"].every((s) => body.instructions?.includes(s))) throw new Error("runtime_failed");

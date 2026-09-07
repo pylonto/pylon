@@ -387,7 +387,7 @@ func RunPiJob(parent context.Context, p PiParams) (out PiOutcome) {
 		return out
 	}
 	defer listener.Close()
-	bridge := proxy.NewPi(ctx, proxy.PiJob{Brief: p.Brief, Deadline: p.Deadline.Add(-piTermination).Unix(), Tokens: p.Config.Limits.JobTokens, Fixture: p.Fixture, FixtureCase: p.FixtureCase},
+	bridge := proxy.NewPi(ctx, proxy.PiJob{Thinking: p.Config.WorkerThinking(), Brief: p.Brief, Deadline: p.Deadline.Add(-piTermination).Unix(), Tokens: p.Config.Limits.JobTokens, Fixture: p.Fixture, FixtureCase: p.FixtureCase},
 		func(callCtx context.Context, raw []byte) ([]byte, error) { return piTool(callCtx, cli, sandbox, raw) }, debug)
 	server := &http.Server{Handler: bridge, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 4096}
 	defer server.Close()

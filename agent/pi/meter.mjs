@@ -1,17 +1,23 @@
 // Trusted runtime only. No tool or repository code executes in this process.
 export const PROVIDER = "openai-codex";
 export const MODEL = "gpt-6-astra";
-export const THINKING = "max";
+export const DEFAULT_THINKING = "max";
+export function requireThinking(value) {
+  if (value !== "medium" && value !== "max") throw new Error("model_unavailable");
+  return value;
+}
 const RESPONSE_BYTES = 16 * 1024 * 1024;
 const LINE_BYTES = 2 * 1024 * 1024;
 export const zeroUsage = () => ({ input: 0, output: 0, cache_read: 0, cache_write: 0 });
 const integer = (n) => Number.isSafeInteger(n) && n >= 0;
 
 export class Meter {
-  constructor(tokens, model, fetchImpl = globalThis.fetch) {
+  constructor(tokens, model, fetchImpl = globalThis.fetch, thinking = DEFAULT_THINKING) {
+    this.thinking = requireThinking(thinking);
     if (!integer(tokens) || tokens === 0 || model.provider !== PROVIDER || model.id !== MODEL ||
         model.api !== "openai-codex-responses" || model.baseUrl !== "https://chatgpt.com/backend-api" ||
-        model.contextWindow !== 272000 || model.maxTokens !== 128000 || model.thinkingLevelMap?.max !== "max") {
+        model.contextWindow !== 272000 || model.maxTokens !== 128000 || model.thinkingLevelMap?.max !== "max" ||
+        model.thinkingLevelMap?.[this.thinking] !== this.thinking) {
       throw new Error("model_unavailable");
     }
     this.envelope = model.contextWindow + model.maxTokens;
@@ -27,7 +33,7 @@ export class Meter {
   }
 
   payload = (body, model) => {
-    if (model.provider !== PROVIDER || model.id !== MODEL || body.model !== MODEL || body.reasoning?.effort !== THINKING ||
+    if (model.provider !== PROVIDER || model.id !== MODEL || body.model !== MODEL || body.reasoning?.effort !== this.thinking ||
         body.store !== false || body.stream !== true || body.background || body.previous_response_id ||
         Buffer.byteLength(JSON.stringify(body)) > 65536) {
       this.failure = "output_bound";
