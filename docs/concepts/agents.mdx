@@ -5,7 +5,9 @@ description: "Agents are AI coding tools that run inside Docker containers. Lear
 
 When a pylon job fires, Pylon spins up a fresh Docker container for the configured agent, mounts the workspace, injects the prompt, and lets the agent work. Each job gets its own isolated container -- the agent has no access to previous jobs or the host filesystem beyond the mounted workspace.
 
-Pylon currently supports two agents: **Claude Code** and **OpenCode**. You configure an agent under the `agent` key in `pylon.yaml`. If you omit the `agent` block, Pylon falls back to the global defaults in `~/.pylon/config.yaml`.
+Pylon supports **Claude Code** and **OpenCode** in the ordinary daemon, plus **Pi** in a separate [subscription repair role](/running/pi-worker). You configure an agent under the `agent` key in `pylon.yaml`. If you omit the `agent` block, Pylon falls back to the global defaults in `~/.pylon/config.yaml`; Pi requires explicit per-pylon configuration.
+
+The fields and prompt examples below describe Claude Code and OpenCode. Pi accepts only signed maintenance briefs and rejects their prompt, environment, mount, and timeout overrides.
 
 ## Agent fields
 

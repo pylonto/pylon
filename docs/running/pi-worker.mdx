@@ -1,0 +1,165 @@
+---
+title: "Pi subscription worker"
+description: "Run signed maintenance repairs in a dedicated, bounded Pi subscription role without giving tools credentials or publication authority."
+---
+
+`agent.type: pi` runs an isolated repair role through `pylon pi-worker`, not `pylon start`, Nexus, cron, or manual triggers. It uses Pi `0.84.4` and `openai-codex/gpt-6-astra`, with operator-selected thinking `medium` or `max` (default). It refuses model fallback and API-key billing.
+
+<Warning>
+Build and review this source and its immutable image before enabling a role. A working fixture, OAuth login, or configuration example does not authorize subscription usage. Your operator must approve the role, exact repair, and allocation separately.
+</Warning>
+
+## Prepare a private role
+
+Use Linux with a local Docker Engine and Unix socket, not Docker Desktop or a remote daemon. Use a new private HOME, with one pylon and no personal configuration. The worker requires `.pylon/pi-only` to contain exactly `pylon-pi-v1` followed by a newline. Keep the HOME and marker private (modes `0700` and `0600`). It does not install or restart a service.
+
+Build `agent/pi/Dockerfile` from your reviewed source. Configure the resulting immutable local image ID (`sha256:...`), not a tag. The image pins its Node base and Pi packages; its public catalog check is not proof that your subscription can use the model.
+
+Log in through the image's existing Pi CLI in a **separate owner terminal/browser**, with `PI_CODING_AGENT_DIR=/role` and only the fresh `.pylon/pi-auth` directory mounted there. Disable tools, sessions, extensions, skills, prompt templates, and themes. Use `/login` and select OpenAI Codex, then `/quit`; do not send a model prompt. Never copy your commissioning or personal auth store. Never put OAuth URLs, codes, tokens, or auth-file contents in agent chat or logs.
+
+Inside that isolated login container, invoke the existing CLI with:
+
+```sh
+/opt/pylon/node_modules/.bin/pi --offline --provider openai-codex --no-tools --no-session --no-extensions --no-skills --no-prompt-templates --no-themes
+```
+
+Keep `--offline`: disabling tools alone does not prevent the CLI from downloading auxiliary `fd`/`rg` executables into `/role/bin`, which the worker correctly refuses. Offline mode suppresses those downloads, startup catalog refresh, and other startup network checks. It does **not** disable an explicit owner `/login`; manual OAuth still needs network access in the login container. Startup/quit smoke tests never invoke OAuth and do not prove authenticated availability. Do not relax the role's file gate or permit extra executables to accommodate CLI setup.
+
+The worker requires exactly one OAuth provider in `auth.json`. It ignores the CLI's role-local `settings.json` and `models-store.json`: its model catalog comes from the image, its settings stay in memory, and it performs no resource discovery. OAuth refresh can update the dedicated credential store. No tool receives this directory.
+
+## Configure signed admission
+
+Set the isolated global configuration's `server.host` to a literal loopback address, choose an unused port, and omit notification channels. Keep the webhook secret in the role's private `.env`, outside source control.
+
+The following example illustrates an allocation; it does **not** approve one. Replace the image, trusted repository, role HOME, paths, and limits with reviewed values.
+
+```yaml
+name: maintenance-repair
+trigger:
+  type: webhook
+  path: /repair
+  secret: "${PI_REPAIR_SECRET}"
+  signature_header: X-Pylon-Signature
+workspace:
+  type: git-clone
+  repo: /srv/trusted/ciao
+  ref: "{{ .body.source_revision }}"
+agent:
+  type: pi
+  auth: oauth
+  pi:
+    image: "sha256:REPLACE_WITH_REVIEWED_LOCAL_IMAGE_ID"
+    auth_dir: /srv/private/pi-repair/.pylon/pi-auth
+    thinking: max # Optional; omit for max, or explicitly select medium.
+    allowed_paths:
+      - src/repair.txt
+    limits:
+      daily_jobs: 1
+      daily_tokens: 1600000
+      job_tokens: 1600000
+      job_seconds: 300
+```
+
+`agent.pi.thinking` accepts only `medium` or `max`. An absent setting preserves `max`; an explicit empty, null, or unsupported value refuses configuration. The trusted job carries the resolved value through the SDK session and encoded request, and the runtime receipt must match it exactly. The signed brief, role-local SDK settings and global configuration cannot override it. Deploy the reviewed binary and image together; there is no effort fallback. Changing effort does not change budgets, reset usage, or authorize a job. The commissioning session's effort is independent.
+
+The worker accepts only [signed durable deliveries](/running/durable-deliveries) containing the existing Ciao repair brief: an exact base revision and `publication.mode: none`. It rejects arbitrary prompts, environment variables, mounts, channels, control routes, mutable refs, and unsigned or non-idempotent dispatch. Only a fresh atomic subscription claim can start execution.
+
+```sh
+pylon pi-worker status maintenance-repair --home /srv/private/pi-repair
+pylon pi-worker pause maintenance-repair --home /srv/private/pi-repair
+pylon pi-worker resume maintenance-repair --home /srv/private/pi-repair
+# Only after operator approval:
+pylon pi-worker serve maintenance-repair --home /srv/private/pi-repair
+```
+
+Status/pause work before the first delivery. The ledger fixes limits at initialization; changing YAML cannot reset counters. Resume clears a pause, never unresolved execution. A lost usage receipt or uncertain termination blocks another job, even after restart or UTC midnight. Preserve that ledger for operator reconciliation; do not delete it or launch another HOME to bypass it.
+
+To raise daily ceilings after explicit operator approval, pause and stop the isolated role first. Record its current limits and usage. Edit only `daily_jobs` and `daily_tokens` in its reviewed configuration, then declare the **old** daily limits:
+
+```sh
+pylon pi-worker budget maintenance-repair --home /srv/private/pi-repair \
+  --expect-daily-jobs 1 --expect-daily-tokens 1600000
+```
+
+The new ceilings come from that configuration. `budget` compares the complete expected old policy under the ledger's writer lock and leaves every claim, usage charge, watermark and operator pause intact. It refuses stale expectations, replay/no-op, lower ceilings, per-job changes, clock rollback, unresolved execution and pending deliveries. Ordinary configuration and admission still refuse changed policies; neither invokes this operation automatically. Success returns ordinary status JSON and does not start or resume a worker. Check the retained usage and pause before a separately authorized run. A failed or uncertain change must be reconciled while stopped; do not reset the ledger or assume the configuration and policy match.
+
+## Understand the bounds
+
+Each HTTP attempt reserves the **full catalog envelope**: 272,000 input-context tokens plus 128,000 output tokens = **400,000 tokens**. The example therefore permits at most four attempts, with no automatic request retries, compaction, lower model, or API-key fallback. `maxTokens` is not an enforced Codex output cap.
+
+Reservation ceilings are not usage predictions. The trusted transport counts input, output, cache-read, and cache-write tokens and settles known usage at job completion. Missing, malformed, interrupted, or ambiguous usage retains the whole job reservation. HTTP auth/quota refusal pauses the role; SSE uncertainty can retain usage and pause together. Accounting continues to the bounded response's end even when the SDK stops at its terminal event.
+
+Job time includes source preparation, execution, export, and termination. The supervisor reserves ten seconds for termination. Each container also has an independent deadline. A job permits 64 tool calls, 256 KiB tool messages, 30-second tool executions, 64 MiB temporary storage, and a 128 MiB source workspace. CPU, memory, process counts, raw responses, source-tree size, and patch storage have explicit bounds. These restrictions can make a repair fail; they never imply permission to loosen them automatically.
+
+The credentialed runtime never executes repository/tool code. Tools run offline, without credentials, Docker access, the runtime socket, or repository Git state. `/workspace` is a plain-files snapshot without `.git`; the system prompt tells the model to edit files there and let the controller export the patch. Assistant patch prose is not an export. A failed SDK tool returns bounded failure text to the model, including preceding command output and the trailing status. The 8 KiB encoded-text cap retains head/tail text with an explicit truncation marker. Host/auth/transport, parsing and dispatch failures remain categorical; no raw runtime exception or provider envelope becomes tool output. Export starts a small credential-free, read-only workspace holder and destroys all untrusted writers first. It does not pause a watchdog along with the writers. A supervisor crash can leave stopped container/volume metadata for scoped operator reconciliation, but cannot authorize execution replay.
+
+The image includes Node and Git, not the Ciao Rust, Swift, or Bun toolchains. A worker can edit source, but cannot substitute its sandbox checks for the controller's independent build and qualification harnesses.
+
+## Consume untrusted patch bytes
+
+Each valid execution attempt writes a private `.pylon/pi-patches/<job-id>.json` executor receipt. Successful export also writes `<job-id>.patch` and records its SHA-256. The directory refuses immutable collisions, more than 4,096 files, or more than 64 MiB; nothing prunes it automatically.
+
+Export permits up to 32 explicit regular text paths and at most 1 MiB of patch bytes. An allowed new path may remain absent; permission does not require you to create a file. Export stages only collected writes and tracked deletions, and emits rename-independent delete/add output. The host creates fresh Git state and never runs Git in an agent-controlled repository. Ciao's existing four-argument `prepared_patch(repository, base, patch_bytes, allowed_paths)` remains the independent scope/mode/import policy. The executor receipt is **not** qualification, publication authority, or independent validation. The worker has no GitHub credentials or publication callback.
+
+## Inspect a private repair capture
+
+Capture is **off by default**. With explicit operator approval, create a dedicated `0700` directory and set [agent.pi.debug_dir](/yaml/pylon#agent) in the existing role:
+
+```yaml
+agent:
+  type: pi
+  pi:
+    # Keep the reviewed image, auth_dir, paths and limits unchanged.
+    debug_dir: /srv/private/pi-debug
+```
+
+Use a canonical, host-owned directory outside the repository, auth directory, and patch/evidence directory, in both containment directions. Pylon refuses unsafe, unavailable, reused or full storage before starting the runtime. It never adopts permissions or prunes old jobs. The signed brief and tools cannot enable capture, choose its destination, or access its files. Changing the debug setting does not reset the existing ledger or authorize another job.
+
+After the supervisor stops and joins the exact worker, inspect only its UUID:
+
+```sh
+pylon pi-worker inspect maintenance-repair \
+  --home /srv/private/pi-repair --job 01234567-89ab-4cde-8fab-0123456789ab
+```
+
+Inspection reads existing configuration, the role marker, and that job's bounded files. It does not load `.env`, read OAuth, open the ledger, contact Docker/network, start a role, or change a pause. It returns escaped JSON with `v: 1`, `private: true`, `untrusted: true`, `publishable: false`, plus `summary`, `events`, and `inspection`. Do not send this private content to CI, chat, notifications or patch evidence.
+
+Each exclusive `<debug_dir>/<job-uuid>/` directory holds `events.jsonl` and `summary.json`, with `0600` files. Events contain selected visible assistant text and tool names, structured argument previews, selected text results, and bounded tool errors. They exclude reasoning/signatures, raw provider envelopes, environment/auth snapshots and SDK internals. The runtime redacts known initial/refreshed OAuth values before truncation, including ambiguous fragments at record boundaries. This can mask harmless edge characters; it is not universal secret detection. A failed tool remains recoverable. The model receives the same bounded sandbox SDK error with capture on or off; private observation does not change tool-result semantics or repair policy.
+
+| Limit | Bound |
+|---|---|
+| Retained jobs, including partial jobs | 64 per root |
+| Total storage per job | 1 MiB |
+| Summary, including an atomic replacement reserve | 4 KiB each, 8 KiB reserved |
+| Encoded JSONL event, including metadata and newline | 16 KiB |
+| Stored events, including host events | 128 |
+| Queued and in-flight runtime events | 8 events / 64 KiB, one request in flight |
+| Capture request / final drain | 1 second / 2 seconds |
+
+A capture starts incomplete and survives failure and teardown. Pylon persists accepted events and drop accounting before acknowledging them. A partial `.summary-next` file can remain after an interrupted write and counts against storage. `inspection.summary_missing`, `summary_stale` and `partial_tail` describe incomplete publication without repairing it.
+
+Capture accounting is complete only when `summary.incomplete` is false, both `runtime_capture_closed` and `executor_closed` are true, and all three inspection flags are false. Runtime closure requires an observed close acknowledgement, not merely process exit. `truncated` and `dropped_events` separately describe omitted content. Mid-run capture loss stays incomplete; it does not change accounting, grant a retry, or make the repair successful. Process-termination survival is tested; power-loss durability is not qualified.
+
+The normal executor receipt retains required `job_id`, `base`, `subscription`, `runtime` and `failure`, with optional `patch`, `patch_sha256` and metadata-only `debug`. A required `runtime` or usage value can be `null`; unknown usage is never zero. The closed `debug` summary has no events or prose. Capture completeness is independent of repair success and durable ledger settlement. Export metadata distinguishes no attempt, empty/nonempty diff, Git failure, cancellation, deadline and output cap; capped/failed byte counts are observed bytes, not an inferred total.
+
+## Run no-model verification
+
+Run these from a reviewed Pylon checkout. Use your shared heavy-check lock when other agents or services share the host. Keep general Go tests on a private test HOME with denied Docker; opt into native Docker separately.
+
+```sh
+node --test agent/pi/meter.test.mjs
+docker build -t pylon-pi-rehearsal agent/pi
+image=$(docker image inspect --format '{{.Id}}' pylon-pi-rehearsal)
+PYLON_PI_REHEARSAL_IMAGE="$image" \
+  CIAO_MAINTENANCE_REPO=/srv/reviewed/immutable-ciao \
+  CIAO_MAINTENANCE_REVISION=REPLACE_WITH_REVIEWED_40_HEX_COMMIT \
+  go test -p 1 -race ./internal/runner ./internal/daemon -run '^TestPiDocker' -count=1 -v
+```
+
+The SDK adapter fixture in `agent/pi/sdk.test.mjs` runs in that image with `--network none`, no auth mount, and only that test file mounted read-only at `/opt/pylon/sdk.test.mjs`. Set `--entrypoint /usr/local/bin/node` on `docker run` and pass `--test /opt/pylon/sdk.test.mjs` after the image ID; otherwise its default entrypoint starts the worker, not the tests. It uses synthetic HTTP and an unsigned synthetic account shape, never a real credential or model call.
+
+The actual-SDK tests also observe encoded `reasoning.effort` for `medium` and `max`, reject invalid/mismatched selections before HTTP, and verify default-max configuration through native execution and receipt validation. Their HTTP and credentials are synthetic; this proves mapping, not model strength, backend reasoning allocation or subscription availability.
+
+The private capture unit suite in `agent/pi/debug.test.mjs` also runs in the image, with that file and `debug-limits.fixture.json` mounted read-only beside it. It tests structural/credential redaction, split/capped content, queues, drain, close acknowledgements and synthetic credential-file bounds. The Go owner checks the same limit fixture. Mount `agent/pi/tool.test.mjs` in the same way to check model-visible error selection, encoded head/tail bounds and categorical refusal of malformed or non-sandbox failures.
+
+Native fixtures exercise the real signed dispatcher, SDK tools, source isolation, unused allowed paths, explicit delete/add export, Ciao import, hostile symlink/mode/size refusal, cancellation, and deadlines. Capture fixtures exercise both `session.prompt` and `agent.prompt` through the actual pinned adapter with fail-closed synthetic HTTP, advertised edit arrays, recoverable errors, initial/refreshed synthetic credentials, and inspection after cancellation, deadline and disposable host termination. The documented login-command smoke starts the actual pinned CLI with fresh empty storage, no network, and a fetch-attempt observer; it sends only `/quit` and checks the unchanged worker filesystem gate. Record the exact Pylon source, image ID, Ciao source, and test results. None proves authenticated model availability or authorizes a live turn.

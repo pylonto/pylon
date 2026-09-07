@@ -65,11 +65,18 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.Exec("PRAGMA journal_mode=WAL")   //nolint:errcheck // best-effort tuning
-	db.Exec("PRAGMA synchronous=NORMAL") //nolint:errcheck // best-effort tuning
-	db.Exec("PRAGMA foreign_keys=ON")    //nolint:errcheck // best-effort tuning
+	db.Exec("PRAGMA journal_mode=WAL") //nolint:errcheck // best-effort tuning
+	if _, err := db.Exec("PRAGMA synchronous=FULL"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	db.Exec("PRAGMA foreign_keys=ON") //nolint:errcheck // best-effort tuning
 
 	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(deliverySchema + controlSchema + subscriptionSchema); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -287,6 +294,8 @@ func (s *Store) RecoverFromDB() int {
 // SavePayloadSample upserts the most recent real webhook payload for a pylon.
 // The message builder reads from this instead of scanning jobs.
 func (s *Store) SavePayloadSample(pylonName string, body map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	raw, err := json.Marshal(body)
 	if err != nil || len(body) == 0 {
 		return

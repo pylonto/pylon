@@ -68,10 +68,15 @@ type Daemon struct {
 	Channels map[string]channel.Channel // per-pylon overrides
 	Limiter  *AgentLimiter
 	Mux      *http.ServeMux
+	RunAgent func(context.Context, runner.RunParams) error
+	RunPi    func(context.Context, runner.PiParams) runner.PiOutcome
+	piStore  *store.Store
+	piJobs   sync.WaitGroup
 
-	pylonsMu sync.RWMutex
-	hooksMu  sync.Mutex
-	hookLog  map[string][]string // jobID -> recent tool-use descriptions
+	deliveryMu sync.Mutex
+	pylonsMu   sync.RWMutex
+	hooksMu    sync.Mutex
+	hookLog    map[string][]string // jobID -> recent tool-use descriptions
 }
 
 // New creates a Daemon from global config and loaded pylons.
@@ -84,6 +89,7 @@ func New(global *config.GlobalConfig, pylons map[string]*config.PylonConfig, st 
 		Channels: perPylon,
 		Limiter:  NewAgentLimiter(global.Docker.MaxConcurrent),
 		Mux:      http.NewServeMux(),
+		RunAgent: runner.RunAgentJob,
 		hookLog:  make(map[string][]string),
 	}
 	d.registerRoutes()
@@ -109,6 +115,9 @@ func (d *Daemon) channelFor(pylonName string) channel.Channel {
 func (d *Daemon) registerRoutes() {
 	registered := make(map[string]string) // path -> pylon name
 	for name, pyl := range d.Pylons {
+		if pyl.Control != nil {
+			d.registerControl(name)
+		}
 		if pyl.Trigger.Type != "webhook" {
 			continue
 		}
@@ -131,13 +140,18 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 	// All other config is read fresh via d.pylonConfig() on each request.
 	trigger := pyl.Trigger
 	d.Mux.HandleFunc(pyl.Trigger.Path, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Pylon-Delivery-Protocol", "1")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		rawBody, err := io.ReadAll(r.Body)
+		rawBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, store.MaxDeliveryBytes))
 		if err != nil {
-			http.Error(w, "failed to read body", http.StatusBadRequest)
+			http.Error(w, "webhook body exceeds 64 KiB or could not be read", http.StatusRequestEntityTooLarge)
 			return
 		}
 		defer r.Body.Close()
@@ -150,11 +164,19 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		}
 
 		pyl, ok := d.pylonConfig(name)
-		if !ok {
-			http.Error(w, "pylon not found", http.StatusNotFound)
+		if !ok || pyl.Disabled {
+			http.Error(w, "pylon unavailable", http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Idempotency-Key") != "" {
+			d.acceptDelivery(w, r, name, pyl, rawBody)
 			return
 		}
 
+		if pyl.ResolveAgentType(d.Global) == "pi" {
+			http.Error(w, "pi_signed_durable_delivery_required", http.StatusUnprocessableEntity)
+			return
+		}
 		var body map[string]interface{}
 		if json.Unmarshal(rawBody, &body) != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -168,7 +190,11 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 		log.Printf("[pylon] [%s] %q triggered, payload: %s", jobID[:8], name, string(rawBody))
 
 		n := d.channelFor(name)
-		needsApproval := n != nil && pyl.Channel != nil && pyl.Channel.Approval
+		needsApproval := pyl.Channel != nil && pyl.Channel.Approval
+		if needsApproval && (n == nil || !n.Ready()) {
+			http.Error(w, "approval unavailable; agent not started", http.StatusServiceUnavailable)
+			return
+		}
 
 		// Resolve topic name from template or fall back to default
 		topicName := fmt.Sprintf("%s -- %s", name, jobID[:8])
@@ -181,8 +207,9 @@ func (d *Daemon) registerWebhook(name string, pyl *config.PylonConfig) {
 			msg := runner.ResolveTemplate(pyl.Channel.Message, body)
 			msgID, err := n.SendApproval(topicID, n.FormatText(msg), jobID)
 			if err != nil {
-				log.Printf("[pylon] [%s] approval failed, running immediately: %v", jobID[:8], err)
-				d.runJob(name, pyl, jobID, body, callbackURL, "", "", "")
+				log.Printf("[pylon] [%s] approval delivery failed; agent not started", jobID[:8])
+				http.Error(w, "approval unavailable; agent not started", http.StatusServiceUnavailable)
+				return
 			} else {
 				d.Store.Put(&store.Job{
 					ID: jobID, PylonName: name, Body: body, Status: "awaiting_approval",
@@ -251,17 +278,24 @@ func (d *Daemon) registerTriggerRoute() {
 	})
 }
 
-func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string, body map[string]interface{}, callbackURL, topicID, promptOverride, sessionID string) {
-	n := d.channelFor(pylonName)
-	if !d.Limiter.Acquire() {
-		log.Printf("[pylon] [%s] at capacity (%d), queued", jobID[:8], d.Global.Docker.MaxConcurrent)
-		if n != nil && topicID != "" {
-			n.SendMessage(topicID, n.FormatText(fmt.Sprintf("Queued -- %d/%d agent slots in use.", d.Limiter.Active(), d.Global.Docker.MaxConcurrent))) //nolint:errcheck // best-effort notification
-		}
-		// TODO: implement proper queue. For now, reject.
-		return
+func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string, body map[string]interface{}, callbackURL, topicID, promptOverride, sessionID string) bool {
+	if pyl.ResolveAgentType(d.Global) == "pi" {
+		return false // Pi can start only from a fresh durable subscription claim.
 	}
+	if !d.Limiter.Acquire() {
+		log.Printf("[pylon] [%s] not started: at capacity (%d)", jobID[:8], d.Global.Docker.MaxConcurrent)
+		// Keyed ingress retains its durable queue entry. Legacy callers get no queue claim.
+		return false
+	}
+	d.startReservedJob(pylonName, pyl, jobID, body, callbackURL, topicID, promptOverride, sessionID)
+	return true
+}
 
+// The caller transfers one acquired limiter slot; the agent goroutine releases it.
+// Durable ingress reserves capacity before claiming execution, so a busy daemon never
+// turns merely queued work into an ambiguous execution claim during a crash.
+func (d *Daemon) startReservedJob(pylonName string, pyl *config.PylonConfig, jobID string, body map[string]interface{}, callbackURL, topicID, promptOverride, sessionID string) {
+	n := d.channelFor(pylonName)
 	prompt := promptOverride
 	if prompt == "" && pyl.Agent != nil {
 		prompt = runner.ResolveTemplate(pyl.Agent.Prompt, body)
@@ -296,8 +330,13 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 		}
 
 		pylonEnv := config.LoadPylonEnvFile(pylonName)
+		keyed, claimErr := d.Store.StartExecution(pylonName, jobID)
+		if claimErr != nil {
+			log.Printf("[delivery] executor claim unavailable; agent not started")
+			return
+		}
 
-		err := runner.RunAgentJob(context.Background(), runner.RunParams{
+		err := d.RunAgent(context.Background(), runner.RunParams{
 			AgentType:     pyl.ResolveAgentType(d.Global),
 			Image:         pyl.ResolveAgentImage(d.Global),
 			Auth:          pyl.ResolveAuth(d.Global),
@@ -318,6 +357,15 @@ func (d *Daemon) runJob(pylonName string, pyl *config.PylonConfig, jobID string,
 			Channel:       n,
 			TopicID:       topicID,
 		})
+		if keyed {
+			outcome := "executor_returned"
+			if err != nil {
+				outcome = "executor_failed"
+			}
+			if recordErr := d.Store.FinishExecution(pylonName, jobID, outcome); recordErr != nil {
+				log.Printf("[delivery] executor result could not be persisted; outcome unknown")
+			}
+		}
 		if err != nil {
 			log.Printf("[pylon] [%s] failed: %v", jobID[:8], err)
 			// Only mark failed if the callback hasn't already set a terminal status
@@ -634,14 +682,27 @@ func appendEventToLog(jobID, msg string) {
 
 func verifySignature(trigger config.TriggerConfig, header http.Header, body []byte) bool {
 	if trigger.SignatureHeader == "" {
-		return true
+		return trigger.Secret == ""
 	}
 	sig := header.Get(trigger.SignatureHeader)
 	if sig == "" {
 		return false
 	}
 	secret := os.ExpandEnv(trigger.Secret)
+	if secret == "" {
+		return false
+	}
+	if strings.EqualFold(trigger.SignatureHeader, "X-Hub-Signature-256") {
+		if !strings.HasPrefix(sig, "sha256=") {
+			return false
+		}
+		sig = strings.TrimPrefix(sig, "sha256=")
+	}
 	mac := hmac.New(sha256.New, []byte(secret))
+	// Bind idempotency to authentication: a replay cannot choose a new delivery identity.
+	if key := header.Get("Idempotency-Key"); key != "" {
+		mac.Write([]byte(key + "\n"))
+	}
 	mac.Write(body)
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(sig), []byte(expected))

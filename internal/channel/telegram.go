@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -77,6 +78,26 @@ func (t *Telegram) OnChatDetected(cb func(chatID int64)) {
 	t.mu.Unlock()
 }
 
+// A formatting rejection is the only safe reason to retry a send as plaintext.
+// Transport errors, missing receipts and other failures may already have delivered it.
+var errTelegramFormatting = errors.New("telegram formatting rejected")
+
+func telegramHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return &http.Client{Timeout: 10 * time.Second, Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+// NewTelegramSender is deliberately outbound-only: no getUpdates, auto-detection,
+// command registration, callbacks or agent commands. Its caller must verify chat ownership.
+func NewTelegramSender(token string, chatID int64) (*Telegram, error) {
+	if token == "" || chatID == 0 {
+		return nil, errors.New("verified Telegram token and chat required")
+	}
+	return &Telegram{token: token, chatID: chatID, client: telegramHTTPClient()}, nil
+}
+
 func (t *Telegram) callAPI(method string, params map[string]interface{}) (json.RawMessage, error) {
 	base := t.baseURL
 	if base == "" {
@@ -86,20 +107,32 @@ func (t *Telegram) callAPI(method string, params map[string]interface{}) (json.R
 	body, _ := json.Marshal(params)
 	resp, err := t.client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("calling %s: %w", method, err)
+		// net/http errors include the credential-bearing URL. Never wrap or print them.
+		return nil, fmt.Errorf("calling %s: transport outcome unknown", method)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
+	const maxResponse = 1024 * 1024
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
+	if readErr != nil || len(raw) > maxResponse {
+		return nil, errors.New("telegram response unavailable or oversized")
+	}
 	var result struct {
 		OK          bool            `json:"ok"`
+		ErrorCode   int             `json:"error_code"`
 		Description string          `json:"description"`
 		Result      json.RawMessage `json:"result"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, fmt.Errorf("parsing %s response: %w", method, err)
+		return nil, fmt.Errorf("parsing %s response failed", method)
 	}
 	if !result.OK {
-		return nil, fmt.Errorf("telegram %s: %s", method, result.Description)
+		if result.ErrorCode == 400 && strings.Contains(result.Description, "can't parse entities") {
+			return nil, errTelegramFormatting
+		}
+		return nil, fmt.Errorf("telegram %s refused (code %d)", method, result.ErrorCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("telegram HTTP outcome unknown")
 	}
 	return result.Result, nil
 }
@@ -155,7 +188,9 @@ func (t *Telegram) sendTelegram(topicID, text, parseMode, replyTo string, replyM
 	var msg struct {
 		MessageID int64 `json:"message_id"`
 	}
-	json.Unmarshal(raw, &msg)
+	if json.Unmarshal(raw, &msg) != nil || msg.MessageID <= 0 {
+		return "", errors.New("telegram message receipt missing; outcome unknown")
+	}
 	return strconv.FormatInt(msg.MessageID, 10), nil
 }
 
@@ -163,11 +198,11 @@ func (t *Telegram) sendTelegram(topicID, text, parseMode, replyTo string, replyM
 // Telegram rejects the formatting, it retries with the raw text as plaintext.
 func (t *Telegram) sendWithFallback(topicID string, chunk formattedChunk, replyTo string, replyMarkup interface{}) (string, error) {
 	id, err := t.sendTelegram(topicID, chunk.Formatted, "MarkdownV2", replyTo, replyMarkup)
-	if err != nil {
+	if errors.Is(err, errTelegramFormatting) {
 		log.Printf("[telegram] MarkdownV2 rejected, retrying as plaintext: %v", err)
 		return t.sendTelegram(topicID, chunk.Raw, "", replyTo, replyMarkup)
 	}
-	return id, nil
+	return id, err
 }
 
 // telegramMaxLen is the maximum text length for a single Telegram message.
@@ -227,8 +262,8 @@ func (t *Telegram) EditMessage(topicID, messageID, text string) error {
 	_, err = t.callAPI("editMessageText", map[string]interface{}{
 		"chat_id": chatID, "message_id": mid, "text": formatted, "parse_mode": "MarkdownV2",
 	})
-	if err != nil {
-		// Fallback to plaintext.
+	if errors.Is(err, errTelegramFormatting) {
+		// Telegram explicitly refused the formatting; the edit was not applied.
 		log.Printf("[telegram] MarkdownV2 edit rejected, retrying as plaintext: %v", err)
 		plain := text
 		if len(plain) > telegramMaxLen {

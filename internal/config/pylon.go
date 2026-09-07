@@ -126,6 +126,13 @@ type PylonConfig struct {
 	Channel   *PylonChannel   `yaml:"channel,omitempty"`
 	Workspace WorkspaceConfig `yaml:"workspace"`
 	Agent     *PylonAgent     `yaml:"agent,omitempty"`
+	Control   *ControlConfig  `yaml:"control,omitempty"`
+}
+
+// ControlConfig opts in to signed, non-agent status and notification requests.
+// TopicID must name a preexisting approved topic; control never creates one implicitly.
+type ControlConfig struct {
+	TopicID string `yaml:"topic_id"`
 }
 
 type TriggerConfig struct {
@@ -185,6 +192,7 @@ type WorkspaceConfig struct {
 }
 
 type PylonAgent struct {
+	Pi       *PiConfig         `yaml:"pi,omitempty"`
 	Type     string            `yaml:"type,omitempty"`
 	Auth     string            `yaml:"auth,omitempty"`
 	APIKey   string            `yaml:"api_key,omitempty"` // e.g. "${ANTHROPIC_API_KEY_B}"
@@ -214,7 +222,7 @@ func PylonDBPath(name string) string {
 // Anything else is either misplaced (indentation error) or a typo.
 var knownTopLevelKeys = map[string]bool{
 	"name": true, "description": true, "disabled": true, "created": true,
-	"trigger": true, "channel": true, "workspace": true, "agent": true,
+	"trigger": true, "channel": true, "workspace": true, "agent": true, "control": true,
 }
 
 // misplacedKeyHints maps sub-keys to the section they likely belong under.
@@ -368,7 +376,12 @@ func (p *PylonConfig) Validate(loadedFrom string) error {
 		}
 	}
 	if p.Agent != nil && p.Agent.Type != "" && !validAgentTypes[p.Agent.Type] {
-		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode) -- update %s or press e to edit", p.Agent.Type, path)
+		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode, pi) -- update %s or press e to edit", p.Agent.Type, path)
+	}
+	if p.Agent != nil && (p.Agent.Type == "pi" || p.Agent.Pi != nil) {
+		if err := p.ValidatePi(); err != nil {
+			return err
+		}
 	}
 	if p.Agent != nil {
 		for _, v := range p.Agent.Volumes {
@@ -469,6 +482,11 @@ func (p *PylonConfig) ResolveAgentType(global *GlobalConfig) string {
 // on-disk migration in LoadGlobal could not persist.
 func (p *PylonConfig) ResolveAgentImage(global *GlobalConfig) string {
 	switch p.ResolveAgentType(global) {
+	case "pi":
+		if p.Agent != nil && p.Agent.Pi != nil {
+			return p.Agent.Pi.Image
+		}
+		return ""
 	case "claude":
 		if global.Defaults.Agent.Claude != nil {
 			img := global.Defaults.Agent.Claude.Image
