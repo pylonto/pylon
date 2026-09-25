@@ -102,21 +102,42 @@ func TestSubscriptionBudgetRaisesOnlyCapsAndRetainsPriorUsage(t *testing.T) {
 }
 
 func TestSubscriptionBudgetRefusalsDoNotAlterHistoryOrPolicy(t *testing.T) {
-	for _, name := range []string{"stale", "job_tokens", "job_seconds", "resume", "quota", "reserved", "unknown", "pending", "claimed", "clock", "lower", "no-op", "invalid"} {
+	for _, perJob := range []bool{false, true} {
+		t.Run(fmt.Sprintf("per_job_%t", perJob), func(t *testing.T) { testSubscriptionBudgetRefusals(t, perJob) })
+	}
+}
+
+func calibrationLimits() SubscriptionLimits {
+	return SubscriptionLimits{DailyJobs: 10, DailyTokens: 100000000, JobTokens: 20000000, JobSeconds: 1800}
+}
+
+func testSubscriptionBudgetRefusals(t *testing.T, perJob bool) {
+	for _, name := range []string{"stale", "stale_daily_jobs", "stale_job_tokens", "stale_job_seconds", "lower_job_tokens", "lower_job_seconds", "resume", "quota", "auth", "reserved", "unknown", "pending", "claimed", "clock", "lower", "no-op", "invalid"} {
 		t.Run(name, func(t *testing.T) {
 			s, old, desired := budgetFixture(t)
+			if perJob {
+				desired = calibrationLimits()
+			}
 			now := subscriptionNow
 			switch name {
 			case "stale":
 				old.DailyTokens++
-			case "job_tokens":
-				desired.JobTokens++
-			case "job_seconds":
-				desired.JobSeconds++
+			case "stale_daily_jobs":
+				old.DailyJobs++
+			case "stale_job_tokens":
+				old.JobTokens--
+			case "stale_job_seconds":
+				old.JobSeconds++
+			case "lower_job_tokens":
+				desired.JobTokens = old.JobTokens - 1
+			case "lower_job_seconds":
+				desired.JobSeconds = old.JobSeconds - 1
 			case "resume":
 				require.NoError(t, s.PauseSubscription("", now))
 			case "quota":
 				require.NoError(t, s.PauseSubscription("quota_exhausted", now))
+			case "auth":
+				require.NoError(t, s.PauseSubscription("auth_unavailable", now))
 			case "reserved":
 				_, err := s.db.Exec("UPDATE subscription_claims SET state='reserved',result='' WHERE day=?", now.Format(time.DateOnly))
 				require.NoError(t, err)
@@ -156,6 +177,12 @@ func TestSubscriptionBudgetRefusalsDoNotAlterHistoryOrPolicy(t *testing.T) {
 }
 
 func TestSubscriptionBudgetCrossConnectionCASHasOneWinner(t *testing.T) {
+	for _, perJob := range []bool{false, true} {
+		t.Run(fmt.Sprintf("per_job_%t", perJob), func(t *testing.T) { testSubscriptionBudgetCrossConnectionCAS(t, perJob) })
+	}
+}
+
+func testSubscriptionBudgetCrossConnectionCAS(t *testing.T, perJob bool) {
 	path := filepath.Join(t.TempDir(), "jobs.db")
 	s, err := Open(path)
 	require.NoError(t, err)
@@ -166,6 +193,9 @@ func TestSubscriptionBudgetCrossConnectionCASHasOneWinner(t *testing.T) {
 	old := SubscriptionLimits{DailyJobs: 1, DailyTokens: 100, JobTokens: 100, JobSeconds: 60}
 	desired := old
 	desired.DailyJobs++
+	if perJob {
+		desired = calibrationLimits()
+	}
 	require.NoError(t, s.ConfigureSubscription(old, subscriptionNow))
 	require.NoError(t, s.PauseSubscription("operator", subscriptionNow))
 	start := make(chan struct{})
@@ -201,4 +231,88 @@ func TestSubscriptionBudgetCrossConnectionCASHasOneWinner(t *testing.T) {
 	require.Equal(t, "operator", status.Paused)
 	require.Zero(t, status.Records)
 	require.Zero(t, status.TokensToday)
+}
+
+func TestSubscriptionBudgetCalibrationPreservesHistoryAndCompletedReplay(t *testing.T) {
+	s, old, _ := budgetFixture(t)
+	desired := calibrationLimits()
+	before := budgetHistory(t, s)
+	status, err := s.SubscriptionStatus(subscriptionNow)
+	require.NoError(t, err)
+	var job, digest string
+	require.NoError(t, s.db.QueryRow("SELECT job_id,digest FROM subscription_claims WHERE day=?", subscriptionNow.Format(time.DateOnly)).Scan(&job, &digest))
+	completed, fresh, err := s.ClaimSubscription(job, digest, old, subscriptionNow)
+	require.NoError(t, err)
+	require.False(t, fresh)
+	require.Equal(t, completed.StartedAt+int64(old.JobSeconds), completed.Deadline)
+	require.ErrorIs(t, s.ConfigureSubscription(desired, subscriptionNow), ErrSubscriptionConflict)
+	require.NoError(t, s.RaiseSubscriptionBudget(old, desired, subscriptionNow))
+	after, err := s.SubscriptionStatus(subscriptionNow)
+	require.NoError(t, err)
+	status.Limits = desired
+	require.Equal(t, status, after)
+	replay, fresh, err := s.ClaimSubscription(job, digest, desired, subscriptionNow)
+	require.NoError(t, err)
+	require.False(t, fresh, "a completed replay never authorizes another executor")
+	// Deadline is a current-policy derived view, not a stored historical fact.
+	// No unresolved claim may survive a raise; completed replay is non-actionable.
+	require.Equal(t, completed.StartedAt+1800, replay.Deadline)
+	completed.Deadline = replay.Deadline
+	require.Equal(t, completed, replay)
+	require.NoError(t, s.FinishSubscription(job, *completed.Result, subscriptionNow))
+	require.Equal(t, before, budgetHistory(t, s))
+	require.ErrorIs(t, s.RaiseSubscriptionBudget(old, desired, subscriptionNow), ErrSubscriptionConflict)
+	require.ErrorIs(t, s.RaiseSubscriptionBudget(desired, desired, subscriptionNow), ErrSubscriptionInvalid)
+	require.Equal(t, before, budgetHistory(t, s))
+	require.NoError(t, s.PauseSubscription("", subscriptionNow))
+	claim := subscriptionClaim(t, s, desired, "calibration-new", subscriptionNow)
+	require.Equal(t, subscriptionNow.Unix()+1800, claim.Deadline)
+	reserved, err := s.SubscriptionStatus(subscriptionNow)
+	require.NoError(t, err)
+	require.EqualValues(t, 20000066, reserved.TokensToday)
+	require.NoError(t, s.FinishSubscription(claim.JobID, subscriptionResult(750), subscriptionNow))
+	settled, err := s.SubscriptionStatus(subscriptionNow)
+	require.NoError(t, err)
+	require.EqualValues(t, 816, settled.TokensToday)
+}
+
+func TestSubscriptionBudgetCalibrationRollbackAndMonotonicity(t *testing.T) {
+	t.Run("transaction_rollback", func(t *testing.T) {
+		s, old, _ := budgetFixture(t)
+		before := budgetHistory(t, s)
+		status, err := s.SubscriptionStatus(subscriptionNow)
+		require.NoError(t, err)
+		_, err = s.db.Exec("CREATE TRIGGER refuse_budget AFTER UPDATE OF limits ON subscription_policy BEGIN SELECT RAISE(ABORT, 'synthetic budget rollback'); END")
+		require.NoError(t, err)
+		require.ErrorIs(t, s.RaiseSubscriptionBudget(old, calibrationLimits(), subscriptionNow), ErrSubscriptionStorage)
+		after, err := s.SubscriptionStatus(subscriptionNow)
+		require.NoError(t, err)
+		require.Equal(t, status, after)
+		require.Equal(t, before, budgetHistory(t, s))
+	})
+	for _, field := range []string{"daily_jobs", "daily_tokens", "job_tokens", "job_seconds"} {
+		t.Run(field, func(t *testing.T) {
+			s, _ := subscriptionFixture(t)
+			old := calibrationLimits()
+			require.NoError(t, s.ConfigureSubscription(old, subscriptionNow))
+			require.NoError(t, s.PauseSubscription("operator", subscriptionNow))
+			desired := old
+			switch field {
+			case "daily_jobs":
+				desired.DailyJobs--
+			case "daily_tokens":
+				desired.DailyTokens--
+			case "job_tokens":
+				desired.JobTokens--
+			case "job_seconds":
+				desired.JobSeconds--
+			}
+			require.NoError(t, desired.Validate(), "valid shape must not mask the monotonicity guard")
+			require.ErrorIs(t, s.RaiseSubscriptionBudget(old, desired, subscriptionNow), ErrSubscriptionInvalid)
+			status, err := s.SubscriptionStatus(subscriptionNow)
+			require.NoError(t, err)
+			require.Equal(t, old, status.Limits)
+			require.Equal(t, "operator", status.Paused)
+		})
+	}
 }

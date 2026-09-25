@@ -13,7 +13,7 @@ Build and review this source and its immutable image before enabling a role. A w
 
 Use Linux with a local Docker Engine and Unix socket, not Docker Desktop or a remote daemon. Use a new private HOME, with one pylon and no personal configuration. The worker requires `.pylon/pi-only` to contain exactly `pylon-pi-v1` followed by a newline. Keep the HOME and marker private (modes `0700` and `0600`). It does not install or restart a service.
 
-Build `agent/pi/Dockerfile` from your reviewed source. Configure the resulting immutable local image ID (`sha256:...`), not a tag. The image pins its Node base and Pi packages; its public catalog check is not proof that your subscription can use the model.
+Build `agent/pi/Dockerfile` from your reviewed source. Configure the resulting immutable local image ID (`sha256:...`), not a tag. The worker loads `/opt/pylon/worker.mjs` and its modules from that image; an updated host binary does not replace them. Changes to the meter require a new image as well as a new binary. The image pins its Node base and Pi packages; its public catalog check is not proof that your subscription can use the model.
 
 Log in through the image's existing Pi CLI in a **separate owner terminal/browser**, with `PI_CODING_AGENT_DIR=/role` and only the fresh `.pylon/pi-auth` directory mounted there. Disable tools, sessions, extensions, skills, prompt templates, and themes. Use `/login` and select OpenAI Codex, then `/quit`; do not send a model prompt. Never copy your commissioning or personal auth store. Never put OAuth URLs, codes, tokens, or auth-file contents in agent chat or logs.
 
@@ -31,7 +31,7 @@ The worker requires exactly one OAuth provider in `auth.json`. It ignores the CL
 
 Set the isolated global configuration's `server.host` to a literal loopback address, choose an unused port, and omit notification channels. Keep the webhook secret in the role's private `.env`, outside source control.
 
-The following example illustrates an allocation; it does **not** approve one. Replace the image, trusted repository, role HOME, paths, and limits with reviewed values.
+The following example illustrates a generous, temporary calibration allocation; it does **not** approve one. Replace the image, trusted repository, role HOME, paths, and limits with reviewed values. Keep concurrency at one and reduce the allocation only through a separately reviewed policy after you have measured real outcomes.
 
 ```yaml
 name: maintenance-repair
@@ -50,14 +50,14 @@ agent:
   pi:
     image: "sha256:REPLACE_WITH_REVIEWED_LOCAL_IMAGE_ID"
     auth_dir: /srv/private/pi-repair/.pylon/pi-auth
-    thinking: max # Optional; omit for max, or explicitly select medium.
+    thinking: medium # Calibration choice; omission still defaults to max.
     allowed_paths:
       - src/repair.txt
     limits:
-      daily_jobs: 1
-      daily_tokens: 1600000
-      job_tokens: 1600000
-      job_seconds: 300
+      daily_jobs: 10
+      daily_tokens: 100000000
+      job_tokens: 20000000
+      job_seconds: 1800
 ```
 
 `agent.pi.thinking` accepts only `medium` or `max`. An absent setting preserves `max`; an explicit empty, null, or unsupported value refuses configuration. The trusted job carries the resolved value through the SDK session and encoded request, and the runtime receipt must match it exactly. The signed brief, role-local SDK settings and global configuration cannot override it. Deploy the reviewed binary and image together; there is no effort fallback. Changing effort does not change budgets, reset usage, or authorize a job. The commissioning session's effort is independent.
@@ -81,17 +81,31 @@ pylon pi-worker budget maintenance-repair --home /srv/private/pi-repair \
   --expect-daily-jobs 1 --expect-daily-tokens 1600000
 ```
 
-The new ceilings come from that configuration. `budget` compares the complete expected old policy under the ledger's writer lock and leaves every claim, usage charge, watermark and operator pause intact. It refuses stale expectations, replay/no-op, lower ceilings, per-job changes, clock rollback, unresolved execution and pending deliveries. Ordinary configuration and admission still refuse changed policies; neither invokes this operation automatically. Success returns ordinary status JSON and does not start or resume a worker. Check the retained usage and pause before a separately authorized run. A failed or uncertain change must be reconciled while stopped; do not reset the ledger or assume the configuration and policy match.
+This daily-only command cannot change per-job limits. To raise per-job capacity too, explicitly supply **both** expected-old per-job values, alongside the expected-old daily values. For example, after approving and editing the calibration limits above, use the following only if all four old values match the stopped role:
+
+```sh
+pylon pi-worker budget maintenance-repair --home /srv/private/pi-repair \
+  --expect-daily-jobs 1 --expect-daily-tokens 1600000 \
+  --expect-job-tokens 1600000 --expect-job-seconds 300
+```
+
+The desired ceilings come from configuration. `budget` compares the **entire** expected-old policy under the ledger's writer lock and leaves every claim, usage charge, watermark and operator pause intact. Every ceiling must stay equal or increase, and at least one must increase. It refuses partial per-job flags, stale expectations, replay/no-op, decreases, clock rollback, unresolved execution and pending deliveries. Do not use raw SQL to bypass these checks. Ordinary configuration and admission still refuse changed policies; neither invokes this operation automatically.
+
+Success returns ordinary status JSON and does not start or resume a worker. Check retained usage and pause before a separately authorized run; existing spent grants remain spent. A failed or uncertain change must be reconciled while stopped. Do not reset the ledger, retry blindly or assume configuration and policy match. Completed claim replay can show a deadline derived from the new policy; it is not historical timing evidence and never authorizes execution (`fresh=false`). Original identity, start time, usage and receipts remain unchanged.
 
 ## Understand the bounds
 
-Each HTTP attempt reserves the **full catalog envelope**: 272,000 input-context tokens plus 128,000 output tokens = **400,000 tokens**. The example therefore permits at most four attempts, with no automatic request retries, compaction, lower model, or API-key fallback. `maxTokens` is not an enforced Codex output cap.
+Each HTTP attempt reserves the **full catalog envelope**: 272,000 input-context tokens plus 128,000 output tokens = **400,000 tokens**. The calibration example permits at most **50 attempts** from 20,000,000 tokens, not an unlimited conversation. There are no automatic request retries, compaction, lower model, or API-key fallback. `maxTokens` is not an enforced Codex output cap.
 
-The complete logical request has a separate **256 KiB UTF-8 JSON ceiling**, checked before HTTP and compression. It includes the instructions, tool definitions, brief, and accumulated messages and tool results. This finite narrow-trial budget is not a full-context guarantee: multiple calls or a large legal tool response can exceed it. Refusal does not truncate context, compact, retry, or reserve another HTTP attempt. The equal-valued tool/RPC cap is a separate policy.
+**Reserved is not actual usage.** Per-attempt reservations accumulate for the entire job and are not refunded when a response uses fewer tokens. Fifty tiny responses totaling only 750 actual tokens can still exhaust the 20,000,000-token request reservation. The 51st attempt refuses before HTTP and before another reservation. Known actual usage remains available for the separate, existing daily-ledger settlement at job completion.
+
+The complete logical request has a separate **8 MiB (8,388,608 bytes) UTF-8 JSON ceiling**, checked before HTTP and compression, but after adapter auth resolution. It includes instructions, tool definitions, the brief, accumulated messages and tool results. This is our finite local capacity limit, not a published external cap or a full-context guarantee. Model context, response and subscription limits still apply. Multiple individually legal tool results can exceed the aggregate ceiling. Refusal does not truncate context, compact, retry, change prior usage or reserve another HTTP attempt. The **256 KiB tool/RPC cap remains separate and unchanged**.
 
 Reservation ceilings are not usage predictions. The trusted transport counts input, output, cache-read, and cache-write tokens and settles known usage at job completion. Missing, malformed, interrupted, or ambiguous usage retains the whole job reservation. HTTP auth/quota refusal pauses the role; SSE uncertainty can retain usage and pause together. Accounting continues to the bounded response's end even when the SDK stops at its terminal event.
 
-Job time includes source preparation, execution, export, and termination. The supervisor reserves ten seconds for termination. Each container also has an independent deadline. A job permits 64 tool calls, 256 KiB tool messages, 30-second tool executions, 64 MiB temporary storage, and a 128 MiB source workspace. CPU, memory, process counts, raw responses, source-tree size, and patch storage have explicit bounds. These restrictions can make a repair fail; they never imply permission to loosen them automatically.
+The **1,800-second (30-minute)** job limit includes source preparation, execution, export and termination. Admission sets one absolute deadline. The host and runtime retain the existing ten-second termination reserve: execution/export stop at that deadline minus ten seconds, not at a hidden five-minute ceiling. Setup consumes part of the same interval; the SDK receives the remaining worker interval without a shorter request timeout. Each container also retains its independent absolute-deadline watchdog.
+
+The proxy permits **256 tool calls per job**. Individual bounds stay unchanged: 256 KiB tool/RPC messages, 30-second tool executions within a 35-second RPC/exec envelope, 64 MiB temporary storage and a 128 MiB source workspace. Short ingress, setup, capture and cleanup timeouts bound individual operations, not the whole job. CPU, memory, process counts, raw responses, source-tree size and patch storage remain bounded. Larger jobs can truncate the unchanged optional private capture; keep capture off for real source. None of these limits grants permission to loosen another automatically.
 
 The credentialed runtime never executes repository/tool code. Tools run offline, without credentials, Docker access, the runtime socket, or repository Git state. `/workspace` is a plain-files snapshot without `.git`; the system prompt tells the model to edit files there and let the controller export the patch. Assistant patch prose is not an export. A failed SDK tool returns bounded failure text to the model, including preceding command output and the trailing status. The 8 KiB encoded-text cap retains head/tail text with an explicit truncation marker. Host/auth/transport, parsing and dispatch failures remain categorical; no raw runtime exception or provider envelope becomes tool output. Export starts a small credential-free, read-only workspace holder and destroys all untrusted writers first. It does not pause a watchdog along with the writers. A supervisor crash can leave stopped container/volume metadata for scoped operator reconciliation, but cannot authorize execution replay.
 
@@ -160,7 +174,7 @@ PYLON_PI_REHEARSAL_IMAGE="$image" \
 
 The SDK adapter fixture in `agent/pi/sdk.test.mjs` runs in that image with `--network none` and no auth mount. Mount that test file read-only at `/opt/pylon/sdk.test.mjs` and its test-only helper `agent/pi/request-cap.fixture.mjs` read-only at `/opt/pylon/request-cap.fixture.mjs`; the helper is not shipped in the production image. Set `--entrypoint /usr/local/bin/node` on `docker run` and pass `--test /opt/pylon/sdk.test.mjs` after the image ID; otherwise its default entrypoint starts the worker, not the tests. It uses synthetic HTTP and an unsigned synthetic account shape, never a real credential or model call.
 
-The actual-SDK tests also observe encoded `reasoning.effort` for `medium` and `max`, reject invalid/mismatched selections before HTTP, and verify default-max configuration through native execution and receipt validation. Their HTTP and credentials are synthetic; this proves mapping, not model strength, backend reasoning allocation or subscription availability.
+The actual-SDK tests also observe encoded `reasoning.effort` for `medium` and `max`, reject invalid/mismatched selections before HTTP, and verify default-max configuration through native execution and receipt validation. Calibration regressions cover 50 tiny-usage responses, refusal of attempt 51, exact UTF-8 aggregate boundaries, legal accumulated context above the old cap, and over-cap refusal with prior accounting intact. Their HTTP and credentials are synthetic; this proves mapping and local bounds, not model strength, backend reasoning allocation or subscription availability.
 
 The private capture unit suite in `agent/pi/debug.test.mjs` also runs in the image, with that file and `debug-limits.fixture.json` mounted read-only beside it. It tests structural/credential redaction, split/capped content, queues, drain, close acknowledgements and synthetic credential-file bounds. The Go owner checks the same limit fixture. Mount `agent/pi/tool.test.mjs` in the same way to check model-visible error selection, encoded head/tail bounds and categorical refusal of malformed or non-sandbox failures.
 

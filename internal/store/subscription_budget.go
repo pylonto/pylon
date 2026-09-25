@@ -7,12 +7,13 @@ import (
 )
 
 // RaiseSubscriptionBudget is an explicit operator action, never admission/configure
-// fallback. Only daily ceilings may rise; existing reservations keep their original
-// per-job envelope. Expected policy and pause are checked under the SQLite writer
-// reservation, including across independent processes. No history or clock is reset.
+// fallback. All ceilings may rise with a complete explicit expected-old policy.
+// No unresolved execution or pending delivery may cross a policy transition.
+// Expected policy and pause are checked under the SQLite writer reservation,
+// including across independent processes. No history, usage or clock is reset.
 func (s *Store) RaiseSubscriptionBudget(expected, desired SubscriptionLimits, now time.Time) error {
 	if expected.Validate() != nil || desired.Validate() != nil || now.Unix() <= 0 ||
-		expected.JobTokens != desired.JobTokens || expected.JobSeconds != desired.JobSeconds ||
+		desired.JobTokens < expected.JobTokens || desired.JobSeconds < expected.JobSeconds ||
 		desired.DailyJobs < expected.DailyJobs || desired.DailyTokens < expected.DailyTokens || expected == desired {
 		return ErrSubscriptionInvalid
 	}

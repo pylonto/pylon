@@ -23,6 +23,29 @@ test("reserves full envelope before each request, counts cache, refuses the next
   assert.equal(meter.requests, 1);
 });
 
+for (const thinking of ["medium", "max"]) test(`calibration reserves 50 full envelopes despite tiny actual usage ${thinking}`, async () => {
+  let calls = 0;
+  const tiny = { input_tokens: 10, output_tokens: 5, total_tokens: 15, input_tokens_details: { cached_tokens: 2 } };
+  const meter = new Meter(20000000, model, async () => { calls++; return sse(tiny); }, thinking);
+  for (let n = 1; n <= 50; n++) {
+    await (await meter.fetch(url, opts)).text();
+    await meter.settle();
+    assert.equal(meter.failure, "");
+    assert.equal(calls, n);
+    assert.equal(meter.requests, n);
+    assert.equal(meter.reserved, n * 400000, "known tiny usage does not refund per-attempt reservation");
+    assert.deepEqual(meter.result(), { input: n * 8, output: n * 5, cache_read: n * 2, cache_write: 0 });
+  }
+  const before = structuredClone(meter.result());
+  assert.equal(Object.values(before).reduce((a, b) => a + b), 750);
+  await assert.rejects(meter.fetch(url, opts), /^Error: request_budget_exhausted$/);
+  assert.equal(calls, 50);
+  assert.equal(meter.requests, 50);
+  assert.equal(meter.reserved, 20000000);
+  assert.equal(meter.pending, false);
+  assert.deepEqual(meter.result(), before);
+});
+
 test("unknown stream, missing/negative/over-limit usage never refund or admit another request", async () => {
   for (const value of [undefined, { ...usage, total_tokens: 0 }, { ...usage, output_tokens: -1 }, { ...usage, input_tokens: 300000, total_tokens: 300020 }, { ...usage, input_tokens_details: { cached_tokens: 101 } }]) {
     let calls = 0;
@@ -62,7 +85,7 @@ test("concurrent attempts, wrong provider/model/thinking/endpoint and oversized 
   await assert.rejects(meter.fetch(url, opts));
   await first.text();
   assert.equal(meter.requests, 1);
-  for (const payload of [{ model: MODEL, reasoning: { effort: "high" } }, { model: MODEL, reasoning: { effort: "max" }, store: true, stream: true }, { model: MODEL, reasoning: { effort: "max" }, store: false, stream: true, input: "x".repeat(262144) }]) {
+  for (const payload of [{ model: MODEL, reasoning: { effort: "high" } }, { model: MODEL, reasoning: { effort: "max" }, store: true, stream: true }, { model: MODEL, reasoning: { effort: "max" }, store: false, stream: true, input: "x".repeat(8388608) }]) {
     assert.throws(() => new Meter(400000, model).payload(payload, model));
   }
   const wrong = new Meter(400000, model, () => assert.fail("wrong endpoint reached fetch"));
@@ -101,9 +124,9 @@ test("accounting outlives an SDK reader stopping at terminal and rejects late du
 });
 
 // These numbers deliberately do not derive from the implementation's constant:
-// restoring 64 KiB, widening the budget or changing > to >= must turn tests red.
+// restoring 256 KiB, widening the budget or changing > to >= must turn tests red.
 test("aggregate request ceiling has its own explicit owner", () => {
-  assert.equal(limits.MAX_REQUEST_BYTES, 262144);
+  assert.equal(limits.MAX_REQUEST_BYTES, 8388608);
 });
 const requestBody = (effort = "max") => ({ model: MODEL, reasoning: { effort }, store: false, stream: true,
   instructions: "fixed", tools: [{ type: "function", name: "read", description: "fixed" }],
@@ -117,7 +140,7 @@ function exactRequest(bytes, unit, effort) {
   return body;
 }
 for (const [label, unit] of Object.entries({ ascii: "a", multibyte: "é中", astral: "🧪", escaped: "\"\\\n\r\t\u0000\u0001" })) {
-  for (const bytes of [262143, 262144, 262145]) for (const thinking of ["medium", "max"]) for (const prior of [0, 1]) {
+  for (const bytes of [8388607, 8388608, 8388609]) for (const thinking of ["medium", "max"]) for (const prior of [0, 1]) {
     test(`aggregate UTF-8 JSON ${label} bytes=${bytes} thinking=${thinking} prior=${prior}`, async () => {
       let calls = 0;
       const meter = new Meter(1600000, model, async () => { calls++; return sse(usage); }, thinking);
@@ -129,7 +152,7 @@ for (const [label, unit] of Object.entries({ ascii: "a", multibyte: "é中", ast
       const previous = structuredClone(meter.result());
       const body = exactRequest(bytes, unit, thinking);
       const before = JSON.stringify(body);
-      if (bytes > 262144) {
+      if (bytes > 8388608) {
         assert.throws(() => meter.payload(body, model), /^Error: output_bound$/);
         assert.equal(meter.failure, "output_bound");
         await assert.rejects(meter.fetch(url, opts), /^Error: output_bound$/);
@@ -146,7 +169,7 @@ for (const [label, unit] of Object.entries({ ascii: "a", multibyte: "é中", ast
       assert.equal(meter.pause, "");
       assert.deepEqual(meter.result(), previous);
       assert.equal(JSON.stringify(body) === before, true, "no body rewriting or truncation");
-      if (bytes <= 262144) {
+      if (bytes <= 8388608) {
         await (await meter.fetch(url, opts)).text();
         await meter.settle();
         assert.equal(calls, prior + 1);

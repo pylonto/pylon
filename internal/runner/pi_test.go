@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,28 @@ func TestPiContainerCredentialAndNetworkBoundary(t *testing.T) {
 	_, mounts := BuildAgentEnv(RunParams{AgentType: "pi", Auth: "oauth"}, "/ignored")
 	require.Empty(t, mounts)
 	require.ErrorContains(t, RunAgentJob(context.Background(), RunParams{AgentType: "pi"}), "subscription_executor")
+}
+
+func TestPiCalibrationDeadlineAndRuntimeImageOwnership(t *testing.T) {
+	start := time.Unix(1788800000, 0)
+	p := PiParams{Config: piTestConfig(), Deadline: start.Add(1800 * time.Second)}
+	p.Config.Thinking = config.PiThinkingMedium
+	p.Config.Limits = store.SubscriptionLimits{DailyJobs: 10, DailyTokens: 100000000, JobTokens: 20000000, JobSeconds: 1800}
+	require.NoError(t, p.Config.Validate())
+	job := piRuntimeJob(p)
+	require.Equal(t, start.Unix()+1790, job.Deadline, "only the existing ten-second termination reserve is subtracted")
+	require.EqualValues(t, 20000000, job.Tokens)
+	require.Equal(t, config.PiThinkingMedium, job.Thinking)
+	for _, role := range []string{"runtime", "tools", "export"} {
+		script := "sandbox.mjs"
+		if role == "runtime" {
+			script = "worker.mjs"
+		}
+		cfg, _ := piContainerConfig(p, p.Config.Image, role, script, nil)
+		require.Equal(t, []string{strconv.FormatInt(start.Unix()+1800, 10)}, []string(cfg.Cmd))
+		require.Equal(t, []string{"/usr/local/bin/node", "/opt/pylon/" + script}, []string(cfg.Entrypoint))
+		require.Equal(t, p.Config.Image, cfg.Image, "embedded JS does not replace the immutable runtime image")
+	}
 }
 
 func TestPiExportRejectsUntrustedModesAndBounds(t *testing.T) {

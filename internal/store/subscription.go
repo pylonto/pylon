@@ -201,6 +201,9 @@ func readSubscriptionClaim(tx *sql.Tx, jobID string, limits SubscriptionLimits) 
 	if err != nil {
 		return nil, err
 	}
+	// Deadline is derived from the current policy, not stored history. A budget
+	// raise cannot cross unresolved work. Finished replays may therefore expose
+	// a different derived deadline, but fresh=false never authorizes execution.
 	c.Deadline = c.StartedAt + int64(limits.JobSeconds)
 	if c.State == "finished" {
 		r, err := readSubscriptionResult(result, limits.JobTokens)

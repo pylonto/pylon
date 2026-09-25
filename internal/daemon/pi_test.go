@@ -108,6 +108,59 @@ func TestPiDispatcherFreshClaimExactlyOnceAndNoLegacyRoutes(t *testing.T) {
 	require.EqualValues(t, 120, status.TokensToday)
 }
 
+func TestPiCalibrationPolicyReachesAdmissionDeadlineAndNeverReexecutesCompletedReplay(t *testing.T) {
+	d, st, pyl := piDaemon(t)
+	old := pyl.Agent.Pi.Limits
+	desired := store.SubscriptionLimits{DailyJobs: 10, DailyTokens: 100000000, JobTokens: 20000000, JobSeconds: 1800}
+	require.NoError(t, st.ConfigureSubscription(old, time.Now()))
+	require.NoError(t, st.PauseSubscription("operator", time.Now()))
+	require.NoError(t, st.RaiseSubscriptionBudget(old, desired, time.Now()))
+	pyl.Agent.Pi.Limits, pyl.Agent.Pi.Thinking = desired, config.PiThinkingMedium
+	require.NoError(t, pyl.ValidatePi())
+	require.NoError(t, st.PauseSubscription("", time.Now())) // Synthetic Store only.
+	var calls atomic.Int32
+	params := make(chan runner.PiParams, 1)
+	d.RunPi = func(_ context.Context, p runner.PiParams) runner.PiOutcome {
+		calls.Add(1)
+		params <- p
+		return runner.PiOutcome{Result: store.SubscriptionResult{Outcome: "executor_returned", Usage: &store.SubscriptionUsage{Input: 750}}}
+	}
+	raw := piBriefBytes(t, strings.Repeat("a", 40))
+	job := piDeliver(t, d, strings.Repeat("c", 64), raw)
+	d.drainDeliveries()
+	d.WaitPiJobs()
+	p := <-params
+	hash := sha256.Sum256(raw)
+	completed, fresh, err := st.ClaimSubscription(job, hex.EncodeToString(hash[:]), desired, time.Now())
+	require.NoError(t, err)
+	require.False(t, fresh)
+	require.Equal(t, time.Unix(completed.StartedAt+1800, 0), p.Deadline)
+	require.Equal(t, desired, p.Config.Limits)
+	require.Equal(t, config.PiThinkingMedium, p.Config.WorkerThinking())
+	// A subsequent explicit time increase changes only the derived replay view,
+	// never persisted historical identity/usage or the fresh-execution fence.
+	raised := desired
+	raised.JobSeconds++
+	require.NoError(t, st.PauseSubscription("operator", time.Now()))
+	require.NoError(t, st.RaiseSubscriptionBudget(desired, raised, time.Now()))
+	pyl.Agent.Pi.Limits = raised
+	replay, fresh, err := st.ClaimSubscription(job, hex.EncodeToString(hash[:]), raised, time.Now())
+	require.NoError(t, err)
+	require.False(t, fresh)
+	require.Equal(t, completed.StartedAt+1801, replay.Deadline)
+	completed.Deadline = replay.Deadline
+	require.Equal(t, completed, replay)
+	require.False(t, d.startPiDelivery(context.Background(), pyl, store.Delivery{JobID: job, Body: raw}))
+	d.WaitPiJobs()
+	require.EqualValues(t, 1, calls.Load())
+	status, err := st.SubscriptionStatus(time.Now())
+	require.NoError(t, err)
+	require.Equal(t, 1, status.Records)
+	require.EqualValues(t, 750, status.TokensToday)
+	require.Equal(t, "operator", status.Paused)
+	require.Zero(t, status.Unresolved)
+}
+
 func TestPiDispatcherUnknownUsagePauseAndRestartCannotReplay(t *testing.T) {
 	d, st, pyl := piDaemon(t)
 	var calls atomic.Int32

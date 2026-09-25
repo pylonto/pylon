@@ -8,7 +8,7 @@ export function requireThinking(value) {
 }
 // Complete logical UTF-8 JSON, before compression. This finite trial budget is
 // owned separately from tool/RPC caps; it does not guarantee full model context.
-export const MAX_REQUEST_BYTES = 262144;
+export const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const RESPONSE_BYTES = 16 * 1024 * 1024;
 const LINE_BYTES = 2 * 1024 * 1024;
 export const zeroUsage = () => ({ input: 0, output: 0, cache_read: 0, cache_write: 0 });

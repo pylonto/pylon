@@ -15,6 +15,7 @@ import (
 )
 
 const MaxPiToolBytes = 256 * 1024
+const MaxPiToolCalls = 256
 
 // PiJob is supplied only by the executor over its private Unix socket. The
 // signed brief is unchanged; these fields describe execution, not patch policy.
@@ -128,7 +129,7 @@ func (p *Pi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/tool":
 		p.toolMu.Lock()
 		defer p.toolMu.Unlock()
-		if p.Result() != nil || p.calls >= 64 {
+		if p.Result() != nil || p.calls >= MaxPiToolCalls {
 			http.Error(w, "pi_tool_admission_refused", http.StatusConflict)
 			return
 		}
