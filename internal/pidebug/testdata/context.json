@@ -1,0 +1,18 @@
+[
+  {
+    "name": "maintenance-repair",
+    "repo": "/srv/fixture",
+    "auth": "/srv/role/.pylon/pi-auth",
+    "evidence": "/srv/role/.pylon/pi-patches",
+    "encoded": "[\"maintenance-repair\",\"/srv/fixture\",\"/srv/role/.pylon/pi-auth\",\"/srv/role/.pylon/pi-patches\"]",
+    "sha256": "c38bcd1e07d1902c09920f267470370b7d1a923d69d4a904e218b58caa6d4338"
+  },
+  {
+    "name": "fixture",
+    "repo": "/srv/old/../café/<repair>",
+    "auth": "/srv/role&A/.pylon/pi-auth",
+    "evidence": "/srv/role&A/.pylon/pi-patches",
+    "encoded": "[\"fixture\",\"/srv/café/\\u003crepair\\u003e\",\"/srv/role\\u0026A/.pylon/pi-auth\",\"/srv/role\\u0026A/.pylon/pi-patches\"]",
+    "sha256": "d593aacae7da499225a0a0531c3a8f52ef8d57f430bbf557b3335cb8defbb1e9"
+  }
+]

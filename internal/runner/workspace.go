@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -165,18 +166,41 @@ func repoHash(repo string) string {
 	return hex.EncodeToString(h[:8])
 }
 
-// CloneRepo performs a shallow git clone of a repo at a specific ref.
+var gitObjectID = regexp.MustCompile(`^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$`)
+
+// CloneRepo stages a clone and only exposes a complete workspace. A full object ID is
+// checked out detached; --branch accepts branch/tag names, not an evidence revision.
 // HTTPS GitHub/GitLab URLs are auto-converted to SSH to avoid interactive auth prompts.
 func CloneRepo(ctx context.Context, repo, ref, dest string) error {
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		return fmt.Errorf("clone destination already exists or cannot be inspected")
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return err
+	}
+	staged, err := os.MkdirTemp(filepath.Dir(dest), ".clone-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staged)
 	repo = ToSSHURL(repo)
-	os.MkdirAll(filepath.Dir(dest), 0755)
-	cmd := exec.CommandContext(ctx, "git", "clone", "--branch", ref, repo, dest)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	args := []string{"clone", "--branch", ref, "--", repo, staged}
+	if gitObjectID.MatchString(ref) {
+		args = []string{"clone", "--no-checkout", "--", repo, staged}
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git clone failed: %w", err)
 	}
-	return nil
+	if gitObjectID.MatchString(ref) {
+		cmd = exec.CommandContext(ctx, "git", "-C", staged, "checkout", "--detach", ref, "--")
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("exact revision unavailable: %w", err)
+		}
+	}
+	return os.Rename(staged, dest)
 }
 
 // WorkDir returns the workspace directory for a job.

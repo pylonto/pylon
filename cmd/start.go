@@ -197,6 +197,9 @@ func runDaemonForeground(global *config.GlobalConfig, filter []string) error {
 			log.Printf("[pylon] skipping %q: disabled", name)
 			continue
 		}
+		if pyl.ResolveAgentType(global) == "pi" {
+			return errors.New("pi requires pi-worker serve --home PRIVATE_ROLE; ordinary daemon startup refused")
+		}
 		pylons[name] = pyl
 	}
 
@@ -291,6 +294,7 @@ func runDaemonForeground(global *config.GlobalConfig, filter []string) error {
 
 	// Start cron scheduler for time-based triggers
 	go d.CronScheduler(ctx)
+	go d.RunDeliveryQueue(ctx)
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)

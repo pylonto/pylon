@@ -189,9 +189,9 @@ func TestVerifySignature(t *testing.T) {
 		assert.True(t, verifySignature(trigger, header, body))
 	})
 
-	t.Run("empty signature header name bypasses check", func(t *testing.T) {
+	t.Run("configured secret without a header fails closed", func(t *testing.T) {
 		trigger := config.TriggerConfig{Secret: secret, SignatureHeader: ""}
-		assert.True(t, verifySignature(trigger, http.Header{}, body))
+		assert.False(t, verifySignature(trigger, http.Header{}, body))
 	})
 
 	t.Run("missing header value", func(t *testing.T) {

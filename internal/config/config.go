@@ -98,7 +98,7 @@ var validChannelTypes = map[string]bool{
 }
 
 var validAgentTypes = map[string]bool{
-	"claude": true, "opencode": true, "": true,
+	"claude": true, "opencode": true, "pi": true, "": true,
 }
 
 // envUnset returns an error message if value looks like a ${VAR} reference
@@ -182,6 +182,9 @@ func (c *GlobalConfig) Validate() error {
 	}
 	if err := validateChannelConfig(c.Defaults.Channel.Type, c.Defaults.Channel.Telegram, c.Defaults.Channel.Slack, path, nil, EnvPath()); err != nil {
 		return err
+	}
+	if c.Defaults.Agent.Type == "pi" {
+		return errors.New("pi_requires_explicit_per_pylon_configuration")
 	}
 	if !validAgentTypes[c.Defaults.Agent.Type] {
 		return fmt.Errorf("unsupported agent type %q (supported: claude, opencode) -- update %s", c.Defaults.Agent.Type, path)

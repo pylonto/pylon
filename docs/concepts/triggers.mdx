@@ -48,11 +48,9 @@ Store secrets in `~/.pylon/.env` or `~/.pylon/pylons/<name>/.env` and reference 
 3. Hex-encode the digest as a lowercase string.
 4. Compare that string to the value of the header named by `signature_header`, using a constant-time comparison.
 
-Pylon expects the signature header value to be a **bare lowercase hex digest** with no prefix or scheme. If the sender wraps the digest (for example, GitHub's `sha256=<hex>` format), Pylon does not strip the prefix and the comparison will fail.
+Pylon accepts a **bare lowercase hex digest**, or GitHub's `sha256=<hex>` format when the configured header is `X-Hub-Signature-256`. A configured secret without a signature header, or a secret that expands to an empty value, fails closed.
 
-<Warning>
-If you leave `signature_header` empty, Pylon skips verification entirely even when `secret` is set. Always set both fields together.
-</Warning>
+For [durable deliveries](/running/durable-deliveries), include `Idempotency-Key` and sign `key + "\n" + body` instead. The receiver persists keyed work before acknowledging it and retains it when agents are busy. Bodies are limited to 64 KiB.
 
 #### Provider compatibility
 
@@ -60,10 +58,10 @@ If you leave `signature_header` empty, Pylon skips verification entirely even wh
 |---|---|---|---|
 | Sentry | `Sentry-Hook-Signature` | bare hex | Yes |
 | Slack (request signing v0) | `X-Slack-Signature` | `v0=<hex>` | No -- Slack prefixes the digest and also requires a timestamped payload |
-| GitHub | `X-Hub-Signature-256` | `sha256=<hex>` | No -- GitHub prefixes the digest |
+| GitHub | `X-Hub-Signature-256` | `sha256=<hex>` | Yes |
 | Custom sender | any | bare hex | Yes, when you control the sender |
 
-For providers whose format does not match (GitHub, Slack), put an intermediary (nginx, Caddy, a tiny Go/Node shim) in front of Pylon to validate the native signature first and forward the request without the verification headers. Or skip signature verification at the Pylon layer and rely on network-level isolation.
+For Slack, validate its native timestamped signature in a trusted intermediary. Keep Pylon private behind it; do not disable verification on a publicly reachable receiver.
 
 #### Generating a signature by hand
 
