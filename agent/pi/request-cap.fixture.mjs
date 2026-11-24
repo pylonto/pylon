@@ -13,11 +13,16 @@ const plans = {
   tiny: [[read("AGENTS.md", { limit: 1 })]],
   full: [[read("AGENTS.md")], [read("docs/PROJECT_STATE.md")], [read("crates/ciao-host/src/codex_history.rs")]],
   chunks: [1, 21, 41].map((offset) => [read("docs/PROJECT_STATE.md", { offset, limit: 20 })]),
-  // Six DISTINCT legal, untruncated tool results. No repository mutation. Two
-  // results per turn fit the RPC ceiling individually but overflow the complete
-  // fourth request. This is a finite-budget rejection, not a tool-size failure.
+  // Six distinct legal results cross the OLD 256 KiB aggregate ceiling.
+  // They now fit without any tool-size change, truncation or compaction.
   aggregate: [0, 2, 4].map((start) => [start, start + 1].map((n) => ({ name: "bash", arguments: {
     command: `node -e 'process.stdout.write("fixture-${n}:" + "x".repeat(48000))'`, timeout: 5,
+  } }))),
+  // Escaped control text is 32 KiB at the SDK tool and about 192 KiB encoded:
+  // each result stays below the unchanged RPC cap; 44 accumulated results
+  // exceed 8 MiB before HTTP 23. No repository mutation or larger tool bound.
+  over: Array.from({ length: 22 }, (_, turn) => [turn * 2, turn * 2 + 1].map((n) => ({ name: "bash", arguments: {
+    command: `node -e 'process.stdout.write("fixture-${n}:" + "\\u0001".repeat(32000))'`, timeout: 5,
   } }))),
 };
 export async function createRequestCapFixture(name, thinking, credential) {
@@ -29,7 +34,7 @@ export async function createRequestCapFixture(name, thinking, credential) {
   let requests = 0, issued = 0, unexpected = 0, stop = "", deltaBytes = 0;
   let sseBytes = 0, sseLine = 0;
   const fetch = async (url, options) => {
-    if (String(url) !== "https://chatgpt.com/backend-api/codex/responses" || options.method !== "POST" || requests >= 4) {
+    if (String(url) !== "https://chatgpt.com/backend-api/codex/responses" || options.method !== "POST" || requests >= plan.length + 1) {
       unexpected++; throw new Error("request_cap_fixture_failed");
     }
     const raw = new Headers(options.headers).get("content-encoding") === "zstd" ?
@@ -60,7 +65,7 @@ export async function createRequestCapFixture(name, thinking, credential) {
   Object.defineProperty(globalThis, "fetch", { configurable: true, get: () => fetch, set: () => {} });
   return { mode: "session", credentials, fetch,
     observePayload(body, model, meter) {
-      demand(payloads.length < 4);
+      demand(payloads.length < plan.length + 1);
       const nonSize = model.provider === PROVIDER && model.id === MODEL && body.model === MODEL &&
         body.reasoning?.effort === thinking && body.store === false && body.stream === true && !body.background && !body.previous_response_id;
       demand(nonSize);
@@ -87,12 +92,13 @@ export async function createRequestCapFixture(name, thinking, credential) {
       const text = m.content.map((x) => x.text).join("\n"), jsonBytes = bytes({ content: m.content });
       demand(text.length > 0 && jsonBytes < 262144);
       if (name === "aggregate") demand(text === `fixture-${results.length}:` + "x".repeat(48000));
+      if (name === "over") demand(text === `fixture-${results.length}:` + "\u0001".repeat(32000));
       results.push({ text, json_bytes: jsonBytes, text_bytes: Buffer.byteLength(text), sha256: digest(text) });
     },
     assertComplete(meter) {
-      const over = name === "aggregate", expectedRequests = over ? 3 : plan.length + 1;
-      demand(MAX_REQUEST_BYTES === 262144 && unexpected === 0 && issued === scheduled.length && results.length === scheduled.length);
-      demand(requests === expectedRequests && meter.requests === requests && meter.reserved === requests * 400000 && meter.tokens === 1600000);
+      const over = name === "over", expectedRequests = over ? 22 : plan.length + 1;
+      demand(MAX_REQUEST_BYTES === 8388608 && unexpected === 0 && issued === scheduled.length && results.length === scheduled.length);
+      demand(requests === expectedRequests && meter.requests === requests && meter.reserved === requests * 400000 && meter.tokens === (over ? 20000000 : 1600000));
       demand(payloads.length === plan.length + 1 && payloads.length > 1 && new Set(results.map((r) => r.sha256)).size === results.length);
       for (let i = 0; i < payloads.length; i++) {
         const row = payloads[i], expectedResults = plan.slice(0, i).flat().length;
@@ -100,13 +106,14 @@ export async function createRequestCapFixture(name, thinking, credential) {
         demand(row.usage_before.input === i * 8 && row.usage_before.output === i * 5 && row.usage_before.cache_read === i * 2 && row.usage_before.cache_write === 0);
         demand(row.http === (i < expectedRequests));
         demand(i === 0 || row.json_bytes > payloads[i - 1].json_bytes);
-        demand((row.json_bytes > 262144) === (over && i === payloads.length - 1));
+        demand((row.json_bytes > 8388608) === (over && i === payloads.length - 1));
       }
       demand(stop === (over ? "error" : "stop") && meter.failure === (over ? "output_bound" : "") && meter.pause === "" && !meter.pending);
       const u = meter.result(); demand(u.input === requests * 8 && u.output === requests * 5 && u.cache_read === requests * 2 && u.cache_write === 0);
       demand(deltaBytes > 0 && deltaBytes < 2097152 && sseBytes > 0 && sseBytes < 16777216 && sseLine > 0 && sseLine < 2097152);
       if (name === "tiny" || name === "chunks") demand(payloads.at(-1).json_bytes < 65536);
       if (name === "full") demand(payloads.at(-1).json_bytes > 65536);
+      if (name === "aggregate") demand(payloads.at(-1).json_bytes > 262144);
       return { case: name, thinking, assertions_passed: true, requests, tools: results.length, payloads,
         tool_results: results.map(({ text: _text, ...metadata }) => metadata), reserved: meter.reserved, usage: u,
         max_sse_bytes: sseBytes, max_sse_line_utf16: sseLine, content_delta_bytes: deltaBytes, failure: meter.failure };

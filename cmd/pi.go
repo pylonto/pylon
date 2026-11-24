@@ -26,6 +26,8 @@ func init() {
 	command.Flags().String("job", "", "Exact job UUID for private offline inspection")
 	command.Flags().Int("expect-daily-jobs", 0, "Expected old daily job limit (budget only)")
 	command.Flags().Int64("expect-daily-tokens", 0, "Expected old daily token limit (budget only)")
+	command.Flags().Int64("expect-job-tokens", 0, "Expected old per-job token limit (budget only; requires expect-job-seconds)")
+	command.Flags().Int("expect-job-seconds", 0, "Expected old per-job time limit (budget only; requires expect-job-tokens)")
 	rootCmd.AddCommand(command)
 }
 
@@ -59,7 +61,9 @@ func runPiWorker(command *cobra.Command, args []string) error {
 		return errors.New("pi_operation_invalid")
 	}
 	hasJobs, hasTokens := command.Flags().Changed("expect-daily-jobs"), command.Flags().Changed("expect-daily-tokens")
-	if (args[0] == "budget" && (!hasJobs || !hasTokens)) || (args[0] != "budget" && (hasJobs || hasTokens)) {
+	hasJobTokens, hasJobSeconds := command.Flags().Changed("expect-job-tokens"), command.Flags().Changed("expect-job-seconds")
+	if (args[0] == "budget" && (!hasJobs || !hasTokens || hasJobTokens != hasJobSeconds)) ||
+		(args[0] != "budget" && (hasJobs || hasTokens || hasJobTokens || hasJobSeconds)) {
 		return errors.New("pi_budget_expected_limits_required")
 	}
 	if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`).MatchString(args[1]) {
@@ -99,6 +103,12 @@ func runPiWorker(command *cobra.Command, args []string) error {
 		expected := pyl.Agent.Pi.Limits
 		expected.DailyJobs, _ = command.Flags().GetInt("expect-daily-jobs")
 		expected.DailyTokens, _ = command.Flags().GetInt64("expect-daily-tokens")
+		// Without BOTH explicit flags, retain daily-only authority: per-job
+		// config must still match the stored policy in the full expected-old CAS.
+		if hasJobTokens {
+			expected.JobTokens, _ = command.Flags().GetInt64("expect-job-tokens")
+			expected.JobSeconds, _ = command.Flags().GetInt("expect-job-seconds")
+		}
 		err = st.RaiseSubscriptionBudget(expected, pyl.Agent.Pi.Limits, time.Now())
 	} else {
 		err = st.ConfigureSubscription(pyl.Agent.Pi.Limits, time.Now())

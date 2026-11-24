@@ -131,7 +131,7 @@ test("actual adapter enforces the payload ceiling before HTTP", async () => {
   } finally { session.dispose(); }
 });
 
-for (const thinking of ["medium", "max"]) for (const name of ["tiny", "full", "chunks", "aggregate"]) {
+for (const thinking of ["medium", "max"]) for (const name of ["tiny", "full", "chunks", "aggregate", "over"]) {
   test(`actual session aggregate context ${name} ${thinking}`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cap-sdk-"));
     let session;
@@ -143,7 +143,7 @@ for (const thinking of ["medium", "max"]) for (const name of ["tiny", "full", "c
         await writeFile(full, Array.from({ length: 1200 }, (_, n) => `fixture-${index}-${n}: ${"x".repeat(70)}\n`).join(""));
       }
       const fixture = await createRequestCapFixture(name, thinking, syntheticCredential());
-      const setupResult = await setup(fixture.fetch, 1600000, thinking, createCodingTools(cwd));
+      const setupResult = await setup(fixture.fetch, name === "over" ? 20000000 : 1600000, thinking, createCodingTools(cwd));
       ({ session } = setupResult);
       const { meter } = setupResult, payload = meter.payload;
       meter.payload = (body, model) => { fixture.observePayload(body, model, meter); return payload(body, model); };
@@ -155,11 +155,60 @@ for (const thinking of ["medium", "max"]) for (const name of ["tiny", "full", "c
       // Stream auth resolution precedes adapter onPayload. Aggregate refusal is
       // pre-HTTP/reservation, not pre-auth; install/stream identity fences differ.
       assert.equal(setupResult.streamAuthResolutions, measured.payloads.length);
-      assert.equal(measured.requests, name === "aggregate" ? 3 : name === "tiny" ? 2 : 4);
+      assert.equal(measured.requests, name === "over" ? 22 : name === "tiny" ? 2 : 4);
       console.log("CAP_MEASUREMENT " + JSON.stringify({ ...measured, stream_auth_resolutions: setupResult.streamAuthResolutions }));
     } finally { session?.dispose(); await rm(cwd, { recursive: true, force: true }); }
   });
 }
+
+for (const thinking of ["medium", "max"]) test(`actual session permits 50 tiny-usage responses, never a 51st fetch ${thinking}`, async () => {
+  let calls = 0;
+  const current = await setup(async () => {
+    calls++;
+    return new Response(`data: ${JSON.stringify(terminal)}\n\n`, { headers: { "content-type": "text/event-stream" } });
+  }, 20000000, thinking);
+  const { session, meter } = current;
+  try {
+    for (let n = 1; n <= 50; n++) {
+      await session.prompt(`Synthetic calibration response ${n}.`, { expandPromptTemplates: false });
+      await meter.settle();
+      assert.equal(meter.failure, "");
+      assert.equal(session.messages.at(-1).stopReason, "stop");
+      assert.equal(calls, n);
+      assert.equal(meter.reserved, n * 400000);
+    }
+    const before = structuredClone(meter.result());
+    assert.deepEqual(before, { input: 400, output: 250, cache_read: 100, cache_write: 0 });
+    await session.prompt("The 51st attempt must refuse before HTTP/reservation.", { expandPromptTemplates: false });
+    await meter.settle();
+    assert.equal(calls, 50);
+    assert.equal(meter.requests, 50);
+    assert.equal(meter.reserved, 20000000);
+    assert.equal(meter.failure, "request_budget_exhausted");
+    assert.equal(meter.pending, false);
+    assert.deepEqual(meter.result(), before);
+    assert.equal(current.streamAuthResolutions, 51, "the fetch fence does not move ahead of auth resolution");
+  } finally { session.dispose(); }
+});
+
+test("SDK stream receives the 1800-second timeout without a shorter request ceiling", async () => {
+  const { session, meter, runtime } = await setup(async () => {
+    return new Response(`data: ${JSON.stringify(terminal)}\n\n`, { headers: { "content-type": "text/event-stream" } });
+  }, 20000000, "medium");
+  const controller = new AbortController(), timeouts = [], timeout = AbortSignal.timeout;
+  // Observe the actual pinned SSE adapter's normalized header timeout without
+  // waiting 30 minutes. This is a test-only timer observation, not fake streaming.
+  AbortSignal.timeout = (ms) => { timeouts.push(ms); return timeout(ms); };
+  try {
+    installPiStream(session, { runtime, meter, auth: async () => synthetic, signal: controller.signal, timeoutMs: 1800000 });
+    await session.prompt("Synthetic deadline propagation.", { expandPromptTemplates: false });
+    await meter.settle();
+    assert.ok(timeouts.includes(1800000), "actual adapter must not clamp to a shorter timeout");
+    assert.equal(meter.requests, 1);
+    assert.equal(meter.failure, "");
+    assert.equal(session.messages.at(-1).stopReason, "stop");
+  } finally { AbortSignal.timeout = timeout; controller.abort(); session.dispose(); }
+});
 
 test("actual adapter cannot retry HTTP quota or missing usage", async () => {
   for (const status of [429, 200]) {

@@ -59,16 +59,24 @@ func TestPiProxyUsageAndIdentityDoNotComeFromTools(t *testing.T) {
 	valid.Failure = "usage_unknown"
 	require.True(t, validPiResult(valid, job, 0), "unknown usage is an explicit receipt, not zero")
 }
-func TestPiProxyRefusesCall65AndCancelledRole(t *testing.T) {
+func TestPiProxyRefusesCall257AndCancelledRole(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	calls := 0
 	p := NewPi(ctx, PiJob{Thinking: "max"}, func(context.Context, []byte) ([]byte, error) { calls++; return []byte(`{}`), nil }, nil)
-	for range 64 {
+	for range 256 {
 		require.Equal(t, 200, piRequest(p, "/tool", `{"name":"bash","args":{}}`).Code)
 	}
-	require.Equal(t, 409, piRequest(p, "/tool", `{"name":"bash","args":{}}`).Code)
-	require.Equal(t, 64, calls)
+	// Refuse before tool execution; the proxy is the sole admission counter.
+	for range 2 {
+		require.Equal(t, 409, piRequest(p, "/tool", `{"name":"bash","args":{}}`).Code)
+	}
+	require.Equal(t, 256, calls)
+	require.Equal(t, 256, p.calls)
+	result := PiResult{Outcome: "executor_returned", Usage: &store.SubscriptionUsage{}, Tools: 256, Provider: "openai-codex", Model: "gpt-6-astra", Thinking: "max"}
+	raw, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.Equal(t, 200, piRequest(p, "/result", string(raw)).Code)
 	cancel()
 	require.Equal(t, 410, piRequest(p, "/result", `{}`).Code)
 }

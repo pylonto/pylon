@@ -19,11 +19,14 @@ import (
 
 func TestPiBudgetUsesConfiguredCapsAndRetainsActualLedgerUsage(t *testing.T) {
 	for _, thinking := range []config.PiThinking{"", config.PiThinkingMedium, config.PiThinkingMax} {
-		t.Run("thinking_"+string(thinking), func(t *testing.T) { piBudgetConfiguredThinking(t, thinking) })
+		t.Run("thinking_"+string(thinking), func(t *testing.T) {
+			t.Run("daily_only", func(t *testing.T) { piBudgetConfiguredThinking(t, thinking, false) })
+			t.Run("explicit_per_job", func(t *testing.T) { piBudgetConfiguredThinking(t, thinking, true) })
+		})
 	}
 }
 
-func piBudgetConfiguredThinking(t *testing.T, thinking config.PiThinking) {
+func piBudgetConfiguredThinking(t *testing.T, thinking config.PiThinking, perJob bool) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -53,11 +56,16 @@ func piBudgetConfiguredThinking(t *testing.T, thinking config.PiThinking) {
 	require.NoError(t, s.PauseSubscription("operator", now))
 	require.NoError(t, s.Close())
 	p.Agent.Pi.Limits.DailyJobs, p.Agent.Pi.Limits.DailyTokens = 2, 1603660
+	if perJob {
+		p.Agent.Pi.Limits = store.SubscriptionLimits{DailyJobs: 10, DailyTokens: 100000000, JobTokens: 20000000, JobSeconds: 1800}
+	}
 	require.NoError(t, config.SavePylon(p))
 	command := &cobra.Command{}
 	command.Flags().String("home", home, "")
 	command.Flags().Int("expect-daily-jobs", 0, "")
 	command.Flags().Int64("expect-daily-tokens", 0, "")
+	command.Flags().Int64("expect-job-tokens", 0, "")
+	command.Flags().Int("expect-job-seconds", 0, "")
 	var output bytes.Buffer
 	command.SetOut(&output)
 	require.ErrorIs(t, runPiWorker(command, []string{"status", p.Name}), store.ErrSubscriptionConflict)
@@ -67,6 +75,29 @@ func piBudgetConfiguredThinking(t *testing.T, thinking config.PiThinking) {
 	require.NoError(t, command.Flags().Set("expect-daily-tokens", "1600000"))
 	require.ErrorContains(t, runPiWorker(command, []string{"resume", p.Name}), "expected_limits_required")
 	require.Empty(t, output.String())
+	if perJob {
+		// A time-only change keeps expected.Validate valid. Full CAS must
+		// still refuse it without explicit expected-old per-job authority.
+		reviewed := p.Agent.Pi.Limits
+		p.Agent.Pi.Limits.JobTokens = old.JobTokens
+		require.NoError(t, config.SavePylon(p))
+		require.ErrorIs(t, runPiWorker(command, []string{"budget", p.Name}), store.ErrSubscriptionConflict)
+		p.Agent.Pi.Limits = reviewed
+		require.NoError(t, config.SavePylon(p))
+		// Daily-only authority cannot adopt the larger per-job config. Its
+		// expected-old daily tokens are below the copied new job reservation,
+		// so validation refuses even before the complete stored-policy CAS.
+		require.ErrorIs(t, runPiWorker(command, []string{"budget", p.Name}), store.ErrSubscriptionInvalid)
+		require.NoError(t, command.Flags().Set("expect-job-tokens", "1600000"))
+		require.ErrorContains(t, runPiWorker(command, []string{"budget", p.Name}), "expected_limits_required")
+		require.NoError(t, command.Flags().Set("expect-job-seconds", "299"))
+		require.ErrorIs(t, runPiWorker(command, []string{"budget", p.Name}), store.ErrSubscriptionConflict)
+		require.NoError(t, command.Flags().Set("expect-job-seconds", "300"))
+		require.NoError(t, command.Flags().Set("expect-job-tokens", "1599999"))
+		require.ErrorIs(t, runPiWorker(command, []string{"budget", p.Name}), store.ErrSubscriptionConflict)
+		require.NoError(t, command.Flags().Set("expect-job-tokens", "1600000"))
+		require.Empty(t, output.String())
+	}
 	require.NoError(t, runPiWorker(command, []string{"budget", p.Name}))
 	var status store.SubscriptionStatus
 	require.NoError(t, json.Unmarshal(output.Bytes(), &status))
@@ -79,4 +110,22 @@ func piBudgetConfiguredThinking(t *testing.T, thinking config.PiThinking) {
 	require.ErrorIs(t, runPiWorker(command, []string{"budget", p.Name}), store.ErrSubscriptionConflict)
 	_, err = os.Stat(p.Agent.Pi.AuthDir)
 	require.True(t, os.IsNotExist(err), "budget must not create OAuth storage")
+}
+
+func TestPiBudgetExpectedJobFlagsAreExplicitAndBudgetOnly(t *testing.T) {
+	registered, _, err := rootCmd.Find([]string{"pi-worker"})
+	require.NoError(t, err)
+	for _, flag := range []string{"expect-job-tokens", "expect-job-seconds"} {
+		require.NotNil(t, registered.Flags().Lookup(flag), "real CLI must register the expected-old flag")
+		for _, op := range []string{"status", "pause", "resume", "serve", "inspect", "budget"} {
+			t.Run(flag+"_"+op, func(t *testing.T) {
+				command := &cobra.Command{}
+				command.Flags().String("home", "/nonexistent-no-role-or-auth", "")
+				command.Flags().Int64("expect-job-tokens", 0, "")
+				command.Flags().Int("expect-job-seconds", 0, "")
+				require.NoError(t, command.Flags().Set(flag, "300"))
+				require.ErrorContains(t, runPiWorker(command, []string{op, "repair"}), "expected_limits_required")
+			})
+		}
+	}
 }
